@@ -11,7 +11,7 @@ export function CampaignLayoutEngine({ blocks }: Props) {
   const visibleBlocks = blocks.sort((a, b) => a.priority - b.priority);
 
   return (
-    <main className="relative overflow-x-hidden flex flex-col min-h-screen w-full px-1 2xl:px-16 pb-36">
+    <main className="relative overflow-x-visible flex flex-col min-h-screen w-full px-1 2xl:px-16 pb-36">
       {visibleBlocks.map((block) => {
         switch (block.type) {
           case "HeroPrimaryBlock":

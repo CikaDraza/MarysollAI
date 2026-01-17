@@ -18,11 +18,11 @@ export default function Header() {
           <Link href="/" className="-m-1.5 p-1.5">
             <span className="sr-only">Your Company</span>
             <Image
-              src={"/MarysollAI_Logo.png"}
+              src={"/Logo_Marysoll_assistent_website.png"}
               alt="MarysollAI Logo"
-              width={300}
-              height={300}
-              className="h-26 w-auto"
+              width={130}
+              height={27}
+              className="h-auto w-auto"
             />
           </Link>
         </div>
@@ -36,7 +36,6 @@ export default function Header() {
             <Bars3Icon aria-hidden="true" className="size-6" />
           </button>
         </div>
-        <div className="hidden lg:flex lg:gap-x-12">{"navigation"}</div>
         <div className="hidden lg:flex lg:flex-1 lg:justify-end">
           <div>{"LoggedIn"}</div>
         </div>
@@ -52,10 +51,10 @@ export default function Header() {
             <Link href="/" className="-m-1.5 p-1.5">
               <span className="sr-only">Your Company</span>
               <Image
-                src={"/MarysollAI_Logo.png"}
+                src={"/Logo_Marysoll_assistent_website.png"}
                 alt="MarysollAI Logo"
-                width={300}
-                height={300}
+                width={130}
+                height={27}
               />
             </Link>
             <button
@@ -69,7 +68,6 @@ export default function Header() {
           </div>
           <div className="mt-6 flow-root">
             <div className="-my-6 divide-y divide-gray-500/10">
-              <div className="space-y-2 py-6">{"Navigation"}</div>
               <div className="py-6">{"LoggedIn User"}</div>
             </div>
           </div>
