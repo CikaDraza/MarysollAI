@@ -1,6 +1,21 @@
 // src/lib/ai/schemas.ts
 import { Schema, SchemaType } from "@google/generative-ai";
 
+const blockEnum = [
+  "AuthBlock",
+  "LoginBlock",
+  "RegisterBlock",
+  "ResetPasswordBlock",
+  "ForgotPasswordBlock",
+  "AppointmentBlock",
+  "AppointmentCalendarBlock",
+  "ServicesBlock",
+  "ServicePriceBlock",
+  "TestimonialBlock",
+  "NewsletterFormBlock",
+  "WhyChooseUsBlock",
+];
+
 export const layoutSuggestionSchema: Schema = {
   type: SchemaType.OBJECT,
   properties: {
@@ -17,20 +32,17 @@ export const layoutSuggestionSchema: Schema = {
         properties: {
           type: {
             type: SchemaType.STRING,
-            enum: [
-              "LoginBlock",
-              "RegisterBlock",
-              "AppointmentBlock",
-              "AppointmentCalendarBlock",
-              "ServicesBlock",
-              "ServicePriceBlock",
-              "TestimonialBlock",
-              "NewsletterFormBlock",
-              "WhyChooseUsBlock",
-            ],
+            enum: blockEnum,
             format: "enum",
           },
           priority: { type: SchemaType.NUMBER },
+          metadata: {
+            type: SchemaType.OBJECT,
+            properties: {
+              preselectedServiceId: { type: SchemaType.STRING },
+              preselectedDate: { type: SchemaType.STRING },
+            },
+          },
         },
         required: ["type", "priority"],
       },
@@ -50,7 +62,7 @@ export const conversationSchema: Schema = {
           content: { type: SchemaType.STRING },
           attachToBlockType: {
             type: SchemaType.STRING,
-            enum: ["general", "AppointmentBlock", "ServicePriceBlock"],
+            enum: blockEnum,
             format: "enum",
           },
         },

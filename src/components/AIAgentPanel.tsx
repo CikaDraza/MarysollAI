@@ -24,8 +24,8 @@ export function AIAgentPanel({ onSubmit, isLoading }: Props) {
   };
 
   return (
-    <div className="fixed bottom-0 left-0 w-full">
-      <div className="bg-white/30 backdrop-blur-7xl">
+    <div className="fixed bottom-0 left-0 w-full z-50">
+      <div className="bg-white/5 backdrop-blur-3xl">
         <div className="mx-auto py-6 sm:px-6">
           <div className="relative isolate overflow-hidden bg-purple-50/50 backdrop-blur-lg px-6 py-2.5 shadow-2xl sm:rounded-xl lg:flex lg:gap-x-20">
             <div

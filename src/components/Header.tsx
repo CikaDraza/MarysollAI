@@ -1,11 +1,15 @@
 "use client";
 import { useState } from "react";
-import { Dialog, DialogPanel } from "@headlessui/react";
+import { Button, Dialog, DialogPanel } from "@headlessui/react";
 import { Bars3Icon, XMarkIcon } from "@heroicons/react/24/outline";
 import Image from "next/image";
 import Link from "next/link";
+import LoggedButton from "./LoggedButton";
+import { useAuthActions } from "@/hooks/useAuthActions";
+import { Reveal } from "./motion/Reveal";
 
 export default function Header() {
+  const { user, logout } = useAuthActions();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   return (
@@ -36,8 +40,16 @@ export default function Header() {
             <Bars3Icon aria-hidden="true" className="size-6" />
           </button>
         </div>
-        <div className="hidden lg:flex lg:flex-1 lg:justify-end">
-          <div>{"LoggedIn"}</div>
+        <div className="hidden lg:flex">
+          {user ? (
+            <Reveal>
+              <LoggedButton user={user} logout={logout} />
+            </Reveal>
+          ) : (
+            <Button className="cursor-pointer hidden lg:block text-sm font-semibold text-gray-900">
+              Prijavi se <span aria-hidden="true">&rarr;</span>
+            </Button>
+          )}
         </div>
       </nav>
       <Dialog
@@ -67,8 +79,27 @@ export default function Header() {
             </button>
           </div>
           <div className="mt-6 flow-root">
-            <div className="-my-6 divide-y divide-gray-500/10">
-              <div className="py-6">{"LoggedIn User"}</div>
+            <div className="divide-y divide-gray-500/10">
+              {user ? (
+                <div className="flex flex-col gap-y-4">
+                  <p className="text-base font-semibold text-gray-900">
+                    Zdravo, {user.name}
+                  </p>
+                  <button
+                    onClick={() => {
+                      logout();
+                      setMobileMenuOpen(false);
+                    }}
+                    className="cursor-pointer text-left text-sm font-bold text-red-600"
+                  >
+                    Odjavi se
+                  </button>
+                </div>
+              ) : (
+                <Button className="cursor-pointer text-sm font-semibold text-gray-900">
+                  Prijavi se <span aria-hidden="true">&rarr;</span>
+                </Button>
+              )}
             </div>
           </div>
         </DialogPanel>

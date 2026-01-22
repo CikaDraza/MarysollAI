@@ -17,6 +17,7 @@ export function TextEngine({ messages }: TextEngineProps) {
           key={i}
           block={{
             id: msg.id,
+            role: msg.role,
             type: "TextBlock",
             content: msg.content,
           }}

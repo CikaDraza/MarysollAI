@@ -1,6 +1,6 @@
 // src/types/layout-suggestion.ts
 
-import { BlockTypes } from "./block-types";
+import { BlockTypes } from "./landing-block";
 
 export interface LayoutBlockSuggestion {
   type: BlockTypes;

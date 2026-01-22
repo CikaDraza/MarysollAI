@@ -1,6 +1,6 @@
 // src/lib/ai/block-registry.ts
 
-import { BlockTypes } from "@/types/block-types";
+import { BlockTypes } from "../landing-block";
 
 export interface BlockDescriptor {
   type: BlockTypes;
@@ -12,9 +12,16 @@ export interface BlockDescriptor {
 
 export const BLOCK_REGISTRY: BlockDescriptor[] = [
   {
-    type: "LoginBlock",
+    type: "AuthBlock",
     title: "Prijava korisnika",
     description: "Forma za prijavu postojećeg korisnika",
+    action: "action",
+    requiresAuth: false,
+  },
+  {
+    type: "LoginBlock",
+    title: "Ulogujte se",
+    description: "Forma za prijavu korisnika",
     action: "action",
     requiresAuth: false,
   },
@@ -50,6 +57,27 @@ export const BLOCK_REGISTRY: BlockDescriptor[] = [
     type: "TestimonialBlock",
     title: "Utisci klijenata",
     description: "Prikaz recenzija korisnika",
+    action: "read",
+    requiresAuth: false,
+  },
+  {
+    type: "ResetPasswordBlock",
+    title: "Resetovanje lozinke",
+    description: "Forma za promenu lozinke putem tokena",
+    action: "action",
+    requiresAuth: false,
+  },
+  {
+    type: "ForgotPasswordBlock",
+    title: "Zaboravljena lozinka",
+    description: "Forma za slanje zahteva za reset lozinke na email",
+    action: "action",
+    requiresAuth: false,
+  },
+  {
+    type: "ServicesBlock",
+    title: "Usluge",
+    description: "Detaljan opis usluga koje salon nudi",
     action: "read",
     requiresAuth: false,
   },

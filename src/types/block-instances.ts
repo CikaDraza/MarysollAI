@@ -3,6 +3,7 @@
 import { BaseBlock } from "./landing-block";
 
 export type ServicePriceBlock = BaseBlock;
+export type AuthBlock = BaseBlock;
 export type ServicesBlock = BaseBlock;
 export type AppointmentBlock = BaseBlock;
 export type AppointmentCalendarBlock = BaseBlock;

@@ -1,6 +1,7 @@
 // src/types/block-type-map.ts
 import {
   ServicePriceBlock,
+  AuthBlock,
   ServicesBlock,
   AppointmentBlock,
   AppointmentCalendarBlock,
@@ -13,6 +14,7 @@ import {
 
 export interface BlockTypeMap {
   ServicePriceBlock: ServicePriceBlock;
+  AuthBlock: AuthBlock;
   ServicesBlock: ServicesBlock;
   AppointmentBlock: AppointmentBlock;
   AppointmentCalendarBlock: AppointmentCalendarBlock;

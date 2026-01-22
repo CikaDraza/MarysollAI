@@ -2,6 +2,7 @@ import { LandingBlock } from "@/types/landing-blocks";
 import HeroPrimaryBlockView from "../blocks/HeroPrimaryBlockView";
 import ArticleSectionBlockView from "../blocks/ArticleSectionBlockView";
 import FeatureGridBlockView from "../blocks/FeatureGridBlockView";
+import HeroVisualBlockView from "../blocks/HeroVisualBlockView";
 
 interface Props {
   blocks: LandingBlock[];
@@ -16,6 +17,9 @@ export function CampaignLayoutEngine({ blocks }: Props) {
         switch (block.type) {
           case "HeroPrimaryBlock":
             return <HeroPrimaryBlockView key={block.id} block={block} />;
+
+          case "HeroVisualBlock":
+            return <HeroVisualBlockView key={block.id} block={block} />;
 
           case "ArticleSectionBlock":
             return <ArticleSectionBlockView key={block.id} block={block} />;

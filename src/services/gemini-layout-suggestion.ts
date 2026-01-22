@@ -4,120 +4,51 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
 
 export async function suggestionAgent(userInput: string) {
+  const currentDate = new Date().toISOString().split("T")[0];
+  const dayOfWeek = new Date().toLocaleDateString("sr-RS", { weekday: "long" });
   const model = genAI.getGenerativeModel({
     model: "gemini-2.0-flash",
     systemInstruction: `
-      You are a Layout Suggestion Engine.
+      You are a Layout Suggestion Engine for Marysoll Makeup studio.
+      Your ONLY job is to decide which UI blocks to show based on user intent.
 
-      Your ONLY task is to return a JSON object that describes WHICH UI BLOCKS
-      should be rendered in response to the user's intent.
+      BLOCK DEFINITIONS:
+      - AuthBlock: MUST be shown if user wants to: login, register, sign in, reset password, or if they want to book but are NOT authenticated.
+      - AppointmentCalendarBlock: MUST be shown if user wants to see availability or book a specific time.
+      - ServicesBlock: Shown for "What do you offer?", "Services", etc.
 
-      STRICT RULES (MANDATORY):
-      - You MUST return VALID JSON only.
-      - You MUST NOT include explanations, comments, or text outside JSON.
-      - You MUST NOT generate text content for the user.
-      - You MUST NOT invent new block types.
-      - You MUST NOT modify existing campaign blocks.
-      - You MUST NOT return more than 5 blocks.
-      - You MUST return the MINIMAL set of blocks required.
+      DECISION LOGIC:
+      - Intent: "LOGIN/REGISTER" -> [AuthBlock]
+      - Intent: "BOOKING" -> [AuthBlock, AppointmentCalendarBlock] (Always show Auth first if booking is requested)
+      - Intent: "HOW TO BOOK" -> [AuthBlock, AppointmentCalendarBlock] (Don't just explain, SHOW the tools)
+      - Intent: "PRICES/SERVICES" -> [ServicesBlock, ServicePriceBlock]
 
-      If the user's intent does not require UI blocks, return an empty list.
+      STRICT RULES:
+      - Even if the user asks "How do I...", you MUST provide the relevant block.
+      - For booking requests, ALWAYS include AppointmentCalendarBlock.
 
-      ---
+      Current Date: ${currentDate} (${dayOfWeek}).
 
-      ALLOWED BLOCK TYPES:
+      Your task is to extract booking details if provided:
+      - If the user mentions a service (e.g., "manikir", "gel lak"), find its ID/Name.
+      - If the user mentions a time (e.g., "sledeća sreda", "sutra", "u 15h"), convert it to YYYY-MM-DD or HH:mm.
 
-      - LoginBlock  
-        Purpose: User authentication (login)
-
-      - RegisterBlock  
-        Purpose: User registration
-
-      - AppointmentBlock  
-        Purpose: Create a new appointment
-
-      - AppointmentCalendarBlock  
-        Purpose: View available time slots
-
-      - ServicesBlock  
-        Purpose: Display list of services
-
-      - ServicePriceBlock  
-        Purpose: Display pricing information
-
-      - TestimonialBlock  
-        Purpose: Display testimonials
-
-      - NewsletterFormBlock  
-        Purpose: Newsletter subscription
-
-      - WhyChooseUsBlock  
-        Purpose: Marketing / trust section
-
-      ---
-
-      OUTPUT FORMAT (STRICT):
-
-      {
-        "type": "layout_suggestion",
-        "blocks": [
-          {
-            "type": "<BlockType>",
-            "priority": <number>
-          }
-        ]
-      }
-
-      ---
-
-      PRIORITY RULES:
-      - Lower number = rendered first
-      - Priorities MUST be sequential starting from 1
-      - No duplicate priorities
-
-      ---
-
-      INTENT RULES:
-      - If the user asks "how", "where", "what is" → usually NO blocks
-      - If the user wants to DO something → suggest blocks
-      - Authentication is REQUIRED before actions
-      - Calendar is OPTIONAL but preferred for appointments
-
-      ---
+      Example:
+      User: "Zakazi mi manikir za sledecu sredu"
+      Metadata: { "serviceName": "manikir", "date": "2024-xx-xx" }
 
       EXAMPLES:
+      User: "Zelim da se ulogujem"
+      Return: { "type": "layout_suggestion", "blocks": [{ "type": "AuthBlock", "priority": 1 }] }
 
-      User intent: "Kako da zakazem termin?"
-
-      Return:
-      {
-        "type": "layout_suggestion",
+      User: "Kako da zakazem?"
+      Return: { 
+        "type": "layout_suggestion", 
         "blocks": [
-          { "type": "LoginBlock", "priority": 1 },
-          { "type": "AppointmentCalendarBlock", "priority": 2 },
-          { "type": "AppointmentBlock", "priority": 3 }
-        ]
+          { "type": "AuthBlock", "priority": 1 },
+          { "type": "AppointmentCalendarBlock", "priority": 2 }
+        ] 
       }
-
-      User intent: "Koje usluge nudite?"
-
-      Return:
-      {
-        "type": "layout_suggestion",
-        "blocks": [
-          { "type": "ServicesBlock", "priority": 1 },
-          { "type": "ServicePriceBlock", "priority": 2 }
-        ]
-      }
-
-      User intent: "Zdravo"
-
-      Return:
-      {
-        "type": "layout_suggestion",
-        "blocks": []
-      }
-
       `,
   });
   const result = await model.generateContent({

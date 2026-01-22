@@ -1,28 +1,31 @@
 // src/components/layout/LayoutEngine.tsx
 "use client";
 
-import { BaseBlock } from "@/types/landing-block";
+import { BaseBlock, BlockTypes } from "@/types/landing-block";
 import { blockFactory } from "./blockFactory";
-import { BlockTypes } from "@/types/block-types";
 
 interface Props {
-  blocks: BaseBlock[];
+  blocks: BaseBlock[] | null;
   renderBeforeBlock?: (type: BlockTypes) => React.ReactNode;
+  onMessageAction?: (type: string) => void;
 }
 
-export function LayoutEngine({ blocks, renderBeforeBlock }: Props) {
-  if (!blocks) {
+export function LayoutEngine({
+  blocks,
+  renderBeforeBlock,
+  onMessageAction,
+}: Props) {
+  if (!blocks || blocks.length === 0) {
     return null;
   }
   return (
     <>
-      {blocks
-        .slice()
+      {[...blocks]
         .sort((a, b) => a.priority - b.priority)
         .map((block, i) => (
           <div key={i}>
             {renderBeforeBlock?.(block.type)}
-            {blockFactory(block)}
+            {blockFactory(block, onMessageAction)}
           </div>
         ))}
     </>
