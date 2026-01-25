@@ -13,12 +13,21 @@ export type BlockTypes =
   | "ForgotPasswordBlock"
   | "ResetPasswordBlock"
   | "TestimonialBlock"
-  | "WhyChooseUsBlock";
+  | "WhyChooseUsBlock"
+  | "none";
 
 export interface BaseBlock {
   id: string;
   type: BlockTypes;
   priority: number;
+  metadata: {
+    serviceId: string;
+    serviceName: string;
+    variantName: string;
+    date: string;
+    time: string;
+  };
+  query?: string;
 }
 
 export interface LoginBlockType extends BaseBlock {
@@ -59,21 +68,28 @@ export interface AuthBlockType extends BaseBlock {
 
 export interface PricingBlockType extends BaseBlock {
   type: "ServicePriceBlock";
-  query: string;
+  query?: string;
 }
 
 export interface AppointmentCalendarBlockType extends BaseBlock {
   type: "AppointmentCalendarBlock";
   metadata: {
-    properties: {
-      serviceId: string;
-      serviceName: string;
-      date: string;
-      time: string;
-    };
+    serviceId: string;
+    serviceName: string;
+    variantName: string;
+    date: string;
+    time: string;
   };
+  query?: string;
   selectedServiceId?: string; // Može doći iz AI agenta
   selectedServiceName?: string;
 }
 
-export type AnyBlock = PricingBlockType | AuthBlockType | BaseBlock;
+export type AnyBlock =
+  | PricingBlockType
+  | AuthBlockType
+  | BaseBlock
+  | LoginBlockType
+  | RegisterBlockType
+  | ForgotPasswordBlockType
+  | AppointmentCalendarBlockType;

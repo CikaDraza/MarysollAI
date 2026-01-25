@@ -13,8 +13,9 @@ interface Props {
 export default function PricingBlockView({ block }: Props) {
   const { data, isLoading } = useServices({ query: block.query });
   const services = data || [];
+  console.log({ block: block, services: services });
+
   const groupedServices = groupAndSortServices(services);
-  console.log({ price: data });
 
   if (isLoading)
     return (
@@ -26,7 +27,7 @@ export default function PricingBlockView({ block }: Props) {
 
   return (
     <Reveal>
-      <div className="bg-transparent">
+      <div className="bg-gray-100 rounded-3xl p-6 border border-gray-100 shadow-xl">
         <div className="relative isolate px-1 lg:px-8">
           <div
             aria-hidden="true"
@@ -43,20 +44,17 @@ export default function PricingBlockView({ block }: Props) {
         </div>
         <div className="flex flex-col gap-y-4">
           {groupedServices?.map((group) => (
-            <div
-              key={group.category}
-              className="max-w-full lg:py-24 px-2 lg:px-8"
-            >
-              <div className="mx-auto max-w-2xl lg:mx-0">
+            <div key={group.category} className="w-full lg:py-24 px-2 lg:px-8">
+              <div className="mx-auto">
                 <h2 className="text-lg/6 font-semibold tracking-tight text-pretty text-gray-900 sm:text-5xl! lg:text-7xl!">
                   {group.category || "Usluga"}
                 </h2>
               </div>
-              <div className="mx-auto mt-10 grid grid-cols-1 gap-x-8 gap-y-16 border-t border-gray-100 pt-10 sm:mt-16 sm:pt-16 lg:mx-0 lg:max-w-none lg:grid-cols-2">
+              <div className="mx-auto grid grid-cols-1 gap-x-8 gap-y-16 border-t border-gray-200 pt-8 mt-8 lg:mx-0 lg:max-w-none">
                 {group.services.map((service, index) => (
                   <article
                     key={index}
-                    className="flex max-w-3xl flex-col items-start justify-between"
+                    className="flex max-w-full flex-col items-start justify-between"
                   >
                     <div className="w-full flex justify-between items-center gap-x-4 text-xs">
                       <time
@@ -65,17 +63,22 @@ export default function PricingBlockView({ block }: Props) {
                       >
                         Trajanje: {service?.duration} minuta
                       </time>
-                      {service.basePrice && (
-                        <span className="relative z-10 rounded-full bg-(--secondary-color) px-3 py-1.5 font-semibold text-white">
-                          {formatPriceToString(service.basePrice)} RSD
-                        </span>
-                      )}
                     </div>
                     <div className="group w-full relative grow">
-                      <h3 className="mt-3 text-md font-semibold text-gray-900 group-hover:text-gray-600">
-                        {service.name}
-                        {service.subcategory && ` - ${service.subcategory}`}
-                      </h3>
+                      <div className="mt-3 w-full flex justify-between items-center gap-x-3 text-pretty">
+                        <h3 className="text-md font-semibold text-gray-900 group-hover:text-gray-600">
+                          {service.name}
+                          {service.subcategory && ` - ${service.subcategory}`}
+                        </h3>
+                        {service.basePrice && (
+                          <>
+                            <hr className="flex-1 border-dashed text-gray-700" />
+                            <span className="relative text-sm z-10 rounded-full bg-(--secondary-color) px-3 py-1.5 font-semibold text-white">
+                              {formatPriceToString(service.basePrice)} RSD
+                            </span>
+                          </>
+                        )}
+                      </div>
                       <p className="mt-5 line-clamp-3 text-sm/6 text-gray-600">
                         {service.description}
                       </p>

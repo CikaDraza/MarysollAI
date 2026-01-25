@@ -27,7 +27,6 @@ export function LoginBlockView({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    console.log("Login sa:", email, password);
     try {
       await login({ email, password });
       // ✅ OBAVEŠTAVAMO AGENTA

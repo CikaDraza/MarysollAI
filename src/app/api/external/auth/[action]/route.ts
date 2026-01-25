@@ -23,7 +23,26 @@ export async function POST(
       return NextResponse.json(data, { status: res.status });
     }
 
-    return NextResponse.json(data);
+    const response = NextResponse.json(data);
+
+    // ⬇⬇⬇ KRITIČNI DEO ⬇⬇⬇
+    response.cookies.set("token", data.token, {
+      httpOnly: true,
+      sameSite: "strict",
+      secure: true,
+      path: "/",
+      domain: "marysoll-assistant.website",
+    });
+
+    response.cookies.set("refreshToken", data.refreshToken, {
+      httpOnly: true,
+      sameSite: "strict",
+      secure: true,
+      path: "/",
+      domain: "marysoll-assistant.website",
+    });
+
+    return response;
   } catch (error: unknown) {
     return NextResponse.json(
       { error: error instanceof Error && "Auth Proxy Error" },

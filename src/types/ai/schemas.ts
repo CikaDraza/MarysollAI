@@ -16,42 +16,8 @@ const blockEnum = [
   "WhyChooseUsBlock",
 ];
 
-export const layoutSuggestionSchema: Schema = {
-  type: SchemaType.OBJECT,
-  properties: {
-    type: {
-      type: SchemaType.STRING,
-      enum: ["layout_suggestion"],
-      format: "enum",
-    },
-    intent: { type: SchemaType.STRING },
-    blocks: {
-      type: SchemaType.ARRAY,
-      items: {
-        type: SchemaType.OBJECT,
-        properties: {
-          type: {
-            type: SchemaType.STRING,
-            enum: blockEnum,
-            format: "enum",
-          },
-          priority: { type: SchemaType.NUMBER },
-          metadata: {
-            type: SchemaType.OBJECT,
-            properties: {
-              preselectedServiceId: { type: SchemaType.STRING },
-              preselectedDate: { type: SchemaType.STRING },
-            },
-          },
-        },
-        required: ["type", "priority"],
-      },
-    },
-  },
-  required: ["type", "intent", "blocks"],
-};
-
-export const conversationSchema: Schema = {
+// src/lib/ai/schemas.ts
+export const unifiedSchema: Schema = {
   type: SchemaType.OBJECT,
   properties: {
     messages: {
@@ -60,15 +26,50 @@ export const conversationSchema: Schema = {
         type: SchemaType.OBJECT,
         properties: {
           content: { type: SchemaType.STRING },
+          role: {
+            type: SchemaType.STRING,
+            enum: ["assistant"],
+            format: "enum",
+          },
+          // Pomaže nam da znamo uz koji blok ide tekst
           attachToBlockType: {
             type: SchemaType.STRING,
-            enum: blockEnum,
+            enum: ["none", ...blockEnum],
             format: "enum",
           },
         },
-        required: ["content"],
+        required: ["content", "role", "attachToBlockType"],
+      },
+    },
+    layout: {
+      type: SchemaType.ARRAY,
+      items: {
+        type: SchemaType.OBJECT,
+        properties: {
+          type: { type: SchemaType.STRING, enum: blockEnum, format: "enum" },
+          priority: { type: SchemaType.NUMBER },
+          query: {
+            type: SchemaType.STRING,
+            description:
+              "Search term for services, e.g., 'gel lak' or 'manikir'",
+          },
+          metadata: {
+            type: SchemaType.OBJECT,
+            properties: {
+              serviceId: { type: SchemaType.STRING },
+              serviceName: { type: SchemaType.STRING },
+              variantName: { type: SchemaType.STRING },
+              date: {
+                type: SchemaType.STRING,
+                description: "ISO format date YYYY-MM-DD",
+              },
+              time: { type: SchemaType.STRING, description: "HH:mm format" },
+            },
+          },
+        },
+        required: ["type", "priority"],
       },
     },
   },
-  required: ["messages"],
+  required: ["messages", "layout"],
 };

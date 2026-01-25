@@ -1,4 +1,3 @@
-// src/app/api/external/appointments/route.ts
 import { NextResponse } from "next/server";
 
 export async function POST(req: Request) {
@@ -7,7 +6,8 @@ export async function POST(req: Request) {
     const authHeader = req.headers.get("authorization");
     const body = await req.json();
 
-    const res = await fetch(`${SITE_API}/appointments/create`, {
+    // Prosleđujemo zahtev na pravi Marysoll API
+    const response = await fetch(`${SITE_API}/appointments/create`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -16,11 +16,12 @@ export async function POST(req: Request) {
       body: JSON.stringify(body),
     });
 
-    const data = await res.json();
-    return NextResponse.json(data, { status: res.status });
+    const data = await response.json();
+    return NextResponse.json(data, { status: response.status });
   } catch (error) {
+    console.error("Bridge Error:", error);
     return NextResponse.json(
-      { error: error || "External API Error" },
+      { error: "Greška u mostu ka API-ju" },
       { status: 500 },
     );
   }

@@ -6,73 +6,54 @@ import { useCampaign } from "@/hooks/useCampaign";
 import { AIAgentPanel } from "@/components/AIAgentPanel";
 import { CampaignLayoutEngine } from "@/components/layout/CampaignLayoutEngine";
 import { normalizeCampaignSlug } from "@/helpers/slugNormalizer";
-import { TextEngine } from "@/components/layout/TextEngine";
-import { LayoutEngine } from "@/components/layout/LayoutEngine";
-import { groupMessagesByBlock } from "@/helpers/groupTextMessages";
 import { useAIQuery } from "@/hooks/useAIQuery";
-import { Reveal } from "@/components/motion/Reveal";
-import { useLayoutEffect, useRef } from "react";
+import { useAuthActions } from "@/hooks/useAuthActions";
+import TimelineRenderer from "@/components/chat/TimelineRenderer";
 
 export default function CampaignPage() {
   const params = useParams<{ slug: string[] }>();
-  const bottomRef = useRef<HTMLDivElement>(null);
   const { slugId } = normalizeCampaignSlug(params.slug);
+  const { user } = useAuthActions();
 
   const { data, isLoading } = useCampaign(slugId);
-  const {
-    askAI,
-    messages,
-    runtimeBlocks,
-    isTextLoading,
-    isLayoutLoading,
-    error,
-  } = useAIQuery();
+  const { askAI, thread, isTextLoading, error, resetError } = useAIQuery(user);
 
-  const grouped = groupMessagesByBlock(messages);
-
-  useLayoutEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, runtimeBlocks]);
-
-  if (error)
-    return (
-      <div className="bg-transparent py-24 sm:py-44">
-        <Reveal>
-          <div className="mx-auto max-w-7xl px-6 lg:px-8">
-            <p className="text-center text-lg/8 text-red-600">Error: {error}</p>
-          </div>
-        </Reveal>
-      </div>
-    );
   if (isLoading || !data) return null;
+  console.log({ thread: thread });
 
   return (
     <div className="relative isolate px-6 lg:px-8 pb-44">
       <CampaignLayoutEngine blocks={data?.landingPage?.layout ?? []} />
-      {(!runtimeBlocks || runtimeBlocks.length === 0) && (
-        <TextEngine messages={grouped.global ?? []} />
+      <TimelineRenderer thread={thread} onAction={askAI} />
+      {error && (
+        <div className="max-w-2xl mx-auto mb-4 animate-in slide-in-from-bottom-2">
+          <div className="bg-red-50 border border-red-200 rounded-2xl p-4 flex flex-col items-center gap-3">
+            <p className="text-sm text-red-800 font-medium text-center">
+              MarysollAI Assistant was unable to finish replying.
+              <br />
+              <span className="text-xs font-normal opacity-70">
+                Error: {error}
+              </span>
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => window.location.reload()}
+                className="text-xs bg-white border border-red-200 px-4 py-2 rounded-lg hover:bg-red-50 transition-colors"
+              >
+                Refresh Page
+              </button>
+              <button
+                onClick={resetError}
+                className="text-xs bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors"
+              >
+                Retry
+              </button>
+            </div>
+          </div>
+        </div>
       )}
-      {runtimeBlocks && runtimeBlocks.length > 0 && (
-        <LayoutEngine
-          blocks={runtimeBlocks}
-          onMessageAction={askAI}
-          renderBeforeBlock={(blockType) => (
-            <>
-              {/* Global tekst ide SAMO pre prvog bloka */}
-              {blockType === runtimeBlocks[0].type && (
-                <TextEngine messages={grouped.global ?? []} />
-              )}
-              <TextEngine messages={grouped[blockType] ?? []} />
-            </>
-          )}
-        />
-      )}
-      <div ref={bottomRef} />
 
-      <AIAgentPanel
-        onSubmit={askAI}
-        isLoading={isTextLoading || isLayoutLoading}
-      />
+      <AIAgentPanel onSubmit={askAI} isLoading={isTextLoading} />
     </div>
   );
 }

@@ -1,6 +1,5 @@
 // src/components/layout/blockFactory.tsx
 import {
-  AnyBlock,
   AppointmentCalendarBlockType,
   AuthBlockType,
   BaseBlock,
@@ -10,28 +9,33 @@ import { AuthBlockView } from "../blocks/AuthBlockView";
 import PricingBlockView from "../blocks/PricingBlockView";
 import AppointmentCalendarBlockView from "../blocks/AppointmentCalendarBlockView";
 
-export function blockFactory(block: BaseBlock, onAction?: (m: string) => void) {
-  const b = block as AnyBlock;
-  switch (b.type) {
+export function blockFactory(
+  block: BaseBlock,
+  onMessageAction?: (m: string) => void,
+) {
+  switch (block.type) {
     case "AuthBlock":
       return (
         <AuthBlockView
-          key={b.id}
-          block={b as AuthBlockType}
-          onActionComplete={onAction}
+          key={block.id}
+          block={block as AuthBlockType}
+          onActionComplete={onMessageAction}
         />
       );
     case "ServicePriceBlock":
-      return <PricingBlockView key={b.id} block={b as PricingBlockType} />;
+      return (
+        <PricingBlockView key={block.id} block={block as PricingBlockType} />
+      );
     case "AppointmentCalendarBlock":
       return (
         <AppointmentCalendarBlockView
-          key={b.id}
-          block={b as AppointmentCalendarBlockType}
+          key={block.id}
+          block={block as AppointmentCalendarBlockType}
+          onActionComplete={onMessageAction}
         />
       );
     default:
-      console.warn("Factory: Unknown block type", b.type);
+      console.warn("Factory: Unknown block type", block.type);
       return null;
   }
 }

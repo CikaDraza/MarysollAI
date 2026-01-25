@@ -1,7 +1,7 @@
 const ACTION_KEYWORDS = [
   "zakazi",
-  "registr",
-  "prijav",
+  "registruj me",
+  "prijavi me",
   "termin",
   "cena",
   "usluga",

@@ -1,7 +1,7 @@
 // src/app/api/ai/conversation/route.ts
 import { rateLimit } from "@/helpers/rate-limit";
 import { getRequestIP } from "@/helpers/request-ip";
-import { askAgent } from "@/services/gemini-text-ai";
+import { askAgent } from "@/services/askAgent";
 import { NextResponse } from "next/server";
 
 export async function POST(req: Request) {
@@ -10,7 +10,7 @@ export async function POST(req: Request) {
 
   const limit = rateLimit(key, {
     windowMs: 60_000,
-    max: 10, // tekst je jeftiniji
+    max: 10,
   });
 
   if (!limit.allowed) {
@@ -18,16 +18,22 @@ export async function POST(req: Request) {
   }
 
   try {
-    const { message } = await req.json();
+    const { message, isAuthenticated, history, userName } = await req.json();
 
-    const response = await askAgent(message);
+    const stream = await askAgent(
+      message,
+      isAuthenticated,
+      history || [],
+      userName,
+    );
 
-    if (response.status === 429) {
-      return NextResponse.json({ layout: [] }, { status: 200 });
-    }
-
-    return NextResponse.json({
-      messages: response.messages,
+    // Vraćamo stream sa specijalnim headerima
+    return new Response(stream, {
+      headers: {
+        "Content-Type": "text/event-stream", // Ključno za streaming
+        "Cache-Control": "no-cache",
+        Connection: "keep-alive",
+      },
     });
   } catch (error: unknown) {
     return NextResponse.json(

@@ -7,7 +7,10 @@ export function useAppointmentMutations(token?: string) {
 
   const createAppointment = useMutation({
     mutationFn: async (payload: IAppointment) => {
-      const res = await fetch("/api/appointments/create", {
+      if (!token) {
+        throw new Error("Morate biti prijavljeni da biste zakazali termin.");
+      }
+      const res = await fetch("/api/external/appointments/create", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -15,6 +18,13 @@ export function useAppointmentMutations(token?: string) {
         },
         body: JSON.stringify(payload),
       });
+      // Ako server vrati HTML umesto JSON-a, baci jasniju grešku
+      const contentType = res.headers.get("content-type");
+      if (!contentType || !contentType.includes("application/json")) {
+        throw new Error(
+          "Server je vratio neispravan odgovor (HTML). Proverite login status.",
+        );
+      }
       if (!res.ok) throw new Error("Greška pri kreiranju termina");
       return res.json();
     },
@@ -32,7 +42,7 @@ export function useAppointmentMutations(token?: string) {
       id: string;
       updatedData: Partial<IAppointment>;
     }) => {
-      const res = await fetch(`/api/appointments/update/${id}`, {
+      const res = await fetch(`/api/external/appointments/update/${id}`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
@@ -73,7 +83,7 @@ export function useAppointmentMutations(token?: string) {
       if (proposedTime) updateData.proposedTime = proposedTime;
       if (note) updateData.note = note;
 
-      const res = await fetch(`/api/appointments/update/${id}`, {
+      const res = await fetch(`/api/external/appointments/update/${id}`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
@@ -93,7 +103,7 @@ export function useAppointmentMutations(token?: string) {
 
   const deleteAppointment = useMutation({
     mutationFn: async (id: string) => {
-      const res = await fetch(`/api/appointments/delete/${id}`, {
+      const res = await fetch(`/api/external/appointments/delete/${id}`, {
         method: "DELETE",
         headers: {
           Authorization: `Bearer ${token}`,
@@ -116,7 +126,7 @@ export function useAppointmentMutations(token?: string) {
       appointmentId: string;
       message: string;
     }) => {
-      const res = await fetch("/api/appointments/message", {
+      const res = await fetch("/api/external/appointments/message", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
