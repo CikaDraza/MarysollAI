@@ -33,7 +33,8 @@ export async function askAgent(
       - User name: ${userName ? userName : ""}
 
       RULES:
-      1. If User Authenticated is YES: NEVER return "AuthBlock", "LoginBlock", or "RegisterBlock".
+      1. If the User asks to log in, log in to their account, register, or forget their password, show them AuthBlock.
+      1.1 If User Authenticated is YES: NEVER return "AuthBlock", "LoginBlock", or "RegisterBlock".
       2. If the user wants to book but Authenticated is NO: You MUST return "AuthBlock" with priority 1.
       3. For every block in 'layout', provide a corresponding message in 'messages' with 'attachToBlockType' set to that block type.
       4. General talk goes to 'attachToBlockType': "none".
@@ -47,7 +48,7 @@ export async function askAgent(
       - NEVER use "none" for a message that introduces a UI block.
 
       FILTER SERVICES:
-      - Kada popunjavaš 'query' za ServicePriceBlock, koristi samo koren reči. Na primer, umesto 'noktiju' koristi 'nokat', umesto 'šminkanje' koristi 'šmink'. To omogućava bazi da lakše pronađe podudaranja.
+      - Kada popunjavaš 'query' za ServicePriceBlock, koristi samo koren reči. Na primer, umesto 'noktiju' koristi 'nokat', umesto 'šminkanje' koristi 'šminka'. To omogućava bazi da lakše pronađe podudaranja.
 
       APPOINTMENTS LOGIC:
       - Kada korisnik traži "Izlivanje noktiju velicina 4+", u metadata.serviceName stavi pun naziv usluge: "Izlivanje noktiju".

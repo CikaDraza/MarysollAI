@@ -20,17 +20,29 @@ export default function TimelineRenderer({
   onAction,
 }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null);
+  const initialThreadLength = useRef(thread.length);
+  const hasInteracted = useRef(false);
 
   // Automatski scroll na dole
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [thread, streamingText]);
+    if (isStreaming) hasInteracted.current = true;
+
+    // Skroluj samo ako:
+    // 1. Trenutno strimujemo tekst
+    // 2. Ili ako je broj poruka veći od onog koji smo zatekli na početku
+    const isNewMessageAdded = thread.length > initialThreadLength.current;
+
+    if (isStreaming || (isNewMessageAdded && hasInteracted.current)) {
+      bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    }
+  }, [thread, streamingText, isStreaming]);
 
   const scrollToItem = (id: string) => {
     document
       .getElementById(id)
       ?.scrollIntoView({ behavior: "smooth", block: "center" });
   };
+
   const lastItem = thread[thread.length - 1];
   const isLastItemAssistantMessage =
     lastItem?.type === "message" && lastItem.data.role === "assistant";
