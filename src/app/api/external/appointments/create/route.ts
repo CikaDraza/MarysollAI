@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server";
 
 export async function POST(req: Request) {
-  const SITE_API = process.env.MAIN_SITE_API;
+  const MAIN_SITE_API = process.env.MAIN_SITE_API;
   try {
     const authHeader = req.headers.get("authorization");
     const body = await req.json();
 
     // Prosleđujemo zahtev na pravi Marysoll API
-    const response = await fetch(`${SITE_API}/appointments/create`, {
+    const response = await fetch(`${MAIN_SITE_API}/appointments/create`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

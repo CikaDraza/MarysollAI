@@ -5,11 +5,11 @@ import { NextResponse } from "next/server";
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const query = searchParams.get("query");
-  const SITE_API = process.env.MAIN_SITE_API;
+  const MAIN_SITE_API = process.env.MAIN_SITE_API;
 
   try {
     await connectToDB();
-    const response = await fetch(`${SITE_API}/services?query=${query}`, {
+    const response = await fetch(`${MAIN_SITE_API}/services?query=${query}`, {
       next: { revalidate: 60 },
     });
 
