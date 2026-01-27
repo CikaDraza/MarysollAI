@@ -13,7 +13,6 @@ interface Props {
 export default function PricingBlockView({ block }: Props) {
   const { data, isLoading } = useServices({ query: block.query });
   const services = data || [];
-  console.log({ block: block, services: services });
 
   const groupedServices = groupAndSortServices(services);
 
@@ -27,7 +26,7 @@ export default function PricingBlockView({ block }: Props) {
 
   return (
     <Reveal>
-      <div className="bg-gray-100 rounded-3xl p-6 border border-gray-100 shadow-xl">
+      <div className="bg-gray-100 rounded-3xl px-2 md:px-0 p-6 border border-gray-100 shadow-xl">
         <div className="relative isolate px-1 lg:px-8">
           <div
             aria-hidden="true"
@@ -66,14 +65,14 @@ export default function PricingBlockView({ block }: Props) {
                     </div>
                     <div className="group w-full relative grow">
                       <div className="mt-3 w-full flex justify-between items-center gap-x-3 text-pretty">
-                        <h3 className="text-md font-semibold text-gray-900 group-hover:text-gray-600">
+                        <h3 className="flex-1 md:flex-0 md:min-w-[25%] w-full text-md font-semibold text-gray-900">
                           {service.name}
                           {service.subcategory && ` - ${service.subcategory}`}
                         </h3>
                         {service.basePrice && (
                           <>
                             <hr className="flex-1 border-dashed text-gray-700" />
-                            <span className="relative text-sm z-10 rounded-full bg-(--secondary-color) px-3 py-1.5 font-semibold text-white">
+                            <span className="relative text-xs md:text-sm z-0 rounded-full bg-(--secondary-color) px-1 md:px-3 py-1.5 font-semibold text-white">
                               {formatPriceToString(service.basePrice)} RSD
                             </span>
                           </>

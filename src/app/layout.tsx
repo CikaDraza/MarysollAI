@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "MarysollAI App",
+  title: "Marysoll Assistant AI",
   description: "AI Generation web app",
 };
 

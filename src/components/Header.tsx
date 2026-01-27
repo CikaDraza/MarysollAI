@@ -26,7 +26,6 @@ export default function Header() {
               alt="MarysollAI Logo"
               width={130}
               height={27}
-              className="h-auto w-auto"
             />
           </Link>
         </div>

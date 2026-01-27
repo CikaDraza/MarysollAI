@@ -14,9 +14,9 @@ export function TextEngine({ messages }: TextEngineProps) {
 
   return (
     <div className="space-y-3">
-      {msgsArray.map((msg, i) => (
+      {msgsArray.map((msg) => (
         <TextBlock
-          key={msg.id || i}
+          key={msg.id}
           block={{
             id: msg.id,
             role: msg.role,

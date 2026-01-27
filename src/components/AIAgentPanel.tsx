@@ -1,13 +1,22 @@
 "use client";
 
+import { ThreadItem } from "@/types/ai/chat-thread";
+import { TrashIcon } from "@heroicons/react/24/outline";
 import { useState } from "react";
 
 interface Props {
   onSubmit: (prompt: string) => void;
   isLoading: boolean;
+  thread: ThreadItem[];
+  clearChat?: () => void;
 }
 
-export function AIAgentPanel({ onSubmit, isLoading }: Props) {
+export function AIAgentPanel({
+  onSubmit,
+  isLoading,
+  thread,
+  clearChat,
+}: Props) {
   const [input, setInput] = useState("");
 
   async function handleSubmit() {
@@ -24,7 +33,22 @@ export function AIAgentPanel({ onSubmit, isLoading }: Props) {
   };
 
   return (
-    <div className="fixed bottom-0 left-0 w-full z-50">
+    <div className="fixed bottom-0 left-0 right-0 w-full z-50">
+      {thread.length !== 0 && (
+        <div className="flex items-baseline justify-end mr-0 px-8 pb-2">
+          <button
+            type="button"
+            onClick={clearChat}
+            className="relative group/tick cursor-pointer p-2 text-gray-400 hover:text-red-500 md:ml-7"
+          >
+            <span className="sr-only">View grid</span>
+            <TrashIcon aria-hidden="true" className="size-5" />
+            <span className="absolute right-10 top-1/2 -translate-y-1/2 bg-black text-white text-[10px] px-2 py-1 rounded opacity-0 group-hover/tick:opacity-100 whitespace-nowrap">
+              Obrisi chat istoriju
+            </span>
+          </button>
+        </div>
+      )}
       <div className="bg-white/5 backdrop-blur-3xl">
         <div className="mx-auto py-6 sm:px-6">
           <div className="relative isolate overflow-hidden bg-purple-50/50 backdrop-blur-lg px-6 py-2.5 shadow-2xl sm:rounded-xl lg:flex lg:gap-x-20">
@@ -55,16 +79,16 @@ export function AIAgentPanel({ onSubmit, isLoading }: Props) {
             <div className="mx-auto text-center w-full p-3 pt-0">
               {/* Suptilan indikator ako se layout učitava u pozadini */}
               {isLoading ? (
-                <p className="text-xs text-purple-600 text-center font-semibold tracking-tight text-balance animate-pulse">
+                <p className="text-xs text-purple-600 text-center font-semibold tracking-tight text-balance animate-pulse pb-1">
                   Ažuriram predloge komponenti...
                 </p>
               ) : (
-                <span className="text-xs font-semibold tracking-tight text-balance text-purple-600">
-                  Boost your experience. Start using our AI generation Web app
-                  today.
-                </span>
+                <p className="text-[10px] md:text-xs font-semibold tracking-tight text-balance text-purple-600 pb-1">
+                  Boost your experience. Start using our Marysoll Assistant AI
+                  generation app today.
+                </p>
               )}
-              <div className="flex items-center justify-center gap-x-6">
+              <div className="flex flex-col md:flex-row items-center justify-center gap-x-6">
                 <textarea
                   id="message"
                   name="message"
@@ -77,7 +101,7 @@ export function AIAgentPanel({ onSubmit, isLoading }: Props) {
                 <button
                   onClick={handleSubmit}
                   disabled={isLoading || !input.trim()}
-                  className="cursor-pointer flex items-center justify-center min-w-30 rounded-lg bg-white px-5 py-2.5 text-sm font-semibold text-gray-900 shadow-sm hover:bg-gray-100 disabled:bg-gray-600 disabled:text-gray-300 disabled:cursor-not-allowed transition-colors"
+                  className="cursor-pointer flex items-center w-full md:w-auto mt-3 md:mt-0 justify-center min-w-30 rounded-lg bg-white px-5 py-2.5 text-sm font-semibold text-gray-900 shadow-sm hover:bg-gray-100 disabled:bg-gray-600 disabled:text-gray-300 disabled:cursor-not-allowed transition-colors"
                 >
                   {isLoading ? (
                     <span className="flex items-center gap-2">

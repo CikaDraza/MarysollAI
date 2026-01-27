@@ -17,7 +17,6 @@ export function LayoutEngine({
 }: Props) {
   if (!blocks) return null;
   const blocksArray = Array.isArray(blocks) ? blocks : [blocks];
-  console.log({ block_array: blocksArray });
 
   if (blocksArray.length === 0) return null;
   return (
@@ -25,7 +24,10 @@ export function LayoutEngine({
       {blocksArray
         .sort((a, b) => (a.priority || 0) - (b.priority || 0))
         .map((block) => (
-          <div key={block.id || block.type} className="block-wrapper">
+          <div
+            key={block.id || block.type}
+            className="animate-in zoom-in-95 duration-700"
+          >
             {/* Ovde ubacujemo tekst koji ide PRE bloka */}
             {renderBeforeBlock && renderBeforeBlock(block.type)}
 

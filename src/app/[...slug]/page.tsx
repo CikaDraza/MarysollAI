@@ -16,15 +16,28 @@ export default function CampaignPage() {
   const { user } = useAuthActions();
 
   const { data, isLoading } = useCampaign(slugId);
-  const { askAI, thread, isTextLoading, error, resetError } = useAIQuery(user);
+  const {
+    askAI,
+    thread,
+    streamingText,
+    isStreaming,
+    isTextLoading,
+    error,
+    resetError,
+    clearChat,
+  } = useAIQuery(user);
 
   if (isLoading || !data) return null;
-  console.log({ thread: thread });
 
   return (
     <div className="relative isolate px-6 lg:px-8 pb-44">
       <CampaignLayoutEngine blocks={data?.landingPage?.layout ?? []} />
-      <TimelineRenderer thread={thread} onAction={askAI} />
+      <TimelineRenderer
+        thread={thread}
+        onAction={askAI}
+        streamingText={streamingText}
+        isStreaming={isStreaming}
+      />
       {error && (
         <div className="max-w-2xl mx-auto mb-4 animate-in slide-in-from-bottom-2">
           <div className="bg-red-50 border border-red-200 rounded-2xl p-4 flex flex-col items-center gap-3">
@@ -53,7 +66,12 @@ export default function CampaignPage() {
         </div>
       )}
 
-      <AIAgentPanel onSubmit={askAI} isLoading={isTextLoading} />
+      <AIAgentPanel
+        onSubmit={askAI}
+        isLoading={isTextLoading}
+        thread={thread}
+        clearChat={clearChat}
+      />
     </div>
   );
 }
