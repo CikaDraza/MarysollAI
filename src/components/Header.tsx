@@ -23,7 +23,7 @@ export default function Header() {
             <span className="sr-only">Your Company</span>
             <Image
               src={"/Logo_Marysoll_assistent_website.png"}
-              alt="MarysollAI Logo"
+              alt="Marysoll Assistant AI"
               width={130}
               height={27}
             />
@@ -33,7 +33,7 @@ export default function Header() {
           <button
             type="button"
             onClick={() => setMobileMenuOpen(true)}
-            className="-m-2.5 inline-flex items-center justify-center rounded-md p-2.5 text-gray-700"
+            className="-m-2.5 cursor-pointer inline-flex items-center justify-center rounded-md p-2.5 text-gray-700"
           >
             <span className="sr-only">Open main menu</span>
             <Bars3Icon aria-hidden="true" className="size-6" />
@@ -60,10 +60,10 @@ export default function Header() {
         <DialogPanel className="fixed inset-y-0 right-0 z-50 w-full max-w-2/3 overflow-y-auto bg-white p-6 sm:max-w-sm sm:ring-1 sm:ring-gray-900/10">
           <div className="flex items-center justify-between">
             <Link href="/" className="-m-1.5 p-1.5">
-              <span className="sr-only">Your Company</span>
+              <span className="sr-only">Marysoll Assistant AI</span>
               <Image
                 src={"/Logo_Marysoll_assistent_website.png"}
-                alt="MarysollAI Logo"
+                alt="Marysoll Assistant AI Logo"
                 width={130}
                 height={27}
               />
@@ -71,7 +71,7 @@ export default function Header() {
             <button
               type="button"
               onClick={() => setMobileMenuOpen(false)}
-              className="-m-2.5 rounded-md p-2.5 text-gray-700"
+              className="-m-2.5 cursor-pointer rounded-md p-2.5 text-gray-700"
             >
               <span className="sr-only">Close menu</span>
               <XMarkIcon aria-hidden="true" className="size-6" />
@@ -89,7 +89,7 @@ export default function Header() {
                       logout();
                       setMobileMenuOpen(false);
                     }}
-                    className="cursor-pointer text-left text-sm font-bold text-red-600"
+                    className="cursor-pointer text-left text-sm font-bold text-red-500 hover:text-red-600"
                   >
                     Odjavi se
                   </button>

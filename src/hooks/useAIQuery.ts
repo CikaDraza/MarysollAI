@@ -154,7 +154,13 @@ export function useAIQuery(user?: AuthUser | null) {
           const errorMessage =
             err instanceof Error ? err.message : "Greška u parsiranju";
           setError(errorMessage);
+          setIsStreaming(false);
+          setIsTextLoading(false);
+          isNetworkDoneRef.current = false;
           console.error(errorMessage);
+          setThread((prev) =>
+            prev.filter((i) => i.id !== activeTempIdRef.current),
+          );
         }
       }
 
@@ -163,12 +169,16 @@ export function useAIQuery(user?: AuthUser | null) {
       if (finalData && Array.isArray(finalData.messages)) {
         setPendingResponse({ query, data: finalData });
         isNetworkDoneRef.current = true;
+      } else {
+        throw new Error("Invalid AI Response Format");
       }
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : "Greška";
       setError(errorMessage);
       setIsStreaming(false);
       setIsTextLoading(false);
+      isNetworkDoneRef.current = false;
+      setThread((prev) => prev.filter((i) => i.id !== activeTempIdRef.current));
     }
   };
 

@@ -2,7 +2,7 @@
 "use client";
 
 import { useState } from "react";
-import { AuthBlockType } from "@/types/landing-block";
+import { AuthBlockType, AuthMode } from "@/types/landing-block";
 import { RegisterBlockView } from "./RegisterBlockView";
 import { ResetPasswordBlockView } from "./ResetPasswordBlockView";
 import { LoginBlockView } from "./LoginBlockView";
@@ -18,9 +18,16 @@ interface Props {
 export function AuthBlockView({ block, onActionComplete }: Props) {
   const searchParams = useSearchParams();
   const token = searchParams.get("token");
-  const [mode, setMode] = useState<"login" | "register" | "forgot" | "reset">(
-    "login",
-  );
+  const incomingMode = block.metadata?.mode || "login";
+  const [mode, setMode] = useState<AuthMode>(incomingMode);
+
+  const [prevIncomingMode, setPrevIncomingMode] =
+    useState<AuthMode>(incomingMode);
+
+  if (incomingMode !== prevIncomingMode) {
+    setPrevIncomingMode(incomingMode);
+    setMode(incomingMode);
+  }
 
   return (
     <Reveal>

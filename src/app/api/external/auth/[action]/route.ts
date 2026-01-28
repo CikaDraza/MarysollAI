@@ -44,6 +44,7 @@ export async function POST(
 
     return response;
   } catch (error: unknown) {
+    console.error("❌ Register error details:", error);
     return NextResponse.json(
       { error: error instanceof Error && "Auth Proxy Error" },
       { status: 500 },

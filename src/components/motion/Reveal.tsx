@@ -1,4 +1,4 @@
-// src/components/conversational/motion/Reveal.tsx
+// src/components/motion/Reveal.tsx
 "use client";
 
 import { motion } from "framer-motion";

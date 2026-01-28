@@ -16,6 +16,8 @@ export type BlockTypes =
   | "WhyChooseUsBlock"
   | "none";
 
+export type AuthMode = "login" | "register" | "forgot" | "reset";
+
 export interface BaseBlock {
   id: string;
   type: BlockTypes;
@@ -24,8 +26,9 @@ export interface BaseBlock {
     serviceId: string;
     serviceName: string;
     variantName: string;
-    date: string;
-    time: string;
+    date?: string;
+    time?: string;
+    mode?: AuthMode;
   };
   query?: string;
 }
@@ -77,8 +80,8 @@ export interface AppointmentCalendarBlockType extends BaseBlock {
     serviceId: string;
     serviceName: string;
     variantName: string;
-    date: string;
-    time: string;
+    date?: string;
+    time?: string;
   };
   query?: string;
   selectedServiceId?: string; // Može doći iz AI agenta

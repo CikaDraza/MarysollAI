@@ -35,7 +35,7 @@ export function AIAgentPanel({
   return (
     <div className="fixed bottom-0 left-0 right-0 w-full z-50">
       {thread.length !== 0 && (
-        <div className="flex items-baseline justify-end mr-0 px-8 pb-2">
+        <div className="flex items-baseline justify-end mr-0 px-2 md:px-8 pb-2">
           <button
             type="button"
             onClick={clearChat}
@@ -49,8 +49,8 @@ export function AIAgentPanel({
           </button>
         </div>
       )}
-      <div className="bg-white/5 backdrop-blur-3xl">
-        <div className="mx-auto py-6 sm:px-6">
+      <div className="bg-white/5 backdrop-blur">
+        <div className="mx-auto pb-6 sm:px-6">
           <div className="relative isolate overflow-hidden bg-purple-50/50 backdrop-blur-lg px-6 py-2.5 shadow-2xl sm:rounded-xl lg:flex lg:gap-x-20">
             <div
               aria-hidden="true"

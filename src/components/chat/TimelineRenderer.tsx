@@ -21,20 +21,32 @@ export default function TimelineRenderer({
 }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const initialThreadLength = useRef(thread.length);
-  const hasInteracted = useRef(false);
 
   // Automatski scroll na dole
   useEffect(() => {
-    if (isStreaming) hasInteracted.current = true;
-
-    // Skroluj samo ako:
-    // 1. Trenutno strimujemo tekst
-    // 2. Ili ako je broj poruka veći od onog koji smo zatekli na početku
-    const isNewMessageAdded = thread.length > initialThreadLength.current;
-
-    if (isStreaming || (isNewMessageAdded && hasInteracted.current)) {
-      bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    // 1. Ako je prvo učitavanje stranice, ne mrdaj nigde (da korisnik vidi blog)
+    if (initialThreadLength.current === thread.length && !isStreaming) {
+      return;
     }
+
+    // 2. Određivanje tipa skrola
+    // Ako je poslednja poruka od korisnika, želimo "smooth" da on vidi kako stranica klizi dole
+    const lastItem = thread[thread.length - 1];
+    const isUserMessage =
+      lastItem?.type === "message" && lastItem.data.role === "user";
+
+    // Koristimo "smooth" ako je korisnik upravo poslao poruku ILI ako se pojavio finalni blok.
+    // Koristimo "auto" SAMO dok traje aktivni streaming teksta.
+    const scrollBehavior = isStreaming && !isUserMessage ? "auto" : "smooth";
+
+    requestAnimationFrame(() => {
+      if (bottomRef.current) {
+        bottomRef.current.scrollIntoView({
+          behavior: scrollBehavior,
+          block: "end",
+        });
+      }
+    });
   }, [thread, streamingText, isStreaming]);
 
   const scrollToItem = (id: string) => {
@@ -100,7 +112,7 @@ export default function TimelineRenderer({
       <div className="fixed right-2 md:right-8 top-1/2 -translate-y-1/2 flex flex-col items-center gap-2 group">
         <button
           onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
-          className="cursor-pointer opacity-0 group-hover:opacity-100 transition-all p-2 hover:bg-white rounded-full"
+          className="cursor-pointer md:opacity-0 md:group-hover:opacity-100 transition-all p-2 md:hover:bg-white bg-white rounded-full"
         >
           <ChevronUpIcon className="size-4" />
         </button>
@@ -128,7 +140,7 @@ export default function TimelineRenderer({
           onClick={() =>
             bottomRef.current?.scrollIntoView({ behavior: "smooth" })
           }
-          className="cursor-pointer opacity-0 group-hover:opacity-100 transition-all p-2 hover:bg-white rounded-full"
+          className="cursor-pointer md:opacity-0 md:group-hover:opacity-100 transition-all p-2 md:hover:bg-white bg-white rounded-full"
         >
           <ChevronDownIcon className="size-4" />
         </button>

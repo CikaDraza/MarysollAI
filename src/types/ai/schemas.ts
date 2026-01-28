@@ -51,7 +51,7 @@ export const unifiedSchema: Schema = {
           query: {
             type: SchemaType.STRING,
             description:
-              "Search term for services, e.g., 'gel lak' or 'manikir'",
+              "Search term for services, e.g., 'gel lak' or 'manikir' or 'šminkanje'",
           },
           metadata: {
             type: SchemaType.OBJECT,
@@ -62,6 +62,12 @@ export const unifiedSchema: Schema = {
               date: {
                 type: SchemaType.STRING,
                 description: "ISO format date YYYY-MM-DD",
+              },
+              mode: {
+                type: SchemaType.STRING,
+                enum: ["login", "register", "forgot", "reset"], // Zaključane opcije
+                description: "Selection of auth mode based on user intent",
+                format: "enum",
               },
               time: { type: SchemaType.STRING, description: "HH:mm format" },
             },

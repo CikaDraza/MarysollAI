@@ -112,7 +112,9 @@ export function useAIAppointment({
     try {
       await createAppointment.mutateAsync(payload);
       if (onSuccess) {
-        onSuccess(`USPEH: Zakazano za ${selectedDate} u ${selectedTime}.`);
+        onSuccess(
+          `ZAKAZANO: za ${selectedDate} u ${selectedTime}. Hvala na pomoći`,
+        );
       }
     } catch (e: unknown) {
       toast.error(

@@ -5,8 +5,11 @@ import { AuthBlockType } from "@/types/landing-block";
 import { useState } from "react";
 import { Toaster } from "react-hot-toast";
 import { LockClosedIcon } from "@heroicons/react/24/outline";
+import { LockOpenIcon } from "@heroicons/react/24/outline";
 import LoaderButton from "../LoaderButton";
 import { Reveal } from "../motion/Reveal";
+import { motion } from "framer-motion";
+import { CollapseView } from "../motion/CollapseView";
 
 interface Props {
   block: AuthBlockType;
@@ -21,7 +24,7 @@ export function LoginBlockView({
   onSwitchForgot,
   onActionComplete,
 }: Props) {
-  const { login, isLoggingIn } = useAuthActions();
+  const { user, login, isLoggingIn } = useAuthActions();
   const [email, setEmail] = useState(block.defaultEmail || "");
   const [password, setPassword] = useState("");
 
@@ -31,7 +34,7 @@ export function LoginBlockView({
       await login({ email, password });
       // ✅ OBAVEŠTAVAMO AGENTA
       if (onActionComplete) {
-        onActionComplete("Uspešno sam se ulogovao. Šta je sledeći korak?");
+        onActionComplete("Uspešna prijava.");
       }
     } catch (error: unknown) {
       return console.error({
@@ -40,6 +43,8 @@ export function LoginBlockView({
       });
     }
   };
+
+  const showForm = !user;
 
   return (
     <Reveal>
@@ -58,88 +63,101 @@ export function LoginBlockView({
           />
         </div>
         <div className="flex flex-col justify-center px-6 py-12 lg:px-8">
-          <div className="sm:mx-auto sm:w-full sm:max-w-xl">
-            <LockClosedIcon className="size-10 mx-auto text-(--secondary-color)" />
+          <div className="header sm:mx-auto sm:w-full sm:max-w-xl">
+            <motion.div
+              initial={false}
+              animate={{ rotate: user ? 360 : 0, scale: user ? 1.2 : 1 }}
+              transition={{ type: "spring", stiffness: 260, damping: 20 }}
+            >
+              {user ? (
+                <LockOpenIcon className="size-10 mx-auto text-teal-400" />
+              ) : (
+                <LockClosedIcon className="size-10 mx-auto text-(--secondary-color)" />
+              )}
+            </motion.div>
             <h3 className="mt-10 text-center text-2xl/9 font-bold tracking-tight text-white">
-              Prijavite se na vaš nalog.
+              {user
+                ? `Zdravo, ${user.name || "uspešna prijava"}`
+                : "Prijavite se na vaš nalog."}
             </h3>
           </div>
-
-          <div className="mt-10 sm:mx-auto sm:w-full sm:max-w-sm">
-            <form onSubmit={handleSubmit} className="space-y-6">
-              <div>
-                <label
-                  htmlFor="email"
-                  className="block text-sm/6 font-medium text-gray-100"
-                >
-                  Email address
-                </label>
-                <div className="mt-2">
-                  <input
-                    id="email"
-                    name="email"
-                    type="email"
-                    required
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    autoComplete="email"
-                    className="block w-full rounded-md bg-white/5 px-3 py-1.5 text-base text-white outline-1 -outline-offset-1 outline-white/10 placeholder:text-gray-500 focus:outline-2 focus:-outline-offset-2 focus:outline-(--secondary-color) sm:text-sm/6"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <div className="flex items-center justify-between">
+          <CollapseView isExpanded={showForm}>
+            <div className="mt-10 sm:mx-auto sm:w-full sm:max-w-sm">
+              <form onSubmit={handleSubmit} className="space-y-6">
+                <div>
                   <label
-                    htmlFor="password"
+                    htmlFor="email"
                     className="block text-sm/6 font-medium text-gray-100"
                   >
-                    Password
+                    Email address
                   </label>
-                  <div className="text-sm">
-                    <button
-                      onClick={onSwitchForgot}
-                      className="cursor-pointer font-semibold text-(--secondary-color) hover:text-(--secondary-color)/80"
-                    >
-                      Zaboravili ste lozinku?
-                    </button>
+                  <div className="mt-2">
+                    <input
+                      id="email"
+                      name="email"
+                      type="email"
+                      required
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      autoComplete="email"
+                      className="block w-full rounded-md bg-white/5 px-3 py-1.5 text-base text-white outline-1 -outline-offset-1 outline-white/10 placeholder:text-gray-500 focus:outline-2 focus:-outline-offset-2 focus:outline-(--secondary-color) sm:text-sm/6"
+                    />
                   </div>
                 </div>
-                <div className="mt-2">
-                  <input
-                    id="password"
-                    name="password"
-                    type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    required
-                    autoComplete="current-password"
-                    className="block w-full rounded-md bg-white/5 px-3 py-1.5 text-base text-white outline-1 -outline-offset-1 outline-white/10 placeholder:text-gray-500 focus:outline-2 focus:-outline-offset-2 focus:outline-(--secondary-color) sm:text-sm/6"
-                  />
+
+                <div>
+                  <div className="flex items-center justify-between">
+                    <label
+                      htmlFor="password"
+                      className="block text-sm/6 font-medium text-gray-100"
+                    >
+                      Password
+                    </label>
+                    <div className="text-sm">
+                      <button
+                        onClick={onSwitchForgot}
+                        className="cursor-pointer font-semibold text-(--secondary-color) hover:text-(--secondary-color)/80"
+                      >
+                        Zaboravili ste lozinku?
+                      </button>
+                    </div>
+                  </div>
+                  <div className="mt-2">
+                    <input
+                      id="password"
+                      name="password"
+                      type="password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      required
+                      autoComplete="current-password"
+                      className="block w-full rounded-md bg-white/5 px-3 py-1.5 text-base text-white outline-1 -outline-offset-1 outline-white/10 placeholder:text-gray-500 focus:outline-2 focus:-outline-offset-2 focus:outline-(--secondary-color) sm:text-sm/6"
+                    />
+                  </div>
                 </div>
-              </div>
 
-              <div>
+                <div>
+                  <button
+                    type="submit"
+                    disabled={isLoggingIn}
+                    className="cursor-pointer flex w-full justify-center rounded-md bg-(--secondary-color) px-3 py-1.5 text-sm/6 font-semibold text-white hover:bg-(--secondary-color)/80 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--primary-color)"
+                  >
+                    {isLoggingIn ? <LoaderButton /> : "Ulogujte se"}
+                  </button>
+                </div>
+              </form>
+
+              <p className="mt-10 text-center text-sm/6 text-gray-400">
+                Niste registrovani?{" "}
                 <button
-                  type="submit"
-                  disabled={isLoggingIn}
-                  className="cursor-pointer flex w-full justify-center rounded-md bg-(--secondary-color) px-3 py-1.5 text-sm/6 font-semibold text-white hover:bg-(--secondary-color)/80 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--primary-color)"
+                  onClick={onSwitchRegister}
+                  className="cursor-pointer font-semibold text-(--secondary-color) hover:text-(--secondary-color)/80"
                 >
-                  {isLoggingIn ? <LoaderButton /> : "Ulogujte se"}
+                  registrujte se
                 </button>
-              </div>
-            </form>
-
-            <p className="mt-10 text-center text-sm/6 text-gray-400">
-              Niste registrovani?{" "}
-              <button
-                onClick={onSwitchRegister}
-                className="cursor-pointer font-semibold text-(--secondary-color) hover:text-(--secondary-color)/80"
-              >
-                registrujte se
-              </button>
-            </p>
-          </div>
+              </p>
+            </div>
+          </CollapseView>
         </div>
       </div>
     </Reveal>

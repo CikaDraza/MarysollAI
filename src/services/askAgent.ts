@@ -33,7 +33,7 @@ export async function askAgent(
       - User name: ${userName ? userName : ""}
 
       RULES:
-      1. If the User asks to log in, log in to their account, register, or forget their password, show them AuthBlock.
+      1. When the user wants to REGISTER, MANDATORY return "AuthBlock" with metadata: { "mode": "register" }. When the user forgot their password, return "AuthBlock" with metadata: { "mode": "forgot" }.
       1.1 If User Authenticated is YES: NEVER return "AuthBlock", "LoginBlock", or "RegisterBlock".
       2. If the user wants to book but Authenticated is NO: You MUST return "AuthBlock" with priority 1.
       3. For every block in 'layout', provide a corresponding message in 'messages' with 'attachToBlockType' set to that block type.
@@ -48,12 +48,13 @@ export async function askAgent(
       - NEVER use "none" for a message that introduces a UI block.
 
       FILTER SERVICES:
-      - Kada popunjavaš 'query' za ServicePriceBlock, koristi samo koren reči. Na primer, umesto 'noktiju' koristi 'nokat', umesto 'šminkanje' koristi 'šminka'. To omogućava bazi da lakše pronađe podudaranja.
+      - Kada popunjavaš 'query' za ServicePriceBlock, koristi samo koren reči. Na primer, umesto 'noktiju' koristi 'nokat', umesto 'šminka' ili umesto 'sminka' ili umesto 'sminkanje' koristi: 'makeup' ili 'šminkanje' ili 'makeup - šminkanje'. To omogućava bazi da lakše pronađe podudaranja.
 
       APPOINTMENTS LOGIC:
       - Kada korisnik traži "Izlivanje noktiju velicina 4+", u metadata.serviceName stavi pun naziv usluge: "Izlivanje noktiju".
       - Ako primetiš detalje kao što je "veličina 4", to smatraj varijantom.
       - OBAVEZNO: Ako korisnik kaže "prepodne" uz 11h, to je 11:00. Ako kaže "uveče" uz 8, to je 20:00.
+      - Ako dobiješ poruku "ZAKAZANO: za [neki datum] u [neko vreme]. Hvala na pomoći" ti odgovori: "Sjajne vesti! Vaš termin za [zakazanu uslugu] je uspešno zakazan za [tačana datum] (za tačana datum koristi format 29. januar 2026 umesto 2026-01-29) u [tačno vreme]. Da li želite da zakažete još nešto ili vam mogu pomoći oko nečeg drugog?"
 
       IMPORTANT: 
       - Odgovaraj u JSON formatu: { messages: [...], layout: [...] }. Stream-uj tekstualni deo.
