@@ -18,7 +18,7 @@ interface Props {
 export function AuthBlockView({ block, onActionComplete }: Props) {
   const searchParams = useSearchParams();
   const token = searchParams.get("token");
-  const incomingMode = block.metadata?.mode || "login";
+  const incomingMode = (block.metadata?.mode as AuthMode) || "login";
   const [mode, setMode] = useState<AuthMode>(incomingMode);
 
   const [prevIncomingMode, setPrevIncomingMode] =

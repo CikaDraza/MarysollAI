@@ -68,17 +68,15 @@ export interface ResetPasswordBlockType extends BaseBlock {
 
 export interface AuthBlockType extends BaseBlock {
   type: "AuthBlock";
+  metadata: BaseBlock["metadata"] & {
+    mode?: AuthMode;
+  };
   defaultEmail: string;
 }
 
 export interface CalendarBlockType extends BaseBlock {
   type: "CalendarBlock";
-  metadata: {
-    serviceId: string;
-    serviceName: string;
-    variantName: string;
-    date?: string;
-    time?: string;
+  metadata: BaseBlock["metadata"] & {
     mode?: CalendarMode;
   };
   query?: string;
