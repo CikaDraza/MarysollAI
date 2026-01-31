@@ -70,6 +70,7 @@ export function useAuthActions() {
 
   return {
     user,
+    token: user?.token,
     isLoggedIn: !!user,
     isAdmin: !!user?.isAdmin,
     isLoading,

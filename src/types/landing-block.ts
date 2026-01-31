@@ -7,6 +7,7 @@ export type BlockTypes =
   | "ServicesBlock"
   | "AppointmentBlock"
   | "AppointmentCalendarBlock"
+  | "CalendarBlock"
   | "NewsletterFormBlock"
   | "LoginBlock"
   | "RegisterBlock"
@@ -17,6 +18,7 @@ export type BlockTypes =
   | "none";
 
 export type AuthMode = "login" | "register" | "forgot" | "reset";
+export type CalendarMode = "preview" | "list";
 
 export interface BaseBlock {
   id: string;
@@ -28,7 +30,7 @@ export interface BaseBlock {
     variantName: string;
     date?: string;
     time?: string;
-    mode?: AuthMode;
+    mode?: AuthMode | CalendarMode;
   };
   query?: string;
 }
@@ -69,6 +71,19 @@ export interface AuthBlockType extends BaseBlock {
   defaultEmail: string;
 }
 
+export interface CalendarBlockType extends BaseBlock {
+  type: "CalendarBlock";
+  metadata: {
+    serviceId: string;
+    serviceName: string;
+    variantName: string;
+    date?: string;
+    time?: string;
+    mode?: CalendarMode;
+  };
+  query?: string;
+}
+
 export interface PricingBlockType extends BaseBlock {
   type: "ServicePriceBlock";
   query?: string;
@@ -87,12 +102,3 @@ export interface AppointmentCalendarBlockType extends BaseBlock {
   selectedServiceId?: string; // Može doći iz AI agenta
   selectedServiceName?: string;
 }
-
-export type AnyBlock =
-  | PricingBlockType
-  | AuthBlockType
-  | BaseBlock
-  | LoginBlockType
-  | RegisterBlockType
-  | ForgotPasswordBlockType
-  | AppointmentCalendarBlockType;

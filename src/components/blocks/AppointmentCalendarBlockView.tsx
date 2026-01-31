@@ -15,11 +15,6 @@ interface Props {
   onActionComplete?: (m: string) => void;
 }
 
-interface Props {
-  block: AppointmentCalendarBlockType;
-  onActionComplete?: (m: string) => void;
-}
-
 export default function AppointmentCalendarBlockView({
   block,
   onActionComplete,

@@ -8,6 +8,7 @@ const blockEnum = [
   "ResetPasswordBlock",
   "ForgotPasswordBlock",
   "AppointmentBlock",
+  "CalendarBlock",
   "AppointmentCalendarBlock",
   "ServicesBlock",
   "ServicePriceBlock",
@@ -31,7 +32,6 @@ export const unifiedSchema: Schema = {
             enum: ["assistant"],
             format: "enum",
           },
-          // Pomaže nam da znamo uz koji blok ide tekst
           attachToBlockType: {
             type: SchemaType.STRING,
             enum: ["none", ...blockEnum],
@@ -57,19 +57,31 @@ export const unifiedSchema: Schema = {
             type: SchemaType.OBJECT,
             properties: {
               serviceId: { type: SchemaType.STRING },
-              serviceName: { type: SchemaType.STRING },
-              variantName: { type: SchemaType.STRING },
+              serviceName: {
+                type: SchemaType.STRING,
+              },
+              variantName: {
+                type: SchemaType.STRING,
+              },
+              time: { type: SchemaType.STRING, description: "HH:mm format" },
               date: {
                 type: SchemaType.STRING,
                 description: "ISO format date YYYY-MM-DD",
               },
               mode: {
                 type: SchemaType.STRING,
-                enum: ["login", "register", "forgot", "reset"], // Zaključane opcije
-                description: "Selection of auth mode based on user intent",
+                enum: [
+                  "login",
+                  "register",
+                  "forgot",
+                  "reset",
+                  "preview",
+                  "list",
+                ],
+                description:
+                  "Mode for AuthBlock (login/register) or CalendarBlock (preview/list)",
                 format: "enum",
               },
-              time: { type: SchemaType.STRING, description: "HH:mm format" },
             },
           },
         },

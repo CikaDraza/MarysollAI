@@ -64,7 +64,7 @@ export default function TimelineRenderer({
   return (
     <div className="relative flex w-full lg:max-w-5xl mx-auto">
       {/* GLAVNI CHAT NIZ */}
-      <div className="max-w-full flex-1 space-y-8 pb-3">
+      <div className="max-w-full flex-1 space-y-8 pb-32 md:pb-8">
         {thread.map((item) => (
           <div
             key={item.id}
@@ -109,7 +109,7 @@ export default function TimelineRenderer({
 
       {/* DESNI VERTIKALNI TIMELINE (Grok Style) */}
 
-      <div className="fixed right-2 md:right-8 top-1/2 -translate-y-1/2 flex flex-col items-center gap-2 group">
+      <div className="fixed right-2 md:right-8 top-[40%] md:top-1/2 -translate-y-1/2 flex flex-col items-center gap-2 group">
         <button
           onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
           className="cursor-pointer md:opacity-0 md:group-hover:opacity-100 transition-all p-2 md:hover:bg-white bg-white rounded-full"
