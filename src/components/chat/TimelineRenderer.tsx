@@ -11,12 +11,16 @@ interface Props {
   onAction?: (type: string) => void;
   streamingText?: string;
   isStreaming?: boolean;
+  error?: string | null;
+  resetError?: () => void;
 }
 
 export default function TimelineRenderer({
   thread,
   streamingText,
   isStreaming,
+  error,
+  resetError,
   onAction,
 }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -48,6 +52,17 @@ export default function TimelineRenderer({
       }
     });
   }, [thread, streamingText, isStreaming]);
+
+  useEffect(() => {
+    if (error) {
+      setTimeout(() => {
+        window.scrollTo({
+          top: document.body.scrollHeight,
+          behavior: "smooth",
+        });
+      }, 100);
+    }
+  }, [error]);
 
   const scrollToItem = (id: string) => {
     document
@@ -106,6 +121,38 @@ export default function TimelineRenderer({
         )}
         <div ref={bottomRef} />
       </div>
+
+      {error && (
+        <div className="max-w-2xl mx-auto pb-32 animate-in slide-in-from-bottom-2">
+          <div className="bg-red-50 border border-red-200 rounded-2xl p-4 flex flex-col items-center gap-3">
+            <p className="text-sm text-red-800 font-medium text-center">
+              MarysollAI asistent nije mogao da završi odgovor.
+              <br />
+              <span className="text-xs text-red-900/70 font-medium text-center">
+                {"(MarysollAI Assistant was unable to finish replying.)"}
+              </span>
+              <br />
+              <span className="text-xs font-normal opacity-70">
+                Error: {error}
+              </span>
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => window.location.reload()}
+                className="text-xs bg-white border border-red-200 px-4 py-2 rounded-lg hover:bg-red-50 transition-colors"
+              >
+                Refresh Page
+              </button>
+              <button
+                onClick={resetError}
+                className="text-xs bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors"
+              >
+                Retry
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* DESNI VERTIKALNI TIMELINE (Grok Style) */}
 

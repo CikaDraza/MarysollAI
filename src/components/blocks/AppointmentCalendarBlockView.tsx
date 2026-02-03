@@ -63,7 +63,7 @@ export default function AppointmentCalendarBlockView({
         <select
           value={displayValues.serviceId}
           onChange={(e) => setters.setServiceId(e.target.value)}
-          className="w-full p-3 bg-gray-50 rounded-xl border-none text-sm"
+          className="cursor-pointer w-full p-3 bg-gray-50 hover:bg-gray-100 rounded-xl border-none text-sm"
         >
           <option value="">Izaberite uslugu</option>
           {services.map((s) => (
@@ -80,7 +80,7 @@ export default function AppointmentCalendarBlockView({
               <button
                 key={v.name}
                 onClick={() => setters.setVariantName(v.name)}
-                className={`px-4 py-2 rounded-xl text-sm transition ${
+                className={`cursor-pointer px-4 py-2 rounded-xl text-sm transition ${
                   activeVariant?.name === v.name
                     ? "bg-gray-800 text-white"
                     : "bg-gray-100 text-gray-600 hover:bg-gray-200"
@@ -98,7 +98,7 @@ export default function AppointmentCalendarBlockView({
           value={selectedDate}
           min={new Date().toISOString().split("T")[0]}
           onChange={(e) => setters.setDate(e.target.value)}
-          className="w-full p-3 bg-gray-50 rounded-2xl border-none text-sm"
+          className="w-full p-3 bg-gray-50 hover:bg-gray-100 rounded-2xl border-none text-sm"
         />
 
         <div className="grid grid-cols-4 gap-2">
@@ -107,7 +107,7 @@ export default function AppointmentCalendarBlockView({
             <button
               key={t}
               onClick={() => setters.setTime(t)}
-              className={`p-2 rounded-lg text-xs ${selectedTime === t ? "bg-pink-500 text-white" : "bg-gray-50"}`}
+              className={`cursor-pointer p-2 rounded-lg text-xs ${selectedTime === t ? "bg-pink-500 text-white" : "bg-gray-50 hover:bg-gray-100"}`}
             >
               {t}
             </button>
@@ -124,7 +124,7 @@ export default function AppointmentCalendarBlockView({
           <button
             onClick={handleAIConfirm}
             disabled={isPending || !selectedTime}
-            className="px-6 py-3 bg-gray-900 text-white rounded-2xl font-bold disabled:opacity-30"
+            className="cursor-pointer px-6 py-3 bg-gray-900 hover:bg-gray-800 text-white rounded-2xl font-bold disabled:opacity-30"
           >
             {isPending ? "Zakaži..." : "Zakaži termin"}
           </button>

@@ -10,6 +10,7 @@ import { useAIQuery } from "@/hooks/useAIQuery";
 import { useAuthActions } from "@/hooks/useAuthActions";
 import TimelineRenderer from "@/components/chat/TimelineRenderer";
 import { AuthProvider } from "@/hooks/context/AuthContext";
+import MiniLoader from "@/components/MiniLoader";
 
 export default function CampaignPage() {
   const params = useParams<{ slug: string[] }>();
@@ -28,11 +29,15 @@ export default function CampaignPage() {
     clearChat,
   } = useAIQuery(user);
 
-  if (isLoading || !data) return null;
-  if (!token) return null;
+  if (isLoading || !data)
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <MiniLoader />
+      </div>
+    );
 
   return (
-    <AuthProvider token={token}>
+    <AuthProvider token={token || null}>
       <div className="relative isolate px-6 lg:px-8 pb-44">
         <CampaignLayoutEngine blocks={data?.landingPage?.layout ?? []} />
         <TimelineRenderer
@@ -40,34 +45,9 @@ export default function CampaignPage() {
           onAction={askAI}
           streamingText={streamingText}
           isStreaming={isStreaming}
+          error={error}
+          resetError={resetError}
         />
-        {error && (
-          <div className="max-w-2xl mx-auto mb-4 animate-in slide-in-from-bottom-2">
-            <div className="bg-red-50 border border-red-200 rounded-2xl p-4 flex flex-col items-center gap-3">
-              <p className="text-sm text-red-800 font-medium text-center">
-                MarysollAI Assistant was unable to finish replying.
-                <br />
-                <span className="text-xs font-normal opacity-70">
-                  Error: {error}
-                </span>
-              </p>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => window.location.reload()}
-                  className="text-xs bg-white border border-red-200 px-4 py-2 rounded-lg hover:bg-red-50 transition-colors"
-                >
-                  Refresh Page
-                </button>
-                <button
-                  onClick={resetError}
-                  className="text-xs bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors"
-                >
-                  Retry
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
 
         <AIAgentPanel
           onSubmit={askAI}

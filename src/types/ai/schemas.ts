@@ -10,7 +10,6 @@ const blockEnum = [
   "AppointmentBlock",
   "CalendarBlock",
   "AppointmentCalendarBlock",
-  "ServicesBlock",
   "ServicePriceBlock",
   "TestimonialBlock",
   "NewsletterFormBlock",
@@ -34,7 +33,7 @@ export const unifiedSchema: Schema = {
           },
           attachToBlockType: {
             type: SchemaType.STRING,
-            enum: ["none", ...blockEnum],
+            enum: [...blockEnum, "none"],
             format: "enum",
           },
         },
@@ -59,9 +58,13 @@ export const unifiedSchema: Schema = {
               serviceId: { type: SchemaType.STRING },
               serviceName: {
                 type: SchemaType.STRING,
+                description:
+                  "REQUIRED. The main name of the service from the knowledge base. Example: 'Gel lak'.",
               },
               variantName: {
                 type: SchemaType.STRING,
+                description:
+                  "OPTIONAL. Only if a specific variant or size is chosen. Otherwise empty string.",
               },
               time: { type: SchemaType.STRING, description: "HH:mm format" },
               date: {

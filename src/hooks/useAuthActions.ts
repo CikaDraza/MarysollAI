@@ -44,7 +44,6 @@ export function useAuthActions() {
   // 3. Register Mutacija
   const registerMutation = useMutation({
     mutationFn: async (payload: RegisterPayload) => {
-      console.log("Slanje registracije:", payload);
       const { data } = await axios.post<LoginResponse>(
         "/api/external/auth/register",
         payload,

@@ -74,11 +74,4 @@ export const BLOCK_REGISTRY: BlockDescriptor[] = [
     action: "action",
     requiresAuth: false,
   },
-  {
-    type: "ServicesBlock",
-    title: "Usluge",
-    description: "Detaljan opis usluga koje salon nudi",
-    action: "read",
-    requiresAuth: false,
-  },
 ];

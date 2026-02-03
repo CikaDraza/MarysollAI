@@ -125,7 +125,7 @@ export function useAIQuery(user?: AuthUser | null) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           message: query,
-          isAuthenticated: !!user,
+          isAuthenticated: !!user && user !== null,
           userName: user?.name,
           history: thread, // Šaljemo istoriju
         }),

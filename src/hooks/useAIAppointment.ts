@@ -6,6 +6,7 @@ import { AuthUser } from "@/types/auth-types";
 import { IAppointment } from "@/types/appointments-type";
 import { useAppointmentMutations } from "./useAppointmentMutations";
 import toast from "react-hot-toast";
+import { formatISODate } from "@/helpers/formatISODate";
 
 interface UseAIAppointmentProps {
   block: AppointmentCalendarBlockType;
@@ -31,6 +32,7 @@ export function useAIAppointment({
   );
 
   // 2. Destruktuiranje AI predloga da bi React Compiler lakše pratio zavisnosti
+  const aiServiceId = block.metadata?.serviceId;
   const aiServiceName = block.metadata?.serviceName;
   const aiVariantName = block.metadata?.variantName;
   const aiDate = block.metadata?.date;
@@ -39,16 +41,20 @@ export function useAIAppointment({
 
   // 3. Lookup predložene usluge
   const suggestedService = useMemo(() => {
-    if (!query || aiServiceName) return null;
-    const findService = query || aiServiceName;
+    const searchName = aiServiceName || query;
+    if (!searchName) return null;
     return services.find((s) =>
-      s.name.toLowerCase().includes(findService.toLowerCase()),
+      s.name.toLowerCase().includes(searchName.toLowerCase()),
     );
   }, [services, query, aiServiceName]);
 
   // 4. Finalne izvedene vrednosti (Ono što UI prikazuje)
   const serviceId =
-    manualServiceId || suggestedService?._id || block.selectedServiceId || "";
+    manualServiceId ||
+    aiServiceId ||
+    suggestedService?._id ||
+    block.selectedServiceId ||
+    "";
   const selectedService = useMemo(
     () => services.find((s) => s._id === serviceId),
     [services, serviceId],
@@ -75,6 +81,9 @@ export function useAIAppointment({
   const handleAIConfirm = async () => {
     if (!user) {
       toast.error("Morate biti prijavljeni.");
+      if (onSuccess) {
+        onSuccess("GREŠKA: Korisnik nije prijavljen.");
+      }
       return;
     }
     if (!selectedService || !selectedTime) {
@@ -113,7 +122,7 @@ export function useAIAppointment({
       await createAppointment.mutateAsync(payload);
       if (onSuccess) {
         onSuccess(
-          `ZAKAZANO: za ${selectedDate} u ${selectedTime}. Hvala na pomoći`,
+          `ZAKAZANO: za ${formatISODate(selectedDate)} u ${selectedTime}. Hvala na pomoći`,
         );
       }
     } catch (e: unknown) {

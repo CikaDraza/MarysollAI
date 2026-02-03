@@ -18,7 +18,8 @@ export const AuthProvider = ({
   children: ReactNode;
   token: string | null;
 }) => {
-  const user = token ? getUserFromToken(token) : null;
+  const isValidToken = token && token !== "null" && token !== "undefined";
+  const user = isValidToken ? getUserFromToken(token) : null;
   return (
     <AuthContext.Provider value={{ token, user }}>
       {children}

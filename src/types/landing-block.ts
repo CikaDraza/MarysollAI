@@ -1,10 +1,8 @@
 // src/types/landing-block.ts
 
 export type BlockTypes =
-  | "ServicePriceBlock"
   | "AuthBlock"
-  | "PricingBlock"
-  | "ServicesBlock"
+  | "ServicePriceBlock"
   | "AppointmentBlock"
   | "AppointmentCalendarBlock"
   | "CalendarBlock"

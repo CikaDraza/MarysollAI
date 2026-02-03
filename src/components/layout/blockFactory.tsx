@@ -25,7 +25,7 @@ export function blockFactory(
         <AuthBlockView
           key={block.id}
           block={block as AuthBlockType}
-          onActionComplete={onMessageAction}
+          onActionComplete={safeOnAction}
         />
       );
     case "ServicePriceBlock":
@@ -37,7 +37,7 @@ export function blockFactory(
         <AppointmentCalendarBlockView
           key={block.id}
           block={block as AppointmentCalendarBlockType}
-          onActionComplete={onMessageAction}
+          onActionComplete={safeOnAction}
         />
       );
     case "CalendarBlock":
