@@ -15,6 +15,7 @@ interface UseAppointmentsProps {
   search?: string;
   date?: string;
   status?: string;
+  clientId?: string;
 }
 
 export function useAppointments({
@@ -23,11 +24,12 @@ export function useAppointments({
   search = "",
   date = "",
   status = "all",
+  clientId,
 }: UseAppointmentsProps = {}) {
   const hasFilters = !!search || !!date;
 
   return useQuery<AppointmentsResponse>({
-    queryKey: ["appointments", page, limit, search, date, status],
+    queryKey: ["appointments", page, limit, search, date, status, clientId],
     queryFn: async () => {
       const params = new URLSearchParams();
       if (status !== "all") params.append("status", status);
@@ -35,6 +37,7 @@ export function useAppointments({
       params.append("limit", limit.toString());
       if (search) params.append("search", search);
       if (date) params.append("date", date);
+      if (clientId) params.append("clientId", clientId);
 
       const { data } = await axios.get(
         `/api/external/appointments?${params.toString()}`,

@@ -9,6 +9,8 @@ import { useAuthActions } from "@/hooks/useAuthActions";
 import { generateTimes } from "@/helpers/generateTimes";
 import { useAIAppointment } from "@/hooks/useAIAppointment";
 import { Toaster } from "react-hot-toast";
+import { useSalonProfile } from "@/hooks/useSalonProfile";
+import { getDay } from "date-fns";
 
 interface Props {
   block: AppointmentCalendarBlockType;
@@ -21,6 +23,7 @@ export default function AppointmentCalendarBlockView({
 }: Props) {
   const { user } = useAuthActions();
   const { data: services = [] } = useServices({ query: "" });
+  const { data: profile } = useSalonProfile();
   const timeOptions = useMemo(() => generateTimes(8, 20, 30), []);
 
   const { displayValues, setters, handleAIConfirm, isPending } =
@@ -38,6 +41,57 @@ export default function AppointmentCalendarBlockView({
     selectedTime,
     isAiSuggested,
   } = displayValues;
+
+  const workingHoursForDay = useMemo(() => {
+    const dayNames = [
+      "Nedelja",
+      "Ponedeljak",
+      "Utorak",
+      "Sreda",
+      "Četvrtak",
+      "Petak",
+      "Subota",
+    ];
+
+    const hoursSource = profile?.workingHours;
+
+    if (!hoursSource) {
+      return { isWorking: false, start: null, end: null };
+    }
+
+    const dayName = dayNames[getDay(selectedDate)]; // npr. "Sreda"
+    const timeRange = hoursSource[dayName];
+
+    if (!timeRange) {
+      return {
+        dayName,
+        isWorking: false,
+        start: null,
+        end: null,
+      };
+    }
+
+    if (timeRange.includes(" - ")) {
+      const [start, end] = timeRange.split(" - ");
+      return {
+        dayName,
+        timeRange,
+        isWorking: true,
+        start: start.trim(),
+        end: end.trim(),
+      };
+    }
+
+    return { isWorking: false, start: null, end: null };
+  }, [selectedDate, profile]);
+
+  function isTimeBetween(slot: string, start: string, end: string) {
+    const toMins = (t: string) => {
+      const [h, m] = t.split(":").map(Number);
+      return h * 60 + m;
+    };
+    return toMins(slot) >= toMins(start) && toMins(slot) < toMins(end);
+  }
 
   return (
     <div className="bg-white rounded-3xl p-6 shadow-xl max-w-md mx-auto my-6">
@@ -103,15 +157,28 @@ export default function AppointmentCalendarBlockView({
 
         <div className="grid grid-cols-4 gap-2">
           {/* Ovde mapiraš tvoje timeOptions */}
-          {timeOptions.map((t) => (
-            <button
-              key={t}
-              onClick={() => setters.setTime(t)}
-              className={`cursor-pointer p-2 rounded-lg text-xs ${selectedTime === t ? "bg-pink-500 text-white" : "bg-gray-50 hover:bg-gray-100"}`}
-            >
-              {t}
-            </button>
-          ))}
+          {timeOptions.map((t) => {
+            // Provera radnog vremena
+            const isOutside = workingHoursForDay?.isWorking
+              ? !isTimeBetween(
+                  t,
+                  workingHoursForDay.start!,
+                  workingHoursForDay.end!,
+                )
+              : true;
+
+            // Ako je van radnog vremena, preskoči render
+            if (isOutside) return null;
+            return (
+              <button
+                key={t}
+                onClick={() => setters.setTime(t)}
+                className={`cursor-pointer p-2 rounded-lg text-xs ${selectedTime === t ? "bg-pink-500 text-white" : "bg-gray-50 hover:bg-gray-100"}`}
+              >
+                {t}
+              </button>
+            );
+          })}
         </div>
         {/* Footer info */}
         <div className="pt-4 border-t border-gray-200 flex justify-between items-center">

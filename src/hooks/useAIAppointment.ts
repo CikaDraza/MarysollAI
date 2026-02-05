@@ -6,7 +6,7 @@ import { AuthUser } from "@/types/auth-types";
 import { IAppointment } from "@/types/appointments-type";
 import { useAppointmentMutations } from "./useAppointmentMutations";
 import toast from "react-hot-toast";
-import { formatISODate } from "@/helpers/formatISODate";
+import { formatDatePretty } from "@/helpers/formatISODate";
 
 interface UseAIAppointmentProps {
   block: AppointmentCalendarBlockType;
@@ -77,6 +77,10 @@ export function useAIAppointment({
     );
   }, [selectedService, manualVariantName, aiVariantName]);
 
+  const isSlotBusy = useMemo(() => {
+    return false;
+  }, []);
+
   // 5. Funkcija za slanje (mutacija)
   const handleAIConfirm = async () => {
     if (!user) {
@@ -88,6 +92,11 @@ export function useAIAppointment({
     }
     if (!selectedService || !selectedTime) {
       toast.error("Nedostaju podaci za zakazivanje.");
+      return;
+    }
+
+    if (isSlotBusy) {
+      toast.error("Ovaj termin je u međuvremenu zauzet.");
       return;
     }
 
@@ -122,7 +131,7 @@ export function useAIAppointment({
       await createAppointment.mutateAsync(payload);
       if (onSuccess) {
         onSuccess(
-          `ZAKAZANO: za ${formatISODate(selectedDate)} u ${selectedTime}. Hvala na pomoći`,
+          `ZAKAZANO: za ${formatDatePretty(selectedDate)} u ${selectedTime}. Hvala na pomoći`,
         );
       }
     } catch (e: unknown) {

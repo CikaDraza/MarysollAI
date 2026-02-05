@@ -2,10 +2,11 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { format, addDays, isSameDay } from "date-fns";
+import { format, addDays, isSameDay, getDay } from "date-fns";
 import { sr } from "date-fns/locale";
 import { useAppointments } from "@/hooks/useAppointments";
 import { useAuth } from "@/hooks/context/AuthContext";
+import { useSalonProfile } from "@/hooks/useSalonProfile";
 
 interface Props {
   onSlotClick: (date: string, time: string) => void;
@@ -14,11 +15,56 @@ interface Props {
 export function CalendarBlockPreview({ onSlotClick }: Props) {
   const [selectedDate, setSelectedDate] = useState(new Date());
   const { user } = useAuth();
+  const { data: profile } = useSalonProfile();
+
+  const workingHoursForDay = useMemo(() => {
+    const dayNames = [
+      "Nedelja",
+      "Ponedeljak",
+      "Utorak",
+      "Sreda",
+      "Četvrtak",
+      "Petak",
+      "Subota",
+    ];
+
+    const hoursSource = profile?.workingHours;
+
+    if (!hoursSource) {
+      return { isWorking: false, start: null, end: null };
+    }
+
+    const dayName = dayNames[getDay(selectedDate)]; // npr. "Sreda"
+    const timeRange = hoursSource[dayName];
+
+    if (!timeRange) {
+      return {
+        dayName,
+        isWorking: false,
+        start: null,
+        end: null,
+      };
+    }
+
+    if (timeRange.includes(" - ")) {
+      const [start, end] = timeRange.split(" - ");
+      return {
+        dayName,
+        timeRange,
+        isWorking: true,
+        start: start.trim(),
+        end: end.trim(),
+      };
+    }
+
+    return { isWorking: false, start: null, end: null };
+  }, [selectedDate, profile]);
 
   // 1. Fetch podataka za izabrani datum
   const { data: response, isLoading } = useAppointments({
     date: format(selectedDate, "yyyy-MM-dd"),
     limit: 100, // Uzimamo sve za taj dan
+    clientId: user?.id,
   });
 
   // 2. Generisanje dana (narednih 7 dana)
@@ -29,17 +75,28 @@ export function CalendarBlockPreview({ onSlotClick }: Props) {
   // 3. Generisanje slotova (npr. od 09:00 do 20:00 na svakih 30 min)
   const timeSlots = useMemo(() => {
     const slots = [];
-    for (let hour = 9; hour <= 20; hour++) {
+    for (let hour = 0; hour <= 23; hour++) {
       slots.push(`${hour.toString().padStart(2, "0")}:00`);
       slots.push(`${hour.toString().padStart(2, "0")}:30`);
     }
     return slots;
   }, []);
 
+  // Provera da li je slot unutar radnog vremena
+  const canBook = workingHoursForDay?.isWorking;
+
+  function isTimeBetween(slot: string, start: string, end: string) {
+    const toMins = (t: string) => {
+      const [h, m] = t.split(":").map(Number);
+      return h * 60 + m;
+    };
+    return toMins(slot) >= toMins(start) && toMins(slot) < toMins(end);
+  }
+
   return (
     <div className="flex flex-col gap-4">
       {/* Horizontalni Date Picker */}
-      <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide mx-auto">
+      <div className="flex gap-2 overflow-x-auto pb-2 mx-auto">
         {days.map((day) => (
           <button
             key={day.toISOString()}
@@ -60,41 +117,57 @@ export function CalendarBlockPreview({ onSlotClick }: Props) {
 
       {/* Grid sa terminima */}
       <div className="grid grid-cols-3 gap-2 max-h-75 overflow-y-auto p-1">
-        {isLoading ? (
-          <div className="col-span-3 py-10 text-center text-sm text-gray-400">
-            Učitavam termine...
+        {!canBook ? (
+          <div className="py-10 text-center col-span-3 text-sm text-red-400 bg-gray-50 rounded-2xl">
+            Salon ne radi ovim danom.
           </div>
         ) : (
-          timeSlots.map((slot) => {
-            const appointment = response?.appointments.find(
-              (a) => a.time === slot,
-            );
-            const isTaken = !!appointment;
-            const isMine = appointment?.clientId === user?.id;
-
-            return (
-              <button
-                key={slot}
-                disabled={isTaken && !isMine}
-                onClick={() =>
-                  !isTaken &&
-                  onSlotClick(format(selectedDate, "yyyy-MM-dd"), slot)
-                }
-                className={`cursor-pointer py-3 rounded-xl text-xs font-bold border transition-all ${
-                  isMine
-                    ? "bg-purple-100 border-purple-300 text-purple-700 ring-2 ring-purple-200" // Tvoj termin
-                    : isTaken
-                      ? "bg-gray-50 border-gray-100 text-gray-300 cursor-not-allowed opacity-50" // Tuđ termin
-                      : "bg-white border-gray-100 text-gray-700 hover:border-(--secondary-color) hover:text-(--secondary-color)" // Slobodno
-                }`}
-              >
-                {slot}
-                {isMine && (
-                  <span className="block text-[8px] uppercase">Tvoj</span>
-                )}
-              </button>
-            );
-          })
+          <>
+            {isLoading ? (
+              <div className="col-span-3 py-10 text-center text-sm text-gray-400">
+                Učitavam termine...
+              </div>
+            ) : (
+              timeSlots.map((slot) => {
+                // Provera da li je slot unutar radnog vremena
+                const isOutside = !isTimeBetween(
+                  slot,
+                  workingHoursForDay.start!,
+                  workingHoursForDay.end!,
+                );
+                const appointment = response?.appointments.find(
+                  (a) => a.time === slot,
+                );
+                const isTaken = !!appointment;
+                const isMine = appointment?.clientId === user?.id;
+                if (isOutside) return null;
+                return (
+                  <button
+                    key={slot}
+                    disabled={isTaken && !isMine}
+                    onClick={() =>
+                      !isTaken &&
+                      onSlotClick(format(selectedDate, "yyyy-MM-dd"), slot)
+                    }
+                    className={`cursor-pointer py-3 rounded-xl text-xs font-bold border transition-all ${
+                      isMine
+                        ? "bg-purple-100 border-purple-300 text-purple-700 ring-2 ring-purple-200" // Tvoj termin
+                        : isTaken
+                          ? "bg-gray-50 border-gray-100 text-gray-300 cursor-not-allowed opacity-50" // Tuđ termin
+                          : "bg-white border-gray-100 text-gray-700 hover:border-(--secondary-color) hover:text-(--secondary-color)" // Slobodno
+                    }`}
+                  >
+                    {slot}
+                    {isMine && (
+                      <span className="block text-[8px] uppercase">
+                        Tvoj termin
+                      </span>
+                    )}
+                  </button>
+                );
+              })
+            )}
+          </>
         )}
       </div>
       {/* Legenda */}

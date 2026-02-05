@@ -34,7 +34,7 @@ export function LoginBlockView({
       await login({ email, password });
       // ✅ OBAVEŠTAVAMO AGENTA
       if (onActionComplete) {
-        onActionComplete("Uspešna prijava.");
+        onActionComplete("USPEŠNA PRIJAVA.");
       }
     } catch (error: unknown) {
       return console.error({

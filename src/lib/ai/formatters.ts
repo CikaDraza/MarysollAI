@@ -11,7 +11,7 @@ export function formatKnowledgeBase(
     .map((s) => {
       const variantList =
         s.variants?.map((v: IServiceVariant) => v.name).join(", ") || "Nema";
-      return `- [ID: ${s._id}] ${s.category} > ${s.name}: ${s.basePrice} RSD. Varijante: [${variantList}]`;
+      return `- [ID: ${s._id}], Trajanje: ${s.duration} min, ${s.category} > ${s.name}: Cena: ${s.basePrice} RSD. Varijante: [${variantList}]`;
     })
     .join("\n");
 

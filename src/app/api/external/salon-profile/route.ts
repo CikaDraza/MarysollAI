@@ -6,7 +6,7 @@ export async function GET() {
 
   try {
     const response = await fetch(`${MAIN_SITE_API}/salon-profile`, {
-      next: { revalidate: 3600 }, // Profil se ne menja često, keširaj na sat vremena
+      next: { revalidate: 3600 },
     });
 
     const data = await response.json();

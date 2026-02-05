@@ -1,6 +1,7 @@
 import { formatKnowledgeBase } from "@/lib/ai/formatters";
 import { ThreadItem } from "@/types/ai/chat-thread";
 import { unifiedSchema } from "@/types/ai/schemas";
+import { IAppointment } from "@/types/appointments-type";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
@@ -14,13 +15,15 @@ export async function askAgent(
   const MAIN_SITE_API = process.env.MAIN_SITE_API;
 
   // 1. Fetch podataka (paralelno radi brzine)
-  const [servicesRes, profileRes] = await Promise.all([
+  const [servicesRes, profileRes, appointmentsRes] = await Promise.all([
     fetch(`${MAIN_SITE_API}/services`),
     fetch(`${MAIN_SITE_API}/salon-profile`),
+    fetch(`${MAIN_SITE_API}/appointments/public`),
   ]);
 
   const servicesData = await servicesRes.json();
   const profileData = await profileRes.json();
+  const appointmentsData = await appointmentsRes.json();
 
   const { servicesText, workingHoursText } = formatKnowledgeBase(
     servicesData,
@@ -35,6 +38,21 @@ export async function askAgent(
       role: item.data.role === "user" ? "user" : "model",
       parts: [{ text: item.data.content }],
     }));
+
+  const busySlotsText = appointmentsData
+    .filter((app: IAppointment) => app.status !== "appointment_cancelled")
+    .map((app: IAppointment) => {
+      return `${app.date}: od ${app.time} do ${calculateEndTime(app.time, app.duration)}`;
+    })
+    .join("; ");
+
+  function calculateEndTime(startTime: string, durationMinutes: number) {
+    const [hours, minutes] = startTime.split(":").map(Number);
+    const totalMinutes = hours * 60 + minutes + durationMinutes;
+    const endHours = Math.floor(totalMinutes / 60);
+    const endMinutes = totalMinutes % 60;
+    return `${String(endHours).padStart(2, "0")}:${String(endMinutes).padStart(2, "0")}`;
+  }
 
   const currentDate = new Date().toISOString().split("T")[0];
 
@@ -54,6 +72,7 @@ export async function askAgent(
       - LoggedIn: ${isAuthenticated ? "YES" : "NO"}
       - User: ${userName || "Gost"}
       - Knowledge: ${servicesText}
+      - Busy Slots (Reserved Ranges): ${busySlotsText}
       - Hours: ${workingHoursText}
 
       # FLOW RULES (STRICT PRIORITIES)
@@ -61,6 +80,8 @@ export async function askAgent(
       ## 0.AUTHENTICATION (The "LoggedIn" Override):
         - ALWAYS check the "LoggedIn" status in CONTEXT before responding.
         - If LoggedIn is YES: Treat them as authenticated, even if old history says otherwise. NEVER show AuthBlock if LoggedIn is YES.
+        - IF user's VERY LAST message contains "USPEŠNA PRIJAVA."
+           * MESSAGE: "Sjajno! Uspešno si se prijavila [user name] (IF it is a female name)."
         - IF user's message contains "GREŠKA: Korisnik nije prijavljen":
         * MESSAGE: "Ups! Izgleda da nisi prijavljena. Molim te, uloguj se ponovo da završimo zakazivanje."
         * LAYOUT: "AuthBlock", mode: "login".
@@ -72,6 +93,21 @@ export async function askAgent(
 
       ## 1. SMART BOOKING (PRE-ACTION, ONLY IF LoggedIn is "YES")
       - TRIGGER: User mentions a service, date, or time for booking (e.g., "Zakaži mi gel lak za sutra u 12").
+      - AVAILABILITY CHECK:
+        * Before suggesting a time, check if the requested [date] and [time] are in the 'Busy Slots' list.
+        * IDENTIFY: Which service he wants (eg Gel lak) and how long it lasts (eg 90 min).
+        * CALCULATE: If the user wants an appointment at 11:00, and the service lasts 3 hours, the appointment would last until 14:00.
+        * CHECK COLLISION: Compare that range (11:00-14:00) with 'Busy Slots'.
+        * IF any part of the requested slot overlaps with an existing reserved range, the slot is BUSY.
+        * EXAMPLE: If "10:00 to 13:00" is entered in Busy Slots, and the user asks for "12:00", tell him: "Nažalost, salon je tada zauzet. Možemo li u 13:30 ili kasnije?"
+        * If BUSY: 
+          - MESSAGE: "Nažalost, termin [time] je već zauzet.
+          - Offer the first available slot after that occupied slot. MESSAGE:  Možemo li u [time] ili kasnije?
+          - LAYOUT: "CalendarBlock", mode: "preview".
+          - STOP: Do not show AppointmentCalendarBlock for a busy slot.
+        * If FREE: 
+          - Check if it's within Working Hours.
+          - If everything is OK, proceed with metadata filling as before.
       - LOGIC:
         * 1. IDENTIFY: Extract serviceName, rewrite the correct 'name' of the service. Extract serviceId in metadata (mandatory from Knowledge Base), rewrite the correct '_id' of the service (eg '6933e21d927aff0b20983d62'). Extract Date (YYYY-MM-DD), and time (HH:mm).
         * 2. VARIANT CHECK: If the service has variants but the user didn't specify one, ASK: "Može! Za [serviceName] imamo ove opcije: [list variants]. Koju želiš?". If the service has variants (type: 'variant'), compare the user input with the list of variants and enter the correct variant name.

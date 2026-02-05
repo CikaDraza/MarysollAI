@@ -15,20 +15,7 @@ interface ClientAppointmentListItemProps {
 function ClientAppointmentListItem({
   appointment,
 }: ClientAppointmentListItemProps) {
-  const { data: response } = useAppointments();
-
-  const appointments = useMemo(() => {
-    return response?.appointments || [];
-  }, [response?.appointments]);
-
-  // Uzmi ažurirani appointment sa najnovijim porukama
-  const currentAppointment = useMemo(() => {
-    if (!appointments) return appointment;
-    return (
-      appointments.find((a: IAppointment) => a._id === appointment._id) ||
-      appointment
-    );
-  }, [appointment, appointments]);
+  const currentAppointment = appointment;
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -119,6 +106,7 @@ function ClientAppointmentListItem({
 
 export default function ClientBlockAppointments() {
   const [page, setPage] = useState(1);
+  const { user } = useAuth();
 
   // API poziv sa debounced vrednostima
   const {
@@ -128,15 +116,14 @@ export default function ClientBlockAppointments() {
   } = useAppointments({
     page,
     limit: 10,
+    clientId: user?.id,
   });
 
   const appointments = useMemo(() => {
     return response?.appointments || [];
-  }, [response?.appointments]);
+  }, [response]);
 
   const pagination = response?.pagination;
-
-  const { user } = useAuth();
 
   const handlePageChange = (newPage: number) => {
     setPage(newPage);
@@ -144,26 +131,19 @@ export default function ClientBlockAppointments() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  const clientAppointments = useMemo(() => {
-    if (!user || !appointments) return [];
-    return appointments.filter(
-      (appt: IAppointment) => appt.clientId === user.id,
-    );
-  }, [appointments, user]);
-
   if (isLoading) return <MiniLoader />;
   if (isError) return <p>Greška pri učitavanju termina.</p>;
 
   return (
     <div className="space-y-6">
-      {clientAppointments.length === 0 ? (
+      {appointments.length === 0 ? (
         <p className="text-center text-gray-500 py-8">
           Nemate zakazanih termina.
         </p>
       ) : (
         <>
           <ul role="list" className="divide-y divide-gray-100">
-            {clientAppointments.map((appointment: IAppointment) => (
+            {appointments.map((appointment: IAppointment) => (
               <ClientAppointmentListItem
                 key={appointment._id}
                 appointment={appointment}
