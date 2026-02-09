@@ -162,7 +162,7 @@ export function ResetPasswordBlockView({
                 <button
                   type="submit"
                   disabled={isResetting}
-                  className="cursor-pointer group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-(--primary-color) hover:bg-(--primary-color)/80 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-(--primary-color) disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="cursor-pointer flex w-full justify-center rounded-md bg-(--secondary-color) px-3 py-1.5 text-sm/6 font-semibold text-white hover:bg-(--secondary-color)/80 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--primary-color)"
                 >
                   {isResetting ? <LoaderButton /> : "Resetuj šifru"}
                 </button>
