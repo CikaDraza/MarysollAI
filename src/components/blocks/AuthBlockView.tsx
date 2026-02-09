@@ -1,7 +1,7 @@
 // src/components/conversational/blocks/AuthBlockView.tsx
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { AuthBlockType, AuthMode } from "@/types/landing-block";
 import { RegisterBlockView } from "./RegisterBlockView";
 import { ResetPasswordBlockView } from "./ResetPasswordBlockView";
@@ -19,6 +19,7 @@ interface Props {
 export function AuthBlockView({ block, onActionComplete }: Props) {
   const searchParams = useSearchParams();
   const token = searchParams.get("token");
+  const hasNotifiedRef = useRef(false);
   const incomingMode = (block.metadata?.mode as AuthMode) || "login";
   const [mode, setMode] = useState<AuthMode>(() => {
     if (token) return "reset";
@@ -30,7 +31,8 @@ export function AuthBlockView({ block, onActionComplete }: Props) {
 
   // 1. AUTOMATSKO OTVARANJE RESET MODA
   useEffect(() => {
-    if (token && onActionComplete) {
+    if (token && onActionComplete && !hasNotifiedRef.current) {
+      hasNotifiedRef.current = true; // 👈 Odmah "zaključavamo" da se ne ponovi
       onActionComplete("RESETOVAO SAM ŠIFRU.");
     }
   }, [token, onActionComplete]);

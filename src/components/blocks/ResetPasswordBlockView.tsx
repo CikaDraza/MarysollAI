@@ -52,6 +52,8 @@ export function ResetPasswordBlockView({
         onActionComplete("USPEŠNO UPISANA NOVA ŠIFRA.");
       }
       setShowForm(false);
+      // nakon uspešnog API poziva ukloniti ?token=... :
+      window.history.replaceState({}, "", window.location.pathname);
       // Opciono: automatski prebaci na login nakon par sekundi
       setTimeout(() => onSwitchLogin(), 3000);
     } catch (err: unknown) {
