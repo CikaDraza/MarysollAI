@@ -127,8 +127,6 @@ export default function ClientBlockAppointments() {
 
   const handlePageChange = (newPage: number) => {
     setPage(newPage);
-    // Scroll na vrh nakon promene strane
-    window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   if (isLoading) return <MiniLoader />;
