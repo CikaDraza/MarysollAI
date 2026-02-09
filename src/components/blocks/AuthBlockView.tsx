@@ -32,8 +32,14 @@ export function AuthBlockView({ block, onActionComplete }: Props) {
   // 1. AUTOMATSKO OTVARANJE RESET MODA
   useEffect(() => {
     if (token && onActionComplete && !hasNotifiedRef.current) {
-      hasNotifiedRef.current = true; // 👈 Odmah "zaključavamo" da se ne ponovi
+      hasNotifiedRef.current = true;
+
+      // 1. Obavesti AI
       onActionComplete("RESETOVAO SAM ŠIFRU.");
+
+      // 2. OČISTI URL (Uklanja ?token=... bez osvežavanja stranice)
+      const newUrl = window.location.pathname;
+      window.history.replaceState({}, "", newUrl);
     }
   }, [token, onActionComplete]);
 

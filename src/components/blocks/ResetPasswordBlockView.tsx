@@ -106,7 +106,9 @@ export function ResetPasswordBlockView({
           {message && (
             <div
               className={`p-4 text-center rounded-md ${
-                message.includes("poslat") ? "text-green-500" : " text-red-500"
+                message.includes("poslat")
+                  ? "text-(--secondary-color)"
+                  : " text-red-500"
               }`}
             >
               {message}
@@ -127,7 +129,7 @@ export function ResetPasswordBlockView({
                   type="password"
                   autoComplete="new-password"
                   required
-                  className="appearance-none rounded-md relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-400 text-gray-900 focus:outline-none focus:ring-(--secondary-color) focus:border-(--secondary-color) focus:z-10 sm:text-sm"
+                  className="appearance-none rounded-md relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-400 text-gray-50 focus:outline-none focus:ring-(--secondary-color) focus:border-(--secondary-color) focus:z-10 sm:text-sm"
                   placeholder="Unesite novu šifru"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
@@ -138,7 +140,7 @@ export function ResetPasswordBlockView({
               <div>
                 <label
                   htmlFor="confirmPassword"
-                  className="block text-sm font-medium text-gray-700 mb-1"
+                  className="block text-sm font-medium text-gray-100 mb-1"
                 >
                   Potvrdite šifru
                 </label>
@@ -148,7 +150,7 @@ export function ResetPasswordBlockView({
                   type="password"
                   autoComplete="new-password"
                   required
-                  className="appearance-none rounded-md relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-(--secondary-color) focus:border-(--secondary-color) focus:z-10 sm:text-sm"
+                  className="appearance-none rounded-md relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-400 text-gray-50 focus:outline-none focus:ring-(--secondary-color) focus:border-(--secondary-color) focus:z-10 sm:text-sm"
                   placeholder="Ponovite šifru"
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
