@@ -11,6 +11,7 @@ import { useAIAppointment } from "@/hooks/useAIAppointment";
 import { Toaster } from "react-hot-toast";
 import { useSalonProfile } from "@/hooks/useSalonProfile";
 import { getDay } from "date-fns";
+import LoaderButton from "../LoaderButton";
 
 interface Props {
   block: AppointmentCalendarBlockType;
@@ -107,7 +108,7 @@ export default function AppointmentCalendarBlockView({
             onClick={handleAIConfirm}
             className="cursor-pointer bg-(--secondary-color)/80 hover:bg-(--secondary-color) text-white px-3 py-1 rounded-lg text-xs font-bold"
           >
-            Potvrdi
+            {isPending ? <LoaderButton /> : "Potvrdi"}
           </button>
         </div>
       )}
@@ -193,7 +194,7 @@ export default function AppointmentCalendarBlockView({
             disabled={isPending || !selectedTime}
             className="cursor-pointer px-6 py-3 bg-gray-900 hover:bg-gray-800 text-white rounded-2xl font-bold disabled:opacity-30"
           >
-            {isPending ? "Zakaži..." : "Zakaži termin"}
+            {isPending ? <LoaderButton /> : "Zakaži termin"}
           </button>
         </div>
       </div>

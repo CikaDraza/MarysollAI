@@ -3,11 +3,11 @@
 export type BlockTypes =
   | "AuthBlock"
   | "ServicePriceBlock"
-  | "AppointmentBlock"
   | "AppointmentCalendarBlock"
   | "CalendarBlock"
   | "NewsletterFormBlock"
   | "LoginBlock"
+  | "LogoutBlock"
   | "RegisterBlock"
   | "ForgotPasswordBlock"
   | "ResetPasswordBlock"
@@ -15,7 +15,7 @@ export type BlockTypes =
   | "WhyChooseUsBlock"
   | "none";
 
-export type AuthMode = "login" | "register" | "forgot" | "reset";
+export type AuthMode = "login" | "register" | "forgot" | "reset" | "logout";
 export type CalendarMode = "preview" | "list";
 
 export interface BaseBlock {
@@ -38,6 +38,10 @@ export interface LoginBlockType extends BaseBlock {
   password: string;
   email: string;
   onSwitchRegister: () => void;
+}
+
+export interface LogoutBlockType extends BaseBlock {
+  type: "LogoutBlock";
 }
 
 export interface RegisterBlockType extends BaseBlock {

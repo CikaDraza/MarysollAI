@@ -62,7 +62,7 @@ export function RegisterBlockView({
       });
       // ✅ OBAVEŠTAVAMO AGENTA
       if (onActionComplete) {
-        onActionComplete("Uspešna registracija");
+        onActionComplete("USPEŠNA REGISTRACIJA.");
       }
     } catch (err: unknown) {
       console.error(err);

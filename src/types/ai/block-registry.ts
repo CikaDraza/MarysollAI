@@ -33,18 +33,26 @@ export const BLOCK_REGISTRY: BlockDescriptor[] = [
     requiresAuth: false,
   },
   {
-    type: "AppointmentBlock",
+    type: "LogoutBlock",
+    title: "Odjava korisnika",
+    description: "Ako korisnik želi da se izloguje, odjavi, sa naloga",
+    action: "action",
+    requiresAuth: false,
+  },
+  {
+    type: "AppointmentCalendarBlock",
     title: "Zakazivanje termina",
-    description: "Forma za izbor usluge, datuma i vremena",
+    description:
+      "Zakazivanje termina rucno, popunjavanjem usluge, datuma i vremena. Mogucnost SMART BOOKING, popunjavas automatski uslugu, datum i vreme ako korisnik tacno precizira.",
     action: "action",
     requiresAuth: true,
   },
   {
-    type: "AppointmentCalendarBlock",
+    type: "CalendarBlock",
     title: "Kalendar termina",
     description: "Pregled slobodnih i zauzetih termina",
     action: "read",
-    requiresAuth: false,
+    requiresAuth: true,
   },
   {
     type: "ServicePriceBlock",

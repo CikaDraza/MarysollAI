@@ -1,10 +1,14 @@
 "use client";
 
 import { AuthBlockType } from "@/types/landing-block";
-import { LockClosedIcon } from "@heroicons/react/24/outline";
+import { EnvelopeOpenIcon, LockClosedIcon } from "@heroicons/react/24/outline";
 import { useState } from "react";
-import toast, { Toaster } from "react-hot-toast";
+import { Toaster } from "react-hot-toast";
 import { Reveal } from "../motion/Reveal";
+import { useAuthActions } from "@/hooks/useAuthActions";
+import { motion } from "framer-motion";
+import { CollapseView } from "../motion/CollapseView";
+import LoaderButton from "../LoaderButton";
 
 interface Props {
   block: AuthBlockType;
@@ -13,46 +17,39 @@ interface Props {
 }
 
 export default function ForgotPasswordBlockView({
-  block,
   onSwitchLogin,
   onActionComplete,
 }: Props) {
+  const { forgotPassword, isSendingForgot } = useAuthActions();
   const [email, setEmail] = useState(""); // 👈 inicijalno prazan string, ne undefined
   const [message, setMessage] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
+  const [showForm, setShowForm] = useState(true);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-
-    if (!email.trim()) {
-      setMessage("Molimo unesite email adresu");
-      return;
-    }
-
-    setIsLoading(true);
+    if (!email.trim()) return setMessage("Molimo unesite email adresu");
 
     try {
-      // if (res.ok) {
-      //   setMessage("Ako nalog postoji, reset link će biti poslat na email");
-      //   setEmail("");
-      //   toast.success("link poslat na email!");
-      // } else {
-      //   setMessage(data.error || "Došlo je do greške");
-      // }
+      const currentSlug = window.location.pathname.split("/").pop();
+      await forgotPassword({
+        email,
+        assistantSlug: currentSlug || "",
+        isAssistant: true,
+      });
 
-      // ✅ OBAVEŠTAVAMO AGENTA
+      setMessage("Ako nalog postoji, reset link će biti poslat na email");
+
       if (onActionComplete) {
-        onActionComplete("Uspešno sam se ulogovao. Šta je sledeći korak?");
+        onActionComplete("USPEŠNO POSLAT ZAHTEV ZA RESET.");
       }
+      setShowForm(false);
     } catch (error: unknown) {
-      setMessage(`Došlo je do greške pri slanju zahteva - ${error}`);
-      const errorMessage =
-        error instanceof Error
-          ? error.message
-          : "Došlo je do greške pri prijavi";
-      toast.error(errorMessage);
-    } finally {
-      setIsLoading(false);
+      setMessage("Greška pri slanju. Pokušajte ponovo.");
+      setShowForm(true);
+      return console.error({
+        error: error instanceof Error && "Auth Login Error",
+        status: 500,
+      });
     }
   };
 
@@ -73,69 +70,84 @@ export default function ForgotPasswordBlockView({
           />
         </div>
         <div className="flex flex-col justify-center px-6 py-12 pt-36 lg:px-8">
-          <div className="sm:mx-auto sm:w-full sm:max-w-xl">
-            <LockClosedIcon className="size-10 mx-auto text-(--secondary-color)" />
-            {message && (
-              <div
-                className={`p-4 text-center rounded-md ${
-                  message.includes("poslat")
-                    ? "text-green-500"
-                    : " text-red-500"
-                }`}
-              >
-                {message}
-              </div>
+          <motion.div
+            initial={false}
+            animate={{
+              rotate: showForm ? 360 : 0,
+              scale: showForm ? 1.2 : 1,
+            }}
+            transition={{ type: "spring", stiffness: 260, damping: 20 }}
+          >
+            {showForm ? (
+              <LockClosedIcon className="size-10 mx-auto text-(--secondary-color)" />
+            ) : (
+              <EnvelopeOpenIcon className="size-10 mx-auto text-(--secondary-color)" />
             )}
-            <h3 className="mt-10 text-center text-2xl/9 font-bold tracking-tight text-white">
-              Zaboravili ste lozinku?
-            </h3>
-            <p className="mt-2 text-center text-sm text-gray-500">
-              Unesite email adresu i poslaćemo vam link za resetovanje šifre
-            </p>
-          </div>
+          </motion.div>
 
-          <div className="mt-10 sm:mx-auto sm:w-full sm:max-w-sm">
-            <form onSubmit={handleSubmit} className="space-y-6">
-              <div>
-                <label
-                  htmlFor="email"
-                  className="block text-sm/6 font-medium text-gray-100"
-                >
-                  Email address
-                </label>
-                <div className="mt-2">
-                  <input
-                    id="email"
-                    name="email"
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    required
-                    autoComplete="email"
-                    className="block w-full rounded-md bg-white/5 px-3 py-1.5 text-base text-white outline-1 -outline-offset-1 outline-white/10 placeholder:text-gray-500 focus:outline-2 focus:-outline-offset-2 focus:outline-(--secondary-color) sm:text-sm/6"
-                  />
+          {message && (
+            <div
+              className={`p-4 text-center rounded-md ${
+                message.includes("poslat")
+                  ? "text-(--secondary-color)"
+                  : " text-red-500"
+              }`}
+            >
+              {message}
+            </div>
+          )}
+          <CollapseView isExpanded={showForm}>
+            <div className="sm:mx-auto sm:w-full sm:max-w-xl">
+              <h3 className="mt-10 text-center text-2xl/9 font-bold tracking-tight text-white">
+                Zaboravili ste lozinku?
+              </h3>
+              <p className="mt-2 text-center text-sm text-gray-500">
+                Unesite email adresu i poslaćemo vam link za resetovanje šifre
+              </p>
+            </div>
+            <div className="mt-10 sm:mx-auto sm:w-full sm:max-w-sm">
+              <form onSubmit={handleSubmit} className="space-y-6">
+                <div>
+                  <label
+                    htmlFor="email"
+                    className="block text-sm/6 font-medium text-gray-100"
+                  >
+                    Email address
+                  </label>
+                  <div className="mt-2">
+                    <input
+                      id="email"
+                      name="email"
+                      type="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      required
+                      autoComplete="email"
+                      className="block w-full rounded-md bg-white/5 px-3 py-1.5 text-base text-white outline-1 -outline-offset-1 outline-white/10 placeholder:text-gray-500 focus:outline-2 focus:-outline-offset-2 focus:outline-(--secondary-color) sm:text-sm/6"
+                    />
+                  </div>
                 </div>
-              </div>
-              <div>
+                <div>
+                  <button
+                    type="submit"
+                    disabled={isSendingForgot}
+                    className="cursor-pointer flex w-full justify-center rounded-md bg-(--secondary-color) px-3 py-1.5 text-sm/6 font-semibold text-white hover:bg-(--secondary-color)/80 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--primary-color)"
+                  >
+                    {isSendingForgot ? <LoaderButton /> : "Pošalji reset link"}
+                  </button>
+                </div>
+              </form>
+              <p className="mt-10 text-center text-sm/6 text-gray-400">
+                Imate nalog?{" "}
                 <button
-                  type="submit"
-                  disabled={isLoading}
-                  className="cursor-pointer flex w-full justify-center rounded-md bg-(--secondary-color) px-3 py-1.5 text-sm/6 font-semibold text-white hover:bg-(--secondary-color)/80 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--primary-color)"
+                  onClick={onSwitchLogin}
+                  className="cursor-pointer font-semibold text-(--secondary-color) hover:text-(--secondary-color)/80"
                 >
-                  {isLoading ? "Slanje..." : "Pošalji reset link"}
+                  Ulogujte se
                 </button>
-              </div>
-            </form>
-            <p className="mt-10 text-center text-sm/6 text-gray-400">
-              Imate nalog?{" "}
-              <button
-                onClick={onSwitchLogin}
-                className="cursor-pointer font-semibold text-(--secondary-color) hover:text-(--secondary-color)/80"
-              >
-                Ulogujte se
-              </button>
-            </p>
-          </div>
+              </p>
+            </div>
+          </CollapseView>
         </div>
       </div>
     </Reveal>

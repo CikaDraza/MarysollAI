@@ -2,8 +2,6 @@
 import {
   ServicePriceBlock,
   AuthBlock,
-  ServicesBlock,
-  AppointmentBlock,
   AppointmentCalendarBlock,
   NewsletterFormBlock,
   LoginBlock,
@@ -15,8 +13,6 @@ import {
 export interface BlockTypeMap {
   ServicePriceBlock: ServicePriceBlock;
   AuthBlock: AuthBlock;
-  ServicesBlock: ServicesBlock;
-  AppointmentBlock: AppointmentBlock;
   AppointmentCalendarBlock: AppointmentCalendarBlock;
   NewsletterFormBlock: NewsletterFormBlock;
   LoginBlock: LoginBlock;

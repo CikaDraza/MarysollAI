@@ -4,10 +4,10 @@ import { Schema, SchemaType } from "@google/generative-ai";
 const blockEnum = [
   "AuthBlock",
   "LoginBlock",
+  "LogoutBlock",
   "RegisterBlock",
   "ResetPasswordBlock",
   "ForgotPasswordBlock",
-  "AppointmentBlock",
   "CalendarBlock",
   "AppointmentCalendarBlock",
   "ServicePriceBlock",
@@ -75,6 +75,7 @@ export const unifiedSchema: Schema = {
                 type: SchemaType.STRING,
                 enum: [
                   "login",
+                  "logout",
                   "register",
                   "forgot",
                   "reset",

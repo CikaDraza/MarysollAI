@@ -1,7 +1,7 @@
 // src/components/conversational/blocks/AuthBlockView.tsx
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { AuthBlockType, AuthMode } from "@/types/landing-block";
 import { RegisterBlockView } from "./RegisterBlockView";
 import { ResetPasswordBlockView } from "./ResetPasswordBlockView";
@@ -9,6 +9,7 @@ import { LoginBlockView } from "./LoginBlockView";
 import ForgotPasswordBlockView from "./ForgotPasswordBlockView";
 import { useSearchParams } from "next/navigation";
 import { Reveal } from "../motion/Reveal";
+import { LogoutBlockView } from "./LogoutBlockView";
 
 interface Props {
   block: AuthBlockType;
@@ -19,10 +20,20 @@ export function AuthBlockView({ block, onActionComplete }: Props) {
   const searchParams = useSearchParams();
   const token = searchParams.get("token");
   const incomingMode = (block.metadata?.mode as AuthMode) || "login";
-  const [mode, setMode] = useState<AuthMode>(incomingMode);
+  const [mode, setMode] = useState<AuthMode>(() => {
+    if (token) return "reset";
+    return incomingMode;
+  });
 
   const [prevIncomingMode, setPrevIncomingMode] =
     useState<AuthMode>(incomingMode);
+
+  // 1. AUTOMATSKO OTVARANJE RESET MODA
+  useEffect(() => {
+    if (token && onActionComplete) {
+      onActionComplete("RESETOVAO SAM ŠIFRU.");
+    }
+  }, [token, onActionComplete]);
 
   if (incomingMode !== prevIncomingMode) {
     setPrevIncomingMode(incomingMode);
@@ -61,6 +72,9 @@ export function AuthBlockView({ block, onActionComplete }: Props) {
             onSwitchLogin={() => setMode("login")}
             onActionComplete={onActionComplete}
           />
+        )}
+        {mode === "logout" && (
+          <LogoutBlockView onActionComplete={onActionComplete} />
         )}
       </div>
     </Reveal>

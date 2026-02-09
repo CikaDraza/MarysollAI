@@ -40,6 +40,23 @@ export function useChatHistory() {
       if (typeof window !== "undefined") {
         localStorage.setItem(storageKey, JSON.stringify(limitedThread));
       }
+      setThread(limitedThread);
+    },
+    [storageKey],
+  );
+
+  // Dodajemo wrapper za setThread koji automatski limitira
+  const updateThread = useCallback(
+    (updater: (prev: ThreadItem[]) => ThreadItem[]) => {
+      setThread((prev) => {
+        const updated = updater(prev);
+        const limited = updated.slice(-MAX_ITEMS);
+
+        if (typeof window !== "undefined") {
+          localStorage.setItem(storageKey, JSON.stringify(limited));
+        }
+        return limited;
+      });
     },
     [storageKey],
   );
@@ -56,6 +73,7 @@ export function useChatHistory() {
     thread,
     setThread,
     saveToHistory,
+    updateThread,
     clearHistory,
   };
 }

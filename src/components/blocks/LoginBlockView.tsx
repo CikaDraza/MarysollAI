@@ -1,4 +1,4 @@
-// src/components/blocks/LoginBlock.tsx
+// src/components/blocks/LoginBlockView.tsx
 "use client";
 import { useAuthActions } from "@/hooks/useAuthActions";
 import { AuthBlockType } from "@/types/landing-block";

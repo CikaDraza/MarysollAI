@@ -60,7 +60,59 @@ export function useAuthActions() {
     },
   });
 
-  // 4. Logout
+  // 5. Forgot Password Mutacija
+  const forgotPasswordMutation = useMutation({
+    mutationFn: async ({
+      email,
+      assistantSlug,
+      isAssistant,
+    }: {
+      email: string;
+      assistantSlug: string;
+      isAssistant: boolean;
+    }) => {
+      // Ovde gađaš proxy ili direktno rutu na glavnom sajtu
+      const { data } = await axios.post("/api/external/auth/forgot-password", {
+        email,
+        assistantSlug,
+        isAssistant,
+      });
+      return data;
+    },
+    onSuccess: () => {
+      toast.success("Link za resetovanje je poslat na vaš email.");
+    },
+    onError: (error: AxiosError<{ error: string }>) => {
+      toast.error(error.response?.data?.error || "Greška pri slanju zahteva");
+    },
+  });
+
+  // 6. Reset Password Mutacija
+  const resetPasswordMutation = useMutation({
+    mutationFn: async ({
+      token,
+      newPassword,
+    }: {
+      token: string;
+      newPassword: string;
+    }) => {
+      const { data } = await axios.post("/api/external/auth/reset-password", {
+        token,
+        newPassword,
+      });
+      return data;
+    },
+    onSuccess: () => {
+      toast.success("Šifra je uspešno promenjena!");
+    },
+    onError: (error: AxiosError<{ error: string }>) => {
+      toast.error(
+        error.response?.data?.error || "Greška pri resetovanju šifre",
+      );
+    },
+  });
+
+  // 7. Logout
   const logout = () => {
     localStorage.removeItem("assistant_token");
     queryClient.setQueryData(["authUser"], null);
@@ -77,6 +129,19 @@ export function useAuthActions() {
     isLoggingIn: loginMutation.isPending,
     register: registerMutation.mutateAsync,
     isRegistering: registerMutation.isPending,
+    forgotPassword: ({
+      email,
+      assistantSlug,
+      isAssistant,
+    }: {
+      email: string;
+      assistantSlug: string;
+      isAssistant: boolean;
+    }) =>
+      forgotPasswordMutation.mutateAsync({ email, assistantSlug, isAssistant }),
+    isSendingForgot: forgotPasswordMutation.isPending,
+    resetPassword: resetPasswordMutation.mutateAsync,
+    isResetting: resetPasswordMutation.isPending,
     logout,
   };
 }

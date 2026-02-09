@@ -24,7 +24,13 @@ interface PendingResponse {
 }
 
 export function useAIQuery(user?: AuthUser | null) {
-  const { thread, saveToHistory, setThread, clearHistory } = useChatHistory();
+  const {
+    thread,
+    saveToHistory,
+    updateThread: setThread,
+    clearHistory,
+  } = useChatHistory();
+  const userRef = useRef(user);
   const [streamingText, setStreamingText] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
   const [isTextLoading, setIsTextLoading] = useState(false);
@@ -35,6 +41,10 @@ export function useAIQuery(user?: AuthUser | null) {
 
   const [pendingResponse, setPendingResponse] =
     useState<PendingResponse | null>(null);
+
+  useEffect(() => {
+    userRef.current = user;
+  }, [user]);
 
   // Funkcija za završetak, umotana u useCallback da bismo mogli da je koristimo u useEffect
   const finishQuery = useCallback(() => {
@@ -120,13 +130,15 @@ export function useAIQuery(user?: AuthUser | null) {
 
     try {
       // 2. Jedan poziv za SVE (Tekst + Layout)
+      const currentUser = userRef.current;
+
       const response = await fetch("/api/ai/conversation", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           message: query,
-          isAuthenticated: !!user && user !== null,
-          userName: user?.name,
+          isAuthenticated: !!currentUser && currentUser !== null,
+          userName: currentUser?.name || "Gost",
           history: thread, // Šaljemo istoriju
         }),
       });
