@@ -24,7 +24,17 @@ export default function TimelineRenderer({
   onAction,
 }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const initialThreadLength = useRef(thread.length);
+
+  const performScroll = (behavior: ScrollBehavior = "smooth") => {
+    if (bottomRef.current) {
+      bottomRef.current.scrollIntoView({
+        behavior,
+        block: "end",
+      });
+    }
+  };
 
   // Automatski scroll na dole
   useEffect(() => {
@@ -33,25 +43,33 @@ export default function TimelineRenderer({
       return;
     }
 
-    // 2. Određivanje tipa skrola
-    // Ako je poslednja poruka od korisnika, želimo "smooth" da on vidi kako stranica klizi dole
-    const lastItem = thread[thread.length - 1];
-    const isUserMessage =
-      lastItem?.type === "message" && lastItem.data.role === "user";
-
-    // Koristimo "smooth" ako je korisnik upravo poslao poruku ILI ako se pojavio finalni blok.
-    // Koristimo "auto" SAMO dok traje aktivni streaming teksta.
-    const scrollBehavior = isStreaming && !isUserMessage ? "auto" : "smooth";
-
     requestAnimationFrame(() => {
-      if (bottomRef.current) {
-        bottomRef.current.scrollIntoView({
-          behavior: scrollBehavior,
-          block: "end",
-        });
-      }
+      performScroll("smooth");
     });
   }, [thread, streamingText, isStreaming]);
+
+  useEffect(() => {
+    if (isStreaming && streamingText) {
+      performScroll("smooth");
+    }
+  }, [streamingText, isStreaming]);
+
+  useEffect(() => {
+    if (
+      !containerRef.current ||
+      (initialThreadLength.current === thread.length && !isStreaming)
+    )
+      return;
+
+    const resizeObserver = new ResizeObserver(() => {
+      if (!isStreaming) {
+        performScroll("smooth");
+      }
+    });
+
+    resizeObserver.observe(containerRef.current);
+    return () => resizeObserver.disconnect();
+  }, [thread.length, isStreaming]);
 
   useEffect(() => {
     if (error) {
@@ -151,7 +169,7 @@ export default function TimelineRenderer({
             </div>
           </div>
         )}
-        <div ref={bottomRef} />
+        <div ref={bottomRef} className="h-30 w-full clear-both" />
       </div>
 
       {/* DESNI VERTIKALNI TIMELINE (Grok Style) */}

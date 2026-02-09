@@ -1,7 +1,7 @@
 // src/components/conversational/blocks/AuthBlockView.tsx
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { AuthBlockType, AuthMode } from "@/types/landing-block";
 import { RegisterBlockView } from "./RegisterBlockView";
 import { ResetPasswordBlockView } from "./ResetPasswordBlockView";
@@ -19,7 +19,6 @@ interface Props {
 export function AuthBlockView({ block, onActionComplete }: Props) {
   const searchParams = useSearchParams();
   const token = searchParams.get("token");
-  const hasNotifiedRef = useRef(false);
   const incomingMode = (block.metadata?.mode as AuthMode) || "login";
   const [mode, setMode] = useState<AuthMode>(() => {
     if (token) return "reset";
@@ -31,13 +30,15 @@ export function AuthBlockView({ block, onActionComplete }: Props) {
 
   // 1. AUTOMATSKO OTVARANJE RESET MODA
   useEffect(() => {
-    if (token && onActionComplete && !hasNotifiedRef.current) {
-      hasNotifiedRef.current = true;
+    // Kreiramo jedinstveni ključ za ovaj token
+    const lockKey = `sent_reset_msg_${token}`;
+    const alreadySent = sessionStorage.getItem(lockKey);
 
-      // 1. Obavesti AI
+    if (token && onActionComplete && !alreadySent) {
+      sessionStorage.setItem(lockKey, "true"); // Zaključaj odmah
       onActionComplete("RESETOVAO SAM ŠIFRU.");
 
-      // 2. OČISTI URL (Uklanja ?token=... bez osvežavanja stranice)
+      // Očisti URL
       const newUrl = window.location.pathname;
       window.history.replaceState({}, "", newUrl);
     }

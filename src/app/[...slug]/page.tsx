@@ -38,7 +38,7 @@ export default function CampaignPage() {
 
   return (
     <AuthProvider token={token || null}>
-      <div className="relative isolate px-6 lg:px-8 pb-44">
+      <div className="relative isolate px-6 lg:px-8">
         <CampaignLayoutEngine blocks={data?.landingPage?.layout ?? []} />
         <TimelineRenderer
           thread={thread}
