@@ -36,6 +36,7 @@ export async function POST(req: Request) {
       },
     });
   } catch (error: unknown) {
+    console.error("SERVER ERROR:", error);
     return NextResponse.json(
       { error: error instanceof Error && "Failed to fetch AI" },
       { status: 500 },

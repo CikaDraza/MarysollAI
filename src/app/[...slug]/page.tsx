@@ -26,6 +26,7 @@ export default function CampaignPage() {
     isTextLoading,
     error,
     resetError,
+    retry,
     clearChat,
   } = useAIQuery(user);
 
@@ -47,6 +48,7 @@ export default function CampaignPage() {
           isStreaming={isStreaming}
           error={error}
           resetError={resetError}
+          onRetry={retry}
         />
 
         <AIAgentPanel

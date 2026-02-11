@@ -33,15 +33,23 @@ export async function askAgent(
   // Mapiramo ThreadItem[] u Gemini format (Content[])
   const geminiHistory = history
     .filter((item) => item.type === "message")
-    .slice(-8) // Fokus na zadnjih 8 poruka sprečava loop-ove
+    .slice(-6) // Fokus na zadnjih [number] poruka sprečava loop-ove
     .map((item) => ({
       role: item.data.role === "user" ? "user" : "model",
       parts: [{ text: item.data.content }],
     }));
 
   const busySlotsText = appointmentsData
-    .filter((app: IAppointment) => app.status !== "appointment_cancelled")
-    .slice(0, 20)
+    .filter((app: IAppointment) => {
+      const appDate = new Date(app.date);
+      const today = new Date();
+      const threeDaysFromNow = new Date();
+      threeDaysFromNow.setDate(today.getDate() + 3);
+      return (
+        appDate <= threeDaysFromNow && app.status !== "appointment_cancelled"
+      );
+    })
+    .slice(0, 10)
     .map((app: IAppointment) => {
       return `${app.date}: od ${app.time} do ${calculateEndTime(app.time, app.duration)}`;
     })
@@ -69,7 +77,7 @@ export async function askAgent(
   - ServicePriceBlock: Prikaz cenovnika. requiresAuth: false.
   - TestimonialBlock: Utisci. requiresAuth: false.
 `;
-
+  console.log("TOKEN ESTIMATE:", userInput.length + formatKnowledgeBase.length);
   const model = genAI.getGenerativeModel({
     model: "gemini-2.0-flash",
     systemInstruction: `

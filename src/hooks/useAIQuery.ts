@@ -98,105 +98,134 @@ export function useAIQuery(user?: AuthUser | null) {
     return () => clearInterval(timer);
   }, [isStreaming, finishQuery]);
 
-  const askAI = async (query: string) => {
-    if (isStreaming) return;
+  const askAI = useCallback(
+    async (query: string) => {
+      if (isStreaming) return;
 
-    // Generišemo ID i odmah ga čuvamo u REF
-    const currentId = `temp-${crypto.randomUUID()}`;
-    activeTempIdRef.current = currentId;
+      // Generišemo ID i odmah ga čuvamo u REF
+      const currentId = `temp-${crypto.randomUUID()}`;
+      activeTempIdRef.current = currentId;
 
-    setIsStreaming(true);
-    setIsTextLoading(true);
-    isNetworkDoneRef.current = false;
-    setIsTextLoading(true);
-    setStreamingText("");
-    targetTextRef.current = "";
-    setError(null);
-
-    // 1. Odmah dodajemo User poruku u thread da je korisnik vidi
-    setThread((prev) => [
-      ...prev,
-      {
-        id: currentId,
-        type: "message",
-        data: {
-          id: "temp",
-          role: "user",
-          content: query,
-          timestamp: Date.now(),
-        },
-      },
-    ]);
-
-    try {
-      // 2. Jedan poziv za SVE (Tekst + Layout)
-      const currentUser = userRef.current;
-
-      const response = await fetch("/api/ai/conversation", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          message: query,
-          isAuthenticated: !!currentUser && currentUser !== null,
-          userName: currentUser?.name || "Gost",
-          history: thread, // Šaljemo istoriju
-        }),
-      });
-
-      if (!response.body) throw new Error("No response body");
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let fullRaw = "";
-
-      // Čitamo stream dok ne završi
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-
-        const chunk = decoder.decode(value, { stream: true });
-        fullRaw += chunk;
-
-        // 3. PARCIJALNO PARSIRANJE
-        try {
-          const partialData = partialParse(fullRaw) as PartialAIResponse;
-          targetTextRef.current =
-            partialData?.messages?.map((m) => m.content).join("\n\n") || "";
-        } catch (err: unknown) {
-          const errorMessage =
-            err instanceof Error ? err.message : "Greška u parsiranju";
-          setError(errorMessage);
-          setIsStreaming(false);
-          setIsTextLoading(false);
-          isNetworkDoneRef.current = false;
-          console.error(errorMessage);
-          setThread((prev) =>
-            prev.filter((i) => i.id !== activeTempIdRef.current),
-          );
-        }
-      }
-
-      // 3. Kada se stream završi, parsiramo finalni JSON
-      const finalData = JSON.parse(fullRaw) as AIResponseData;
-      if (finalData && Array.isArray(finalData.messages)) {
-        setPendingResponse({ query, data: finalData });
-        isNetworkDoneRef.current = true;
-      } else {
-        throw new Error("Invalid AI Response Format");
-      }
-    } catch (err: unknown) {
-      const errorMessage = err instanceof Error ? err.message : "Greška";
-      setError(errorMessage);
-      setIsStreaming(false);
-      setIsTextLoading(false);
+      setIsStreaming(true);
+      setIsTextLoading(true);
       isNetworkDoneRef.current = false;
-      setThread((prev) => prev.filter((i) => i.id !== activeTempIdRef.current));
+      setIsTextLoading(true);
+      setStreamingText("");
+      targetTextRef.current = "";
+      setError(null);
+
+      // 1. Odmah dodajemo User poruku u thread da je korisnik vidi
+      setThread((prev) => [
+        ...prev,
+        {
+          id: currentId,
+          type: "message",
+          data: {
+            id: "temp",
+            role: "user",
+            content: query,
+            timestamp: Date.now(),
+          },
+        },
+      ]);
+
+      try {
+        // 2. Jedan poziv za SVE (Tekst + Layout)
+        const currentUser = userRef.current;
+
+        const response = await fetch("/api/ai/conversation", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            message: query,
+            isAuthenticated: !!currentUser && currentUser !== null,
+            userName: currentUser?.name || "Gost",
+            history: thread, // Šaljemo istoriju
+          }),
+        });
+
+        if (!response.body) throw new Error("No response body");
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let fullRaw = "";
+
+        // Čitamo stream dok ne završi
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+
+          const chunk = decoder.decode(value, { stream: true });
+          fullRaw += chunk;
+
+          // 3. PARCIJALNO PARSIRANJE
+          try {
+            const partialData = partialParse(fullRaw) as PartialAIResponse;
+            targetTextRef.current =
+              partialData?.messages?.map((m) => m.content).join("\n\n") || "";
+          } catch (err: unknown) {
+            const errorMessage =
+              err instanceof Error ? err.message : "Greška u parsiranju";
+            setError(errorMessage);
+            setIsStreaming(false);
+            setIsTextLoading(false);
+            isNetworkDoneRef.current = false;
+            console.error(errorMessage);
+            setThread((prev) =>
+              prev.filter((i) => i.id !== activeTempIdRef.current),
+            );
+          }
+        }
+
+        const cleanRaw = fullRaw
+          .replace(/```json/g, "")
+          .replace(/```/g, "")
+          .trim();
+
+        // 3. Kada se stream završi, parsiramo finalni JSON
+        const finalData = JSON.parse(cleanRaw) as AIResponseData;
+        if (finalData && Array.isArray(finalData.messages)) {
+          setPendingResponse({ query, data: finalData });
+          isNetworkDoneRef.current = true;
+        } else {
+          throw new Error("Invalid AI Response Format");
+        }
+      } catch (err: unknown) {
+        const errorMessage = err instanceof Error ? err.message : "Greška";
+        setError(errorMessage);
+        setIsStreaming(false);
+        setIsTextLoading(false);
+        isNetworkDoneRef.current = false;
+        setThread((prev) =>
+          prev.filter((i) => i.id !== activeTempIdRef.current),
+        );
+      }
+    },
+    [isStreaming, setThread, thread],
+  );
+
+  const retry = useCallback(async () => {
+    // 1. Pronađi poslednju poruku korisnika u thread-u
+    const lastUserMessage = [...thread]
+      .reverse()
+      .find((item) => item.type === "message" && item.data.role === "user");
+
+    if (lastUserMessage && lastUserMessage.type === "message") {
+      setError(null); // Sklanjamo grešku
+
+      // 2. Brišemo tu poslednju poruku iz thread-a jer će je askAI ponovo dodati
+      // (Ovo sprečava dupliranje poruke u UI-ju prilikom retry-ja)
+      setThread((prev) => prev.filter((i) => i.id !== lastUserMessage.id));
+
+      // 3. Ponovo pokrećemo upit
+      await askAI(lastUserMessage.data.content);
     }
-  };
+  }, [thread, askAI, setThread]);
 
   return {
     askAI,
     thread,
+    retry,
     streamingText,
     isStreaming,
     isTextLoading,

@@ -1,8 +1,9 @@
 "use client";
 
 import { ThreadItem } from "@/types/ai/chat-thread";
-import { TrashIcon } from "@heroicons/react/24/outline";
+import { BoltIcon, TrashIcon } from "@heroicons/react/24/outline";
 import { useState } from "react";
+import { UsageStats } from "./chat/UsageStats";
 
 interface Props {
   onSubmit: (prompt: string) => void;
@@ -18,9 +19,25 @@ export function AIAgentPanel({
   clearChat,
 }: Props) {
   const [input, setInput] = useState("");
+  const [showStats, setShowStats] = useState(false);
+  const [usage, setUsage] = useState({
+    messagesSent: 0,
+    estimatedTokens: 0,
+  });
+
+  // Funkcija koja simulira brojanje (pozivaš je kada god se desi useAIQuery)
+  const trackUsage = (content: string) => {
+    setUsage((prev) => ({
+      messagesSent: prev.messagesSent + 1,
+      // Gruba procena: 1 reč ≈ 1.3 tokena + fiksni sistemski prompt (oko 800-1200)
+      estimatedTokens:
+        prev.estimatedTokens + Math.ceil(content.length / 4) + 1000,
+    }));
+  };
 
   async function handleSubmit() {
     if (!input.trim()) return;
+    trackUsage(input);
     onSubmit(input);
     setInput("");
   }
@@ -33,7 +50,7 @@ export function AIAgentPanel({
   };
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 w-full z-50">
+    <div className="fixed overflow-visible bottom-0 left-0 right-0 w-full z-50">
       {thread.length !== 0 && (
         <div className="flex items-baseline justify-end mr-0 px-2 md:px-8 pb-2">
           <button
@@ -89,6 +106,12 @@ export function AIAgentPanel({
                 </p>
               )}
               <div className="flex flex-col md:flex-row items-center justify-center gap-x-6">
+                <button
+                  onClick={() => setShowStats(!showStats)}
+                  className={`cursor-pointer p-2 rounded-full hover:text-[#BA34B7] transition-colors ${showStats ? "text-[#BA34B7] bg-pink-50" : "text-gray-400"}`}
+                >
+                  <BoltIcon className="size-5" />
+                </button>
                 <textarea
                   id="message"
                   name="message"
@@ -135,6 +158,7 @@ export function AIAgentPanel({
           </div>
         </div>
       </div>
+      <UsageStats isOpen={showStats} usage={usage} />
     </div>
   );
 }

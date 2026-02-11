@@ -69,7 +69,7 @@ export function CalendarBlockPreview({ onSlotClick }: Props) {
 
   // 2. Generisanje dana (narednih 7 dana)
   const days = useMemo(() => {
-    return Array.from({ length: 7 }).map((_, i) => addDays(new Date(), i));
+    return Array.from({ length: 14 }).map((_, i) => addDays(new Date(), i));
   }, []);
 
   // 3. Generisanje slotova (npr. od 09:00 do 20:00 na svakih 30 min)
@@ -96,14 +96,14 @@ export function CalendarBlockPreview({ onSlotClick }: Props) {
   return (
     <div className="flex flex-col gap-4">
       {/* Horizontalni Date Picker */}
-      <div className="flex gap-2 overflow-x-auto pb-2 mx-auto">
+      <div className="flex gap-2 overflow-x-auto p-2 mx-auto w-full snap-x scrollbar-hide scrollbar-custom">
         {days.map((day) => (
           <button
             key={day.toISOString()}
             onClick={() => setSelectedDate(day)}
-            className={`cursor-pointer flex flex-col items-center min-w-15 p-3 rounded-2xl border transition-all ${
+            className={`cursor-pointer flex flex-col justify-center items-center shrink-0 w-16 h-20 min-w-15 p-3 mb-4 rounded-2xl border transition-all ${
               isSameDay(day, selectedDate)
-                ? "bg-(--secondary-color) border-(--secondary-color) text-white shadow-md"
+                ? "bg-(--secondary-color) border-(--secondary-color) text-white shadow-md scale-105"
                 : "bg-white border-gray-100 text-gray-500 hover:border-gray-300"
             }`}
           >

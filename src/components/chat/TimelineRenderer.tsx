@@ -13,6 +13,7 @@ interface Props {
   isStreaming?: boolean;
   error?: string | null;
   resetError?: () => void;
+  onRetry?: () => void;
 }
 
 export default function TimelineRenderer({
@@ -21,6 +22,7 @@ export default function TimelineRenderer({
   isStreaming,
   error,
   resetError,
+  onRetry,
   onAction,
 }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -162,6 +164,12 @@ export default function TimelineRenderer({
                 <button
                   onClick={resetError}
                   className="text-xs bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors"
+                >
+                  Reset Error
+                </button>
+                <button
+                  onClick={onRetry}
+                  className="text-xs bg-(--secondary-color) text-white px-4 py-2 rounded-lg hover:bg-(--secondary-color)/90 transition-colors"
                 >
                   Retry
                 </button>

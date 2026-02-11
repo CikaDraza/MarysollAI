@@ -18,7 +18,7 @@ export default function Header() {
         aria-label="Global"
         className="flex items-center justify-between p-6 lg:px-8"
       >
-        <div className="flex lg:flex-1">
+        <div className="flex">
           <Link href="/" className="-m-1.5 p-1.5">
             <span className="sr-only">Your Company</span>
             <Image
@@ -28,6 +28,12 @@ export default function Header() {
               height={27}
             />
           </Link>
+        </div>
+        <div className="hidden md:flex">
+          <p className="text-center text-xs font-semibold text-gray-900 px-6">
+            💡 Tip: Click on any article and ask Marysoll Assistant for a
+            summary, recommendation, or to schedule a service.
+          </p>
         </div>
         <div className="flex lg:hidden">
           <button
@@ -46,7 +52,7 @@ export default function Header() {
             </Reveal>
           ) : (
             <Button className="cursor-pointer hidden lg:block text-sm font-semibold text-gray-900">
-              Prijavi se <span aria-hidden="true">&rarr;</span>
+              Ask Marysoll to join
             </Button>
           )}
         </div>
@@ -79,6 +85,12 @@ export default function Header() {
           </div>
           <div className="mt-6 flow-root">
             <div className="divide-y divide-gray-500/10">
+              <div className="flex md:hidden mb-8">
+                <p className="text-xs font-semibold text-gray-700 px-1">
+                  💡 Tip: Click on any article and ask Marysoll Assistant for a
+                  summary, recommendation, or to schedule a service.
+                </p>
+              </div>
               {user ? (
                 <div className="flex flex-col gap-y-4">
                   <p className="text-base font-semibold text-gray-900">
@@ -95,8 +107,8 @@ export default function Header() {
                   </button>
                 </div>
               ) : (
-                <Button className="cursor-pointer text-sm font-semibold text-gray-900">
-                  Prijavi se <span aria-hidden="true">&rarr;</span>
+                <Button className="target:shadow-lg cursor-pointer text-sm font-semibold text-gray-900">
+                  Ask Marysoll to join
                 </Button>
               )}
             </div>
