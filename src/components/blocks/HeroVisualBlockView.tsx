@@ -34,6 +34,10 @@ export default function HeroVisualBlockView({
 }: {
   block: HeroVisualBlock;
 }) {
+  // Filtriramo sve što nije validan string (izbacuje null, undefined, "")
+  const validImages = block.imagesUrl?.filter((url) => Boolean(url)) || [];
+  console.log({ valid: validImages, urls: block.imagesUrl });
+
   return (
     <Reveal>
       <section className="py-16 overflow-hidden">
@@ -44,9 +48,9 @@ export default function HeroVisualBlockView({
             animate={{ opacity: 1, x: 0 }}
             className="mx-auto max-w-2xl lg:mx-0 lg:flex-auto"
           >
-            <h1 className="text-4xl font-bold tracking-tight sm:text-6xl">
+            <h2 className="text-4xl! font-bold tracking-tight sm:text-6xl">
               {block.title}
-            </h1>
+            </h2>
             <p className="mt-6 text-lg leading-8 text-gray-600">
               {block.subtitle}
             </p>
@@ -61,7 +65,7 @@ export default function HeroVisualBlockView({
           </motion.div>
 
           {/* Grid sa slikama koji koristi staggerChildren */}
-          {block.imagesUrl!.length > 0 && (
+          {validImages.length > 0 && (
             <motion.div
               variants={containerVariants}
               initial="hidden"
@@ -72,57 +76,63 @@ export default function HeroVisualBlockView({
               <div className="flex items-center space-x-6 lg:space-x-8">
                 {/* Prva kolona */}
                 <div className="grid shrink-0 grid-cols-1 gap-y-6 lg:gap-y-8">
-                  {[0, 1].map((idx) => (
-                    <motion.div
-                      key={idx}
-                      variants={itemVariants}
-                      className="h-64 w-44 overflow-hidden rounded-lg"
-                    >
-                      <Image
-                        width={200}
-                        height={300}
-                        src={block.imagesUrl![idx] || ""}
-                        alt=""
-                        className="h-full w-full object-cover shadow-xl"
-                      />
-                    </motion.div>
-                  ))}
+                  {validImages.slice(0, 2).map((url, idx) => {
+                    return (
+                      <motion.div
+                        key={`col1-${idx}`}
+                        variants={itemVariants}
+                        className="h-64 w-44 overflow-hidden rounded-lg"
+                      >
+                        <Image
+                          width={200}
+                          height={300}
+                          src={url}
+                          alt=""
+                          className="h-full w-full object-cover shadow-xl"
+                        />
+                      </motion.div>
+                    );
+                  })}
                 </div>
                 {/* Druga kolona (Sredina) */}
                 <div className="grid shrink-0 grid-cols-1 gap-y-6 lg:gap-y-8">
-                  {[2, 3, 4].map((idx) => (
-                    <motion.div
-                      key={idx}
-                      variants={itemVariants}
-                      className="h-64 w-44 overflow-hidden rounded-lg"
-                    >
-                      <Image
-                        width={200}
-                        height={300}
-                        src={block.imagesUrl![idx] || ""}
-                        alt=""
-                        className="h-full w-full object-cover shadow-xl"
-                      />
-                    </motion.div>
-                  ))}
+                  {validImages.slice(2, 5).map((url, idx) => {
+                    return (
+                      <motion.div
+                        key={`col2-${idx}`}
+                        variants={itemVariants}
+                        className="h-64 w-44 overflow-hidden rounded-lg"
+                      >
+                        <Image
+                          width={200}
+                          height={300}
+                          src={url}
+                          alt=""
+                          className="h-full w-full object-cover shadow-xl"
+                        />
+                      </motion.div>
+                    );
+                  })}
                 </div>
                 {/* Treća kolona */}
                 <div className="grid shrink-0 grid-cols-1 gap-y-6 lg:gap-y-8">
-                  {[5, 6].map((idx) => (
-                    <motion.div
-                      key={idx}
-                      variants={itemVariants}
-                      className="h-64 w-44 overflow-hidden rounded-lg"
-                    >
-                      <Image
-                        width={200}
-                        height={300}
-                        src={block.imagesUrl![idx] || ""}
-                        alt=""
-                        className="h-full w-full object-cover shadow-xl"
-                      />
-                    </motion.div>
-                  ))}
+                  {validImages.slice(5).map((url, idx) => {
+                    return (
+                      <motion.div
+                        key={`col3-${idx}`}
+                        variants={itemVariants}
+                        className="h-64 w-44 overflow-hidden rounded-lg"
+                      >
+                        <Image
+                          width={200}
+                          height={300}
+                          src={url}
+                          alt=""
+                          className="h-full w-full object-cover shadow-xl"
+                        />
+                      </motion.div>
+                    );
+                  })}
                 </div>
               </div>
             </motion.div>
