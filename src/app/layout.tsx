@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { QueryProvider } from "@/providers/QueryProvider";
 import Header from "@/components/Header";
+import OverlayDrawer from "@/components/OverlayDrawer";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -31,6 +32,7 @@ export default function RootLayout({
       >
         <QueryProvider>
           <Header />
+          <OverlayDrawer />
           {children}
         </QueryProvider>
       </body>

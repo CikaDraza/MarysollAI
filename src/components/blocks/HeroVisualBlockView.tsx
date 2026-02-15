@@ -36,7 +36,6 @@ export default function HeroVisualBlockView({
 }) {
   // Filtriramo sve što nije validan string (izbacuje null, undefined, "")
   const validImages = block.imagesUrl?.filter((url) => Boolean(url)) || [];
-  console.log({ valid: validImages, urls: block.imagesUrl });
 
   return (
     <Reveal>

@@ -7,10 +7,12 @@ import Link from "next/link";
 import LoggedButton from "./LoggedButton";
 import { useAuthActions } from "@/hooks/useAuthActions";
 import { Reveal } from "./motion/Reveal";
+import { useDrawer } from "@/hooks/useDrawer";
 
 export default function Header() {
   const { user, logout } = useAuthActions();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const { openDrawer } = useDrawer();
 
   return (
     <header className="absolute inset-x-0 top-0 z-50">
@@ -51,8 +53,11 @@ export default function Header() {
               <LoggedButton user={user} logout={logout} />
             </Reveal>
           ) : (
-            <Button className="cursor-pointer hidden lg:block text-sm font-semibold text-gray-900">
-              Ask Marysoll to join
+            <Button
+              onClick={() => openDrawer()}
+              className="cursor-pointer hidden lg:block text-sm font-semibold text-gray-900"
+            >
+              Ask Marysoll
             </Button>
           )}
         </div>
@@ -107,8 +112,14 @@ export default function Header() {
                   </button>
                 </div>
               ) : (
-                <Button className="target:shadow-lg cursor-pointer text-sm font-semibold text-gray-900">
-                  Ask Marysoll to join
+                <Button
+                  onClick={() => {
+                    openDrawer();
+                    setMobileMenuOpen(false);
+                  }}
+                  className="target:shadow-lg cursor-pointer text-sm font-semibold text-gray-900"
+                >
+                  Ask Marysoll
                 </Button>
               )}
             </div>
