@@ -8,7 +8,7 @@ export default function LandingCampaigns() {
   if (isLoading || !campaigns) return null;
 
   return (
-    <div id="blog" className="mx-auto max-w-7xl px-6 lg:px-8">
+    <div id="blog" className="mx-auto max-w-7xl px-6 lg:px-8 pb-44">
       <div className="mx-auto max-w-2xl lg:mx-0">
         <h2 className="text-4xl font-semibold tracking-tight text-pretty text-gray-900 sm:text-5xl">
           From the Blog & Newsletter

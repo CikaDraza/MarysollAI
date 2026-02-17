@@ -1,3 +1,4 @@
+// types/services-type.ts
 export interface IService {
   _id: string;
   name: string;

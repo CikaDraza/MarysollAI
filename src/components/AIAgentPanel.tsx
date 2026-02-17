@@ -50,7 +50,7 @@ export function AIAgentPanel({
   };
 
   return (
-    <div className="fixed overflow-visible bottom-0 left-0 right-0 w-full z-50">
+    <div className="overflow-visible bottom-0 left-0 max-w-full w-full z-50">
       {thread.length !== 0 && (
         <div className="flex items-baseline justify-end mr-0 px-2 md:px-8 pb-2">
           <button

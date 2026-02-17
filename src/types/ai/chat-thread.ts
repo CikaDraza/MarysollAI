@@ -1,3 +1,4 @@
+// types/ai/chat-thread.ts
 import { BaseBlock } from "../landing-block";
 
 export type ChatRole = "user" | "assistant";

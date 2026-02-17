@@ -1,3 +1,4 @@
+// types/salon-profile-type.ts
 export interface SalonProfile {
   _id: string;
   name: string;

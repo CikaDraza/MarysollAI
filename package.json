@@ -10,12 +10,16 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@ai-sdk/deepseek": "^2.0.20",
+    "@ai-sdk/react": "^3.0.88",
     "@google/generative-ai": "^0.24.1",
     "@headlessui/react": "^2.2.9",
     "@heroicons/react": "^2.2.0",
+    "@nanostores/react": "github:ai/react",
     "@tanstack/react-query": "^5.90.17",
     "@tanstack/react-query-devtools": "^5.91.2",
     "@types/jsonwebtoken": "^9.0.10",
+    "ai": "^6.0.86",
     "axios": "^1.13.2",
     "date-fns": "^4.1.0",
     "framer-motion": "^12.26.2",

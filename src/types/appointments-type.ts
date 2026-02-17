@@ -1,3 +1,4 @@
+// types/appointments-type.ts
 export interface IAppointmentVariant {
   name: string;
   price: number;

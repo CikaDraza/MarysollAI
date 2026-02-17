@@ -1,6 +1,6 @@
 // src/components/chat/TimelineRenderer.tsx
 "use client";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useSyncExternalStore } from "react";
 import { ChevronDownIcon, ChevronUpIcon } from "@heroicons/react/24/outline";
 import { ThreadItem } from "@/types/ai/chat-thread";
 import { TextEngine } from "../layout/TextEngine";
@@ -16,6 +16,20 @@ interface Props {
   onRetry?: () => void;
 }
 
+// Server i klijent stanje
+const isServer = typeof window === "undefined";
+
+// Jednostavan store za detekciju klijenta
+const clientStore = {
+  isClient: !isServer,
+  subscribe: () => {
+    // Nema potrebe za subscribe-om jer se ovo nikad ne menja
+    return () => {};
+  },
+  getSnapshot: () => !isServer,
+  getServerSnapshot: () => false, // Uvek false na serveru
+};
+
 export default function TimelineRenderer({
   thread,
   streamingText,
@@ -29,6 +43,13 @@ export default function TimelineRenderer({
   const containerRef = useRef<HTMLDivElement>(null);
   const initialThreadLength = useRef(thread.length);
 
+  // useSyncExternalStore je bezbedan za React 19
+  const isClient = useSyncExternalStore(
+    clientStore.subscribe,
+    clientStore.getSnapshot,
+    clientStore.getServerSnapshot,
+  );
+
   const performScroll = (behavior: ScrollBehavior = "smooth") => {
     if (bottomRef.current) {
       bottomRef.current.scrollIntoView({
@@ -38,9 +59,10 @@ export default function TimelineRenderer({
     }
   };
 
-  // Automatski scroll na dole
+  // Automatski scroll na dole - svi useEffect-i ostaju isti
   useEffect(() => {
-    // 1. Ako je prvo učitavanje stranice, ne mrdaj nigde (da korisnik vidi blog)
+    if (!isClient) return;
+
     if (initialThreadLength.current === thread.length && !isStreaming) {
       return;
     }
@@ -48,15 +70,17 @@ export default function TimelineRenderer({
     requestAnimationFrame(() => {
       performScroll("smooth");
     });
-  }, [thread, streamingText, isStreaming]);
+  }, [thread, streamingText, isStreaming, isClient]);
 
   useEffect(() => {
+    if (!isClient) return;
     if (isStreaming && streamingText) {
       performScroll("smooth");
     }
-  }, [streamingText, isStreaming]);
+  }, [streamingText, isStreaming, isClient]);
 
   useEffect(() => {
+    if (!isClient) return;
     if (
       !containerRef.current ||
       (initialThreadLength.current === thread.length && !isStreaming)
@@ -71,9 +95,10 @@ export default function TimelineRenderer({
 
     resizeObserver.observe(containerRef.current);
     return () => resizeObserver.disconnect();
-  }, [thread.length, isStreaming]);
+  }, [thread.length, isStreaming, isClient]);
 
   useEffect(() => {
+    if (!isClient) return;
     if (error) {
       setTimeout(() => {
         window.scrollTo({
@@ -82,12 +107,20 @@ export default function TimelineRenderer({
         });
       }, 100);
     }
-  }, [error]);
+  }, [error, isClient]);
 
   const scrollToItem = (id: string) => {
+    if (!isClient) return;
     document
       .getElementById(id)
       ?.scrollIntoView({ behavior: "smooth", block: "center" });
+  };
+
+  const scrollToTop = (id: string) => {
+    document.getElementById(id)?.scrollIntoView({
+      block: "center",
+      behavior: "smooth",
+    });
   };
 
   const lastItem = thread[thread.length - 1];
@@ -96,6 +129,41 @@ export default function TimelineRenderer({
   const shouldShowStreaming =
     isStreaming && streamingText && !isLastItemAssistantMessage;
 
+  // Na serveru renderuj samo osnovni sadržaj bez ID-eva i animacija
+  if (!isClient) {
+    return (
+      <div className="relative flex w-full lg:max-w-5xl mx-auto">
+        <div className="max-w-full flex-1 space-y-8 pb-32 md:pb-8">
+          {thread.map((item, index) => (
+            <div key={`static-${index}`}>
+              {item.type === "message" ? (
+                <div
+                  className={`flex ${item.data.role === "user" ? "justify-end" : "justify-start"}`}
+                >
+                  <div
+                    className={`max-w-[80%] p-4 rounded-lg ${
+                      item.data.role === "user"
+                        ? "bg-gray-100"
+                        : "border-l-6 border-(--secondary-color) bg-gray-50"
+                    }`}
+                  >
+                    <TextEngine messages={item.data} />
+                  </div>
+                </div>
+              ) : (
+                <div className="my-4">
+                  <LayoutEngine blocks={item.data} onMessageAction={onAction} />
+                </div>
+              )}
+            </div>
+          ))}
+          <div className="h-30 w-full clear-both" />
+        </div>
+      </div>
+    );
+  }
+
+  // Na klijentu renderuj punu verziju sa ID-evima i animacijama
   return (
     <div className="relative flex w-full lg:max-w-5xl mx-auto">
       {/* GLAVNI CHAT NIZ */}
@@ -181,10 +249,9 @@ export default function TimelineRenderer({
       </div>
 
       {/* DESNI VERTIKALNI TIMELINE (Grok Style) */}
-
       <div className="fixed right-2 md:right-8 top-[40%] md:top-1/2 -translate-y-1/2 flex flex-col items-center gap-2 group">
         <button
-          onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+          onClick={() => scrollToTop("top")}
           className="cursor-pointer md:opacity-0 md:group-hover:opacity-100 transition-all p-2 md:hover:bg-white bg-white rounded-full"
         >
           <ChevronUpIcon className="size-4" />
