@@ -77,7 +77,7 @@ export async function askAgent(
   - ServicePriceBlock: Prikaz cenovnika. requiresAuth: false.
   - TestimonialBlock: Utisci. requiresAuth: false.
 `;
-  console.log("TOKEN ESTIMATE:", userInput.length + formatKnowledgeBase.length);
+
   const model = genAI.getGenerativeModel({
     model: "gemini-2.0-flash",
     systemInstruction: `

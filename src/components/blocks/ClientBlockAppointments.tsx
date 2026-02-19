@@ -131,7 +131,6 @@ export default function ClientBlockAppointments() {
 
   if (isLoading) return <MiniLoader />;
   if (isError) return <p>Greška pri učitavanju termina.</p>;
-  console.log(pagination?.page);
 
   return (
     <div className="space-y-6">

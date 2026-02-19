@@ -35,6 +35,7 @@ export default function OverlayDrawerSeek() {
     usage,
     loadSession,
     deleteSession,
+    createNewChat,
   } = useChatSeek({
     onError: (error: unknown) => {
       console.error("Chat error:", error);
@@ -85,12 +86,8 @@ export default function OverlayDrawerSeek() {
   };
 
   const handleNewChat = () => {
-    // Nova konverzacija će biti kreirana automatski pri slanju poruke
-    if (currentSession) {
-      deleteSession(currentSession.id);
-    }
+    createNewChat();
     setShowStats(false);
-    // Fokusiraj input za novu poruku
     setTimeout(() => {
       inputRef.current?.focus();
     }, 100);
@@ -113,7 +110,7 @@ export default function OverlayDrawerSeek() {
           <h2 className="text-base font-semibold text-gray-900 dark:text-white">
             Marysoll AI Asistent
           </h2>
-          <div className="flex items-center gap-2 overflow-scroll">
+          <div className="flex items-center gap-2 overflow-visible relative">
             <HistoryDropdown
               sessions={sessions}
               currentSessionId={currentSession?.id || null}

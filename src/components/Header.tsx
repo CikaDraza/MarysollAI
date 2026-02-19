@@ -38,7 +38,7 @@ export default function Header() {
             summary, recommendation, or to schedule a service.
           </Link>
         </div>
-        <div className="flex flex-col">
+        <div className="flex space-x-4">
           {!isOpen && (
             <Button
               onClick={() => openDrawer()}

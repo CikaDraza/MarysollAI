@@ -1,10 +1,50 @@
 // src/hooks/useChatHistory.ts
-import { useState, useCallback } from "react";
+import { useCallback, useSyncExternalStore } from "react";
 import { ThreadItem } from "@/types/ai/chat-thread";
 import { useParams } from "next/navigation";
 
 const STORAGE_KEY = process.env.NEXT_PUBLIC_STORAGE_KEY || "marysoll_chat_v2";
 const MAX_ITEMS = Number(process.env.NEXT_PUBLIC_MAX_ITEMS) || 10;
+
+const getInitialThread = (): ThreadItem[] => {
+  if (typeof window === "undefined") return [];
+
+  // Ne možemo koristiti useParams ovde, pa ćemo koristiti window.location
+  // Ovo nije idealno, ali radi za inicijalizaciju
+  const path = window.location.pathname;
+  const pathKey = path === "/" ? "home" : path.slice(1).replace(/\//g, "-");
+  const storageKey = `${STORAGE_KEY}-${pathKey}`;
+
+  const saved = localStorage.getItem(storageKey);
+  if (saved) {
+    try {
+      const parsed = JSON.parse(saved);
+      console.log(`📚 Loaded chat history for ${pathKey}:`, parsed.length);
+      return parsed;
+    } catch (e) {
+      console.error("Greška pri parsiranju istorije:", e);
+      localStorage.removeItem(storageKey);
+    }
+  }
+  return [];
+};
+
+let thread = getInitialThread();
+const listeners = new Set<() => void>();
+
+const threadStore = {
+  getThread: () => thread,
+  setThread: (
+    newThread: ThreadItem[] | ((prev: ThreadItem[]) => ThreadItem[]),
+  ) => {
+    thread = typeof newThread === "function" ? newThread(thread) : newThread;
+    listeners.forEach((listener) => listener());
+  },
+  subscribe: (listener: () => void) => {
+    listeners.add(listener);
+    return () => listeners.delete(listener);
+  },
+};
 
 export function useChatHistory() {
   const params = useParams();
@@ -14,23 +54,18 @@ export function useChatHistory() {
     : params.slug || "home";
   const storageKey = `${STORAGE_KEY}-${pathKey}`;
 
-  // Koristimo "Lazy Initialization" - funkcija koja se izvršava samo JEDNOM pri mount-u
-  const [thread, setThread] = useState<ThreadItem[]>(() => {
-    // Provera da li smo na klijentu (zbog SSR-a u Next.js)
-    if (typeof window === "undefined") return [];
+  const thread = useSyncExternalStore(
+    threadStore.subscribe,
+    threadStore.getThread,
+    threadStore.getThread,
+  );
 
-    const saved = localStorage.getItem(storageKey);
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch (e) {
-        console.error("Greška pri parsiranju istorije:", e);
-        localStorage.removeItem(storageKey);
-        return [];
-      }
-    }
-    return [];
-  });
+  const setThread = useCallback(
+    (newThread: ThreadItem[] | ((prev: ThreadItem[]) => ThreadItem[])) => {
+      threadStore.setThread(newThread);
+    },
+    [],
+  );
 
   // 2. Funkcija za čuvanje (sa limitom)
   const saveToHistory = useCallback(
@@ -42,7 +77,7 @@ export function useChatHistory() {
       }
       setThread(limitedThread);
     },
-    [storageKey],
+    [storageKey, setThread],
   );
 
   // Dodajemo wrapper za setThread koji automatski limitira
@@ -58,7 +93,7 @@ export function useChatHistory() {
         return limited;
       });
     },
-    [storageKey],
+    [storageKey, setThread],
   );
 
   // 3. Brisanje istorije (npr. Logout ili nova sesija)
@@ -67,7 +102,7 @@ export function useChatHistory() {
     if (typeof window !== "undefined") {
       localStorage.removeItem(storageKey);
     }
-  }, [storageKey]);
+  }, [storageKey, setThread]);
 
   return {
     thread,

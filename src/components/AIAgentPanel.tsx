@@ -4,6 +4,7 @@ import { ThreadItem } from "@/types/ai/chat-thread";
 import { BoltIcon, TrashIcon } from "@heroicons/react/24/outline";
 import { useState } from "react";
 import { UsageStats } from "./chat/UsageStats";
+import { useHydrated } from "@/hooks/useHydrated";
 
 interface Props {
   onSubmit: (prompt: string) => void;
@@ -18,6 +19,7 @@ export function AIAgentPanel({
   thread,
   clearChat,
 }: Props) {
+  const isHydrated = useHydrated();
   const [input, setInput] = useState("");
   const [showStats, setShowStats] = useState(false);
   const [usage, setUsage] = useState({
@@ -51,7 +53,7 @@ export function AIAgentPanel({
 
   return (
     <div className="overflow-visible bottom-0 left-0 max-w-full w-full z-50">
-      {thread.length !== 0 && (
+      {isHydrated && thread.length !== 0 && (
         <div className="flex items-baseline justify-end mr-0 px-2 md:px-8 pb-2">
           <button
             type="button"

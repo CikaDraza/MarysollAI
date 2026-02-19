@@ -7,6 +7,7 @@ import { useChatHistory } from "./useChatHistory";
 import partialParse from "partial-json-parser";
 import { TextMessage } from "@/types/ai/ai.text-engine";
 import { BaseBlock } from "@/types/landing-block";
+import { ThreadItem } from "@/types/ai/chat-thread";
 
 interface PartialAIResponse {
   messages?: Pick<TextMessage, "content">[];
@@ -21,6 +22,11 @@ interface AIResponseData {
 interface PendingResponse {
   query: string;
   data: AIResponseData;
+}
+
+interface AskAIOptions {
+  context?: ThreadItem[]; // Cela istorija razgovora
+  preserveHistory?: boolean;
 }
 
 export function useAIQuery(user?: AuthUser | null) {
@@ -49,12 +55,10 @@ export function useAIQuery(user?: AuthUser | null) {
   // Funkcija za završetak, umotana u useCallback da bismo mogli da je koristimo u useEffect
   const finishQuery = useCallback(() => {
     if (!pendingResponse) return;
-
     const newElements = createThreadItems(
       pendingResponse.query,
       pendingResponse.data,
     );
-
     setThread((prev) => {
       // Filtriramo koristeći ID iz REF-a
       const filtered = prev.filter((i) => i.id !== activeTempIdRef.current);
@@ -99,7 +103,7 @@ export function useAIQuery(user?: AuthUser | null) {
   }, [isStreaming, finishQuery]);
 
   const askAI = useCallback(
-    async (query: string) => {
+    async (query: string, options?: AskAIOptions) => {
       if (isStreaming) return;
 
       // Generišemo ID i odmah ga čuvamo u REF
@@ -133,6 +137,8 @@ export function useAIQuery(user?: AuthUser | null) {
         // 2. Jedan poziv za SVE (Tekst + Layout)
         const currentUser = userRef.current;
 
+        const historyToSend = options?.context || thread;
+
         const response = await fetch("/api/ai/conversation", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -140,7 +146,7 @@ export function useAIQuery(user?: AuthUser | null) {
             message: query,
             isAuthenticated: !!currentUser && currentUser !== null,
             userName: currentUser?.name || "Gost",
-            history: thread, // Šaljemo istoriju
+            history: historyToSend, // Šaljemo istoriju
           }),
         });
 
@@ -153,7 +159,9 @@ export function useAIQuery(user?: AuthUser | null) {
         // Čitamo stream dok ne završi
         while (true) {
           const { value, done } = await reader.read();
-          if (done) break;
+          if (done) {
+            break;
+          }
 
           const chunk = decoder.decode(value, { stream: true });
           fullRaw += chunk;

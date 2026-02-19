@@ -53,6 +53,7 @@ interface UseChatWithAIReturn {
   loadSession: (sessionId: string) => void;
   deleteSession: (sessionId: string) => void;
   getSessionTitle: (messages: Message[]) => string;
+  createNewChat: () => void;
 }
 
 const CHAT_SESSIONS_KEY = "chat_sessions";
@@ -364,8 +365,6 @@ export function useChatSeek(
       }
 
       if (agentCall) {
-        console.log("🎯 Agent call detected:", agentCall);
-
         // Emituj CALL_AGENT event
         const callEvent: AgentCallEvent = {
           type: "CALL_AGENT",
@@ -385,18 +384,21 @@ export function useChatSeek(
 
         chatEvents.emit(callEvent);
 
-        // Dodaj system poruku da se prebacuje na drugog asistenta
-        if (currentSession) {
-          const systemMessage: Message = {
-            id: crypto.randomUUID(),
-            role: "system",
-            content: `🔄 Prebacujem te na specijalizovanog asistenta za ${getAgentTypeName(agentCall.type)}...`,
-            createdAt: new Date(),
-          };
+        if (agentCall.type === "booking" || agentCall.type === "auth") {
+          setTimeout(() => {
+            if (currentSession) {
+              const systemMessage: Message = {
+                id: crypto.randomUUID(),
+                role: "system",
+                content: `Prebacujem te na specijalizovanog asistenta za ${getAgentTypeName(agentCall.type)}. Pogledaj dole na dnu stranice.`,
+                createdAt: new Date(),
+              };
 
-          updateSession(currentSession.id, {
-            messages: [...currentSession.messages, systemMessage],
-          });
+              updateSession(currentSession.id, {
+                messages: [...currentSession.messages, systemMessage],
+              });
+            }
+          }, 100);
         }
       }
 
@@ -419,7 +421,6 @@ export function useChatSeek(
     const unsubscribeResponse = chatEvents.subscribe(
       "AGENT_RESPONSE",
       (event) => {
-        console.log("📨 Agent response received:", event);
         if (!isAgentResponseEvent(event)) return;
         if (currentSession && event.payload) {
           // Gemini agent je preuzeo - dodajemo poruku da je preuzimanje uspešno
@@ -455,7 +456,6 @@ export function useChatSeek(
     const unsubscribeComplete = chatEvents.subscribe(
       "AGENT_COMPLETE",
       (event) => {
-        console.log("✅ Agent completed:", event);
         if (!isAgentCompleteEvent(event)) return;
         if (currentSession) {
           const completeMessage: Message = {
@@ -534,6 +534,24 @@ export function useChatSeek(
     }
   }, [messages, currentSession, updateSession, sendMessage]);
 
+  const createNewChat = useCallback((): void => {
+    // Prekini tekući stream ako postoji
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+
+    // Kreiraj novu sesiju (već imaš createNewSession)
+    const newSession = createNewSession();
+
+    // Postavi je kao trenutnu
+    setCurrentSessionId(newSession.id);
+
+    // Očisti usage i streaming
+    setUsage(null);
+    setStreamingContent("");
+  }, [createNewSession]);
+
   // Cleanup na unmount
   useEffect(() => {
     return () => {
@@ -573,5 +591,6 @@ export function useChatSeek(
     loadSession,
     deleteSession,
     getSessionTitle,
+    createNewChat,
   };
 }

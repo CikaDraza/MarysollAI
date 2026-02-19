@@ -10,6 +10,7 @@ import { AuthProvider } from "@/hooks/context/AuthContext";
 import { AIAgentPanel } from "../AIAgentPanel";
 import { useAuthActions } from "@/hooks/useAuthActions";
 import { useAIQuery } from "@/hooks/useAIQuery";
+import { AgentBridge } from "../chat-bus/AgentBridge";
 
 const TimelineRendererNoSSR = dynamic(
   () => import("@/components/chat/TimelineRenderer"),
@@ -43,50 +44,53 @@ export default function LayoutWithSidebar({
   } = useAIQuery(user);
 
   return (
-    <div className="flex h-screen w-full overflow-hidden">
-      {/* Leva kolona main kontent */}
-      <div className="relative flex flex-1 flex-col overflow-y-auto overflow-x-hidden min-w-0 transition-all duration-300 ease-in-out">
-        <div className="flex-none">
-          <Header />
-        </div>
-        <div id="top" />
-        <main className="flex-1">
-          <div className="mx-auto max-w-7xl px-4 pt-6">{children}</div>
-          <AuthProvider token={token || null}>
-            <div className="relative isolate px-6 lg:px-8">
-              <TimelineRendererNoSSR
-                thread={thread}
-                onAction={askAI}
-                streamingText={streamingText}
-                isStreaming={isStreaming}
-                error={error}
-                resetError={resetError}
-                onRetry={retry}
-              />
-              <div className="sticky bottom-0 left-0 right-0 z-40">
-                <AIAgentPanel
-                  onSubmit={askAI}
-                  isLoading={isTextLoading}
+    <AgentBridge>
+      <div className="flex h-screen w-full">
+        {/* Leva kolona main kontent */}
+        <div className="relative flex flex-1 flex-col overflow-y-auto min-w-0 transition-all duration-300 ease-in-out">
+          <div className="flex-none">
+            <Header />
+          </div>
+          <div id="top" />
+          <main className="flex-1">
+            <div className="max-w-full pt-6">{children}</div>
+            <AuthProvider token={token || null}>
+              <div className="relative isolate px-6 lg:px-8">
+                <TimelineRendererNoSSR
+                  key={thread.length}
                   thread={thread}
-                  clearChat={clearChat}
+                  onAction={askAI}
+                  streamingText={streamingText}
+                  isStreaming={isStreaming}
+                  error={error}
+                  resetError={resetError}
+                  onRetry={retry}
                 />
+                <div className="sticky bottom-0 left-0 right-0 z-40">
+                  <AIAgentPanel
+                    onSubmit={askAI}
+                    isLoading={isTextLoading}
+                    thread={thread}
+                    clearChat={clearChat}
+                  />
+                </div>
               </div>
-            </div>
-          </AuthProvider>
-        </main>
-      </div>
+            </AuthProvider>
+          </main>
+        </div>
 
-      {/* DESNA KOLONA: Sidebar (Chat) */}
-      <aside
-        className={`
+        {/* DESNA KOLONA: Sidebar (Chat) */}
+        <aside
+          className={`
           relative h-screen border-l border-gray-200 bg-white transition-all duration-300 ease-in-out flex-none
           ${isOpen ? "visible w-full lg:w-100" : "w-0 invisible overflow-hidden border-none"}
         `}
-      >
-        <div className="h-full">
-          <OverlayDrawerSeek />
-        </div>
-      </aside>
-    </div>
+        >
+          <div className="h-full">
+            <OverlayDrawerSeek />
+          </div>
+        </aside>
+      </div>
+    </AgentBridge>
   );
 }

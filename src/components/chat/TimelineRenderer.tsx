@@ -59,10 +59,21 @@ export default function TimelineRenderer({
     }
   };
 
-  // Automatski scroll na dole - svi useEffect-i ostaju isti
   useEffect(() => {
     if (!isClient) return;
 
+    // Uvek skroluj na dno kada se doda nova poruka
+    if (thread.length > initialThreadLength.current) {
+      setTimeout(() => {
+        performScroll("smooth");
+      }, 100);
+    }
+    initialThreadLength.current = thread.length;
+  }, [thread.length, isClient]);
+
+  // Automatski scroll na dole - svi useEffect-i ostaju isti
+  useEffect(() => {
+    if (!isClient) return;
     if (initialThreadLength.current === thread.length && !isStreaming) {
       return;
     }
@@ -247,6 +258,20 @@ export default function TimelineRenderer({
         )}
         <div ref={bottomRef} className="h-30 w-full clear-both" />
       </div>
+
+      {thread.length > 0 && (
+        <div className="fixed bottom-1/6 left-5 z-50">
+          <div
+            onClick={() => {
+              bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+            }}
+            className="bg-purple-600 hover:bg-(--secondary-color) cursor-pointer text-white p-2 rounded-full shadow-lg flex items-center gap-2"
+          >
+            <ChevronDownIcon className="size-6" />
+            <div className="animate-spin border border-dotted border-b-amber-50 border-t-amber-50 border-(--primary-color) size-6 rounded-full p-6 gap-2 absolute -top-1.25 -left-1.25"></div>
+          </div>
+        </div>
+      )}
 
       {/* DESNI VERTIKALNI TIMELINE (Grok Style) */}
       <div className="fixed right-2 md:right-8 top-[40%] md:top-1/2 -translate-y-1/2 flex flex-col items-center gap-2 group">

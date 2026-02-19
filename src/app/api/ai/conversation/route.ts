@@ -2,6 +2,7 @@
 import { rateLimit } from "@/helpers/rate-limit";
 import { getRequestIP } from "@/helpers/request-ip";
 import { askAgent } from "@/services/askAgent";
+import { ThreadItem } from "@/types/ai/chat-thread";
 import { NextResponse } from "next/server";
 
 export async function POST(req: Request) {
@@ -18,7 +19,13 @@ export async function POST(req: Request) {
   }
 
   try {
-    const { message, isAuthenticated, history, userName } = await req.json();
+    const body = await req.json();
+    const { message, isAuthenticated, history, userName } = body as {
+      message: string;
+      isAuthenticated: boolean;
+      history: ThreadItem[];
+      userName: string;
+    };
 
     const stream = await askAgent(
       message,

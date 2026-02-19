@@ -24,9 +24,9 @@ export default function LandingHero() {
           <Image
             width={768}
             height={768}
-            alt=""
+            alt="marysoll.makeup image"
             src="/marysoll-assistant-hero.png"
-            className="w-3xl max-w-none rounded-xl bg-gray-900 shadow-xl shadow-gray-500 ring-1 ring-gray-400/10 sm:w-228"
+            className="w-3xl max-w-none rounded-tl-xl rounded-bl-xl bg-gray-900 shadow-xl shadow-gray-500 ring-1 ring-gray-400/10 sm:w-228"
           />
         </div>
         <div className="lg:col-span-2 lg:col-start-1 lg:row-start-2 lg:mx-auto lg:grid lg:w-full lg:max-w-7xl lg:grid-cols-2 lg:gap-x-8 lg:px-8">

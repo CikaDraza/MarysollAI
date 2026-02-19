@@ -1,5 +1,6 @@
 // src/components/chat/UsageStats.tsx
 import { motion, AnimatePresence } from "framer-motion";
+import { useHydrated } from "@/hooks/useHydrated";
 
 interface Props {
   isOpen: boolean;
@@ -10,11 +11,14 @@ interface Props {
 }
 
 export function UsageStats({ isOpen, usage }: Props) {
+  const isHydrated = useHydrated();
   // Free Tier limiti
   const LIMITS = {
     daily: 1500,
     minute: 15,
   };
+
+  if (!isHydrated) return null;
 
   return (
     <AnimatePresence>
