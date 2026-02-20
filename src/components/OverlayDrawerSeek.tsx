@@ -21,6 +21,8 @@ export default function OverlayDrawerSeek() {
   const [showStats, setShowStats] = useState(false);
   const formRef = useRef<HTMLFormElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const lastMessageCount = useRef(0);
 
   const {
     messages,
@@ -48,10 +50,30 @@ export default function OverlayDrawerSeek() {
     },
   });
 
-  // Scroll to bottom
+  // PAMETAN SCROLL LOGIC
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+    const container = scrollContainerRef.current;
+    if (!container) return;
+
+    // 1. Provera da li je korisnik blizu dna (buffer od 150px)
+    const isAtBottom =
+      container.scrollHeight - container.scrollTop <=
+      container.clientHeight + 150;
+
+    // 2. Ako je dodata POTPUNO NOVA poruka (npr. klijent je poslao nešto)
+    const isNewMessage = messages.length > lastMessageCount.current;
+
+    // 3. Skroluj dole samo ako:
+    // - Je klijent već na dnu (dok AI strimuje)
+    // - Ili je upravo dodata nova poruka u niz
+    if (isAtBottom || isNewMessage) {
+      messagesEndRef.current?.scrollIntoView({
+        behavior: isNewMessage ? "smooth" : "auto",
+      });
+    }
+
+    lastMessageCount.current = messages.length;
+  }, [messages, isStreaming]);
 
   // Fokusiraj input kad se otvori drawer
   useEffect(() => {
@@ -145,7 +167,10 @@ export default function OverlayDrawerSeek() {
         </div>
       </header>
 
-      <div className="flex-1 overflow-y-auto p-4 space-y-4 min-h-0 bg-gray-50/50">
+      <div
+        ref={scrollContainerRef}
+        className="flex-1 overflow-y-auto p-4 space-y-4 min-h-0 bg-gray-50/50"
+      >
         <div className="space-y-4">
           {messages.map((message: Message) => (
             <div
