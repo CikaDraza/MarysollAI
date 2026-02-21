@@ -1,6 +1,11 @@
-// src/components/chat/TimelineRenderer.tsx
 "use client";
-import { useEffect, useRef, useSyncExternalStore } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  useCallback,
+} from "react";
 import { ChevronDownIcon, ChevronUpIcon } from "@heroicons/react/24/outline";
 import { ThreadItem } from "@/types/ai/chat-thread";
 import { TextEngine } from "../layout/TextEngine";
@@ -16,18 +21,11 @@ interface Props {
   onRetry?: () => void;
 }
 
-// Server i klijent stanje
-const isServer = typeof window === "undefined";
-
-// Jednostavan store za detekciju klijenta
 const clientStore = {
-  isClient: !isServer,
-  subscribe: () => {
-    // Nema potrebe za subscribe-om jer se ovo nikad ne menja
-    return () => {};
-  },
-  getSnapshot: () => !isServer,
-  getServerSnapshot: () => false, // Uvek false na serveru
+  isClient: typeof window !== "undefined",
+  subscribe: () => () => {},
+  getSnapshot: () => typeof window !== "undefined",
+  getServerSnapshot: () => false,
 };
 
 export default function TimelineRenderer({
@@ -41,14 +39,76 @@ export default function TimelineRenderer({
 }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const initialThreadLength = useRef(thread.length);
+  const [showScrollDown, setShowScrollDown] = useState(false);
+  const lastThreadLength = useRef(thread.length);
 
-  // useSyncExternalStore je bezbedan za React 19
   const isClient = useSyncExternalStore(
     clientStore.subscribe,
     clientStore.getSnapshot,
     clientStore.getServerSnapshot,
   );
+
+  // Stabilna funkcija za skrol
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
+    if (bottomRef.current) {
+      bottomRef.current.scrollIntoView({ behavior, block: "end" });
+    }
+  }, []);
+
+  // Stabilna funkcija za proveru pozicije (bez izazivanja cascading renders)
+  const checkScrollPosition = useCallback(() => {
+    const mainContent = document.getElementById("main-content");
+    if (!mainContent) return;
+
+    const distanceToBottom =
+      mainContent.scrollHeight -
+      (mainContent.scrollTop + mainContent.clientHeight);
+
+    // Koristimo funkcionalni update da izbegnemo nepotrebne rendere ako je stanje isto
+    setShowScrollDown(() => (distanceToBottom > 200 ? true : false));
+  }, []);
+
+  // 1. Pratimo fizički scroll događaj
+  useEffect(() => {
+    const mainContent = document.getElementById("main-content");
+    if (!mainContent) return;
+
+    mainContent.addEventListener("scroll", checkScrollPosition);
+    return () => mainContent.removeEventListener("scroll", checkScrollPosition);
+  }, [checkScrollPosition]);
+
+  // 2. Glavni efekat za skrolovanje i dugme
+  useEffect(() => {
+    if (!isClient) return;
+    const mainContent = document.getElementById("main-content");
+    if (!mainContent) return;
+
+    const isNewMessage = thread.length > lastThreadLength.current;
+    const isAtBottom =
+      mainContent.scrollHeight -
+        (mainContent.scrollTop + mainContent.clientHeight) <
+      150;
+
+    if (isNewMessage || (isStreaming && isAtBottom)) {
+      // Skrolujemo u sledećem frame-u da dozvolimo DOM-u da se ažurira
+      requestAnimationFrame(() => {
+        scrollToBottom(isNewMessage ? "smooth" : "auto");
+      });
+    }
+
+    // Umesto direktnog setState, pozivamo proveru nakon što se završi render
+    const timeoutId = setTimeout(checkScrollPosition, 100);
+
+    lastThreadLength.current = thread.length;
+    return () => clearTimeout(timeoutId);
+  }, [
+    thread.length,
+    isStreaming,
+    streamingText,
+    isClient,
+    scrollToBottom,
+    checkScrollPosition,
+  ]);
 
   const performScroll = (behavior: ScrollBehavior = "smooth") => {
     if (bottomRef.current) {
@@ -61,20 +121,7 @@ export default function TimelineRenderer({
 
   useEffect(() => {
     if (!isClient) return;
-
-    // Uvek skroluj na dno kada se doda nova poruka
-    if (thread.length > initialThreadLength.current) {
-      setTimeout(() => {
-        performScroll("smooth");
-      }, 100);
-    }
-    initialThreadLength.current = thread.length;
-  }, [thread.length, isClient]);
-
-  // Automatski scroll na dole - svi useEffect-i ostaju isti
-  useEffect(() => {
-    if (!isClient) return;
-    if (initialThreadLength.current === thread.length && !isStreaming) {
+    if (lastThreadLength.current === thread.length && !isStreaming) {
       return;
     }
 
@@ -83,49 +130,28 @@ export default function TimelineRenderer({
     });
   }, [thread, streamingText, isStreaming, isClient]);
 
+  // 3. ResizeObserver za dinamičke blokove (Cenovnik itd.)
   useEffect(() => {
-    if (!isClient) return;
-    if (isStreaming && streamingText) {
-      performScroll("smooth");
-    }
-  }, [streamingText, isStreaming, isClient]);
-
-  useEffect(() => {
-    if (!isClient) return;
-    if (
-      !containerRef.current ||
-      (initialThreadLength.current === thread.length && !isStreaming)
-    )
-      return;
+    if (!isClient || !containerRef.current) return;
 
     const resizeObserver = new ResizeObserver(() => {
-      if (!isStreaming) {
-        performScroll("smooth");
+      const mainContent = document.getElementById("main-content");
+      if (!mainContent) return;
+
+      const isAtBottom =
+        mainContent.scrollHeight -
+          (mainContent.scrollTop + mainContent.clientHeight) <
+        150;
+
+      if (isStreaming && isAtBottom) {
+        scrollToBottom("auto");
       }
+      checkScrollPosition();
     });
 
     resizeObserver.observe(containerRef.current);
     return () => resizeObserver.disconnect();
-  }, [thread.length, isStreaming, isClient]);
-
-  useEffect(() => {
-    if (!isClient) return;
-    if (error) {
-      setTimeout(() => {
-        window.scrollTo({
-          top: document.body.scrollHeight,
-          behavior: "smooth",
-        });
-      }, 100);
-    }
-  }, [error, isClient]);
-
-  const scrollToItem = (id: string) => {
-    if (!isClient) return;
-    document
-      .getElementById(id)
-      ?.scrollIntoView({ behavior: "smooth", block: "center" });
-  };
+  }, [isStreaming, isClient, scrollToBottom, checkScrollPosition]);
 
   const scrollToTop = (id: string) => {
     document.getElementById(id)?.scrollIntoView({
@@ -134,50 +160,20 @@ export default function TimelineRenderer({
     });
   };
 
-  const lastItem = thread[thread.length - 1];
-  const isLastItemAssistantMessage =
-    lastItem?.type === "message" && lastItem.data.role === "assistant";
-  const shouldShowStreaming =
-    isStreaming && streamingText && !isLastItemAssistantMessage;
+  const scrollToItem = (id: string) => {
+    if (!isClient) return;
+    document
+      .getElementById(id)
+      ?.scrollIntoView({ behavior: "smooth", block: "center" });
+  };
 
-  // Na serveru renderuj samo osnovni sadržaj bez ID-eva i animacija
-  if (!isClient) {
-    return (
-      <div className="relative flex w-full lg:max-w-5xl mx-auto">
-        <div className="max-w-full flex-1 space-y-8 pb-32 md:pb-8">
-          {thread.map((item, index) => (
-            <div key={`static-${index}`}>
-              {item.type === "message" ? (
-                <div
-                  className={`flex ${item.data.role === "user" ? "justify-end" : "justify-start"}`}
-                >
-                  <div
-                    className={`max-w-[80%] p-4 rounded-lg ${
-                      item.data.role === "user"
-                        ? "bg-gray-100"
-                        : "border-l-6 border-(--secondary-color) bg-gray-50"
-                    }`}
-                  >
-                    <TextEngine messages={item.data} />
-                  </div>
-                </div>
-              ) : (
-                <div className="my-4">
-                  <LayoutEngine blocks={item.data} onMessageAction={onAction} />
-                </div>
-              )}
-            </div>
-          ))}
-          <div className="h-30 w-full clear-both" />
-        </div>
-      </div>
-    );
-  }
+  if (!isClient) return null;
 
-  // Na klijentu renderuj punu verziju sa ID-evima i animacijama
   return (
-    <div className="relative flex w-full lg:max-w-5xl mx-auto">
-      {/* GLAVNI CHAT NIZ */}
+    <div
+      ref={containerRef}
+      className="relative flex w-full lg:max-w-5xl mx-auto"
+    >
       <div className="max-w-full flex-1 space-y-8 pb-32 md:pb-8">
         {thread.map((item) => (
           <div
@@ -190,11 +186,7 @@ export default function TimelineRenderer({
                 className={`flex ${item.data.role === "user" ? "justify-end" : "justify-start"}`}
               >
                 <div
-                  className={`max-w-[80%] p-4 rounded-lg ${
-                    item.data.role === "user"
-                      ? "bg-gray-100"
-                      : "border-l-6 border-(--secondary-color) bg-gray-50"
-                  }`}
+                  className={`max-w-[80%] p-4 rounded-lg ${item.data.role === "user" ? "bg-gray-100" : "border-l-6 border-(--secondary-color) bg-gray-50"}`}
                 >
                   <TextEngine messages={item.data} />
                 </div>
@@ -206,49 +198,31 @@ export default function TimelineRenderer({
             )}
           </div>
         ))}
-        {/* 2. ŽIVA PORUKA KOJA SE KUCA (Samo dok AI odgovara) */}
-        {shouldShowStreaming && (
+
+        {isStreaming && streamingText && (
           <div className="flex justify-start animate-in fade-in duration-300 pb-32">
-            <div className="max-w-[80%] p-4 rounded-2xl border-l-6 border-(--secondary-color) bg-gray-50">
-              <p className="text-gray-800 whitespace-pre-wrap leading-relaxed">
-                {streamingText}
-                {/* Marysoll AI kursor/blink */}
-                <span className="inline-block w-1.5 h-4 ml-1 bg-pink-400 animate-pulse align-middle" />
-              </p>
+            <div className="max-w-[80%] p-4 rounded-2xl border-l-6 border-(--secondary-color) bg-gray-50 text-gray-800">
+              {streamingText}
+              <span className="inline-block w-1.5 h-4 ml-1 bg-(--secondary-color) animate-pulse align-middle" />
             </div>
           </div>
         )}
-
         {error && (
-          <div className="max-w-2xl mx-auto pb-32 animate-in slide-in-from-bottom-2">
-            <div className="bg-red-50 border border-red-200 rounded-2xl p-4 flex flex-col items-center gap-3">
-              <p className="text-sm text-red-800 font-medium text-center">
+          <div className="max-w-2xl mx-auto pb-32 animate-in slide-in-from-bottom-2 text-center">
+            <div className="bg-red-50 border border-red-200 rounded-2xl p-4">
+              <p className="text-sm text-red-800 font-medium">
                 MarysollAI asistent nije mogao da završi odgovor.
-                <br />
-                <span className="text-xs text-red-900/70 font-medium text-center">
-                  {"(MarysollAI Assistant was unable to finish replying.)"}
-                </span>
-                <br />
-                <span className="text-xs font-normal opacity-70">
-                  Error: {error}
-                </span>
               </p>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => window.location.reload()}
-                  className="text-xs bg-white border border-red-200 px-4 py-2 rounded-lg hover:bg-red-50 transition-colors"
-                >
-                  Refresh Page
-                </button>
+              <div className="flex gap-2 justify-center mt-3">
                 <button
                   onClick={resetError}
-                  className="text-xs bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors"
+                  className="text-xs bg-red-600 text-white px-4 py-2 rounded-lg"
                 >
-                  Reset Error
+                  Reset
                 </button>
                 <button
                   onClick={onRetry}
-                  className="text-xs bg-(--secondary-color) text-white px-4 py-2 rounded-lg hover:bg-(--secondary-color)/90 transition-colors"
+                  className="text-xs bg-(--secondary-color) text-white px-4 py-2 rounded-lg"
                 >
                   Retry
                 </button>
@@ -256,60 +230,62 @@ export default function TimelineRenderer({
             </div>
           </div>
         )}
-        <div ref={bottomRef} className="h-30 w-full clear-both" />
+        <div ref={bottomRef} className="h-20 w-full clear-both" />
       </div>
 
-      {thread.length > 0 && (
-        <div className="fixed bottom-1/6 left-5 z-50">
-          <div
-            onClick={() => {
-              bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-            }}
-            className="bg-purple-600 hover:bg-(--secondary-color) cursor-pointer text-white p-2 rounded-full shadow-lg flex items-center gap-2"
+      {showScrollDown && (
+        <div className="fixed bottom-30 left-16 z-50 flex flex-col items-center gap-2">
+          {isStreaming && (
+            <span className="absolute w-28 bg-white/90 -top-8 text-[10px] px-2 py-1 rounded shadow-sm border border-purple-100 animate-pulse text-purple-600 font-bold">
+              Assistant typing...
+            </span>
+          )}
+          <button
+            onClick={() => scrollToBottom("smooth")}
+            className="cursor-pointer bg-purple-600 hover:bg-(--secondary-color) text-white p-1.5 rounded-full shadow-2xl relative transition-all"
           >
             <ChevronDownIcon className="size-6" />
-            <div className="animate-spin border border-dotted border-b-amber-50 border-t-amber-50 border-(--primary-color) size-6 rounded-full p-6 gap-2 absolute -top-1.25 -left-1.25"></div>
-          </div>
+            {isStreaming && (
+              <div className="absolute -inset-1 border-2 border-purple-400 rounded-full animate-ping opacity-75" />
+            )}
+          </button>
         </div>
       )}
-
-      {/* DESNI VERTIKALNI TIMELINE (Grok Style) */}
-      <div className="fixed right-2 md:right-8 top-[40%] md:top-1/2 -translate-y-1/2 flex flex-col items-center gap-2 group">
-        <button
-          onClick={() => scrollToTop("top")}
-          className="cursor-pointer md:opacity-0 md:group-hover:opacity-100 transition-all p-2 md:hover:bg-white bg-white rounded-full"
-        >
-          <ChevronUpIcon className="size-4" />
-        </button>
-
-        <div className="flex flex-col gap-3 items-end">
-          {thread
-            .filter((i) => i.type === "message" && i.data.role === "user")
-            .map((userMsg) => {
-              if (userMsg.type !== "message") return null;
-              return (
-                <button
-                  key={userMsg.id}
-                  onClick={() => scrollToItem(userMsg.id)}
-                  className="cursor-pointer h-1 w-4 bg-gray-300 rounded-full hover:w-8 hover:bg-pink-500 transition-all relative group/tick"
-                >
-                  <span className="absolute right-10 top-1/2 -translate-y-1/2 bg-black text-white text-[10px] px-2 py-1 rounded opacity-0 group-hover/tick:opacity-100 whitespace-nowrap">
-                    {userMsg.data.content.substring(0, 20)}...
-                  </span>
-                </button>
-              );
-            })}
+      {/* Grok Style Sidebar Timeline */}
+      {
+        <div className="fixed right-2 md:right-8 top-1/2 -translate-y-1/2 flex flex-col items-center gap-2 group">
+          <button
+            onClick={() => scrollToTop("top")}
+            className="cursor-pointer mb-2 p-2 bg-white rounded-full shadow-sm md:opacity-0 md:group-hover:opacity-100 transition-opacity"
+          >
+            <ChevronUpIcon className="size-4" />
+          </button>
+          <div className="flex flex-col gap-3">
+            {thread
+              .filter((i) => i.type === "message" && i.data.role === "user")
+              .map((msg) => {
+                if (msg.type !== "message") return null;
+                return (
+                  <button
+                    key={msg.id}
+                    onClick={() => scrollToItem(msg.id)}
+                    className="cursor-pointer h-1 w-4 bg-gray-300 rounded-full hover:h-1.25 hover:w-8 hover:bg-pink-500 transition-all relative group/tick"
+                  >
+                    <span className="absolute right-10 top-1/2 -translate-y-1/2 bg-black text-white text-[10px] px-2 py-1 rounded opacity-0 group-hover/tick:opacity-100 whitespace-nowrap">
+                      {msg.data.content.substring(0, 20)}...
+                    </span>
+                  </button>
+                );
+              })}
+          </div>
+          <button
+            onClick={() => scrollToBottom()}
+            className="cursor-pointer mt-2 md:opacity-0 md:group-hover:opacity-100 transition-all p-2 md:hover:bg-white bg-white rounded-full"
+          >
+            <ChevronDownIcon className="size-4" />
+          </button>
         </div>
-
-        <button
-          onClick={() =>
-            bottomRef.current?.scrollIntoView({ behavior: "smooth" })
-          }
-          className="cursor-pointer md:opacity-0 md:group-hover:opacity-100 transition-all p-2 md:hover:bg-white bg-white rounded-full"
-        >
-          <ChevronDownIcon className="size-4" />
-        </button>
-      </div>
+      }
     </div>
   );
 }

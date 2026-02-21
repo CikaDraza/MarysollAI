@@ -7,6 +7,7 @@ import LoggedButton from "./LoggedButton";
 import { useAuthActions } from "@/hooks/useAuthActions";
 import { Reveal } from "./motion/Reveal";
 import { useDrawerSeek } from "@/hooks/useDrawerSeek";
+import { SparklesIcon } from "@heroicons/react/24/outline";
 
 export default function Header() {
   const { user, logout } = useAuthActions();
@@ -42,9 +43,12 @@ export default function Header() {
           {!isOpen && (
             <Button
               onClick={() => openDrawer()}
-              className="cursor-pointer text-xs md:text-sm font-semibold text-gray-900"
+              className="group cursor-pointer flex items-center justify-center text-xs md:text-sm font-semibold text-gray-900 group"
             >
-              Ask Marysoll
+              <SparklesIcon className="size-4 text-(--primary-color) group-hover:text-(--secondary-color)" />{" "}
+              <span className="text-(--primary-color) group-hover:text-(--secondary-color)">
+                Ask Marysoll
+              </span>
             </Button>
           )}
           {user && (

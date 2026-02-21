@@ -8,6 +8,7 @@ import { useAuthActions } from "@/hooks/useAuthActions";
 import { ThreadItem } from "@/types/ai/chat-thread";
 import { Message as DeepSeekMessage } from "@/types/ai/deepseek";
 import { AgentType } from "@/types/ai/deepseek/agent-call";
+import { useDrawerSeek } from "@/hooks/useDrawerSeek";
 
 interface AgentBridgeProps {
   children: ReactNode;
@@ -55,7 +56,8 @@ const getAgentTypeName = (type: AgentType | string): string => {
 
 export function AgentBridge({ children }: AgentBridgeProps) {
   const { user } = useAuthActions();
-  const { askAI, thread } = useAIQuery(user);
+  const { askAI } = useAIQuery(user);
+  const { closeDrawer } = useDrawerSeek();
   const isProcessingRef = useRef(false);
 
   useEffect(() => {
@@ -67,23 +69,28 @@ export function AgentBridge({ children }: AgentBridgeProps) {
       try {
         const { agentType, userMessage, history } = event.payload;
 
-        // Pronađi originalnu korisničku poruku
+        // 1. Skroluj glavni kontejner na dno pre nego što Gemini krene
+        const mainContent = document.getElementById("main-content");
+        if (mainContent) {
+          mainContent.scrollTo({
+            top: mainContent.scrollHeight,
+            behavior: "smooth",
+          });
+        }
+
         const originalUserQuery = history
           ? findLastUserMessage(history)
           : userMessage;
-
-        // Konvertuj DeepSeek history u ThreadItem format
         const convertedHistory = history
           ? convertDeepSeekHistoryToThreadItems(history)
           : [];
 
-        // Pošalji ORIGINALNU poruku Geminiju
+        // 2. Pokreni Gemini
         await askAI(originalUserQuery || userMessage, {
           context: convertedHistory,
           preserveHistory: true,
         });
 
-        // Emituj da je agent preuzeo
         chatEvents.emit({
           type: "AGENT_RESPONSE",
           payload: {
@@ -93,24 +100,16 @@ export function AgentBridge({ children }: AgentBridgeProps) {
           },
           timestamp: Date.now(),
         });
+        closeDrawer();
       } catch (error) {
         console.error("Agent bridge error:", error);
-        chatEvents.emit({
-          type: "AGENT_RESPONSE",
-          payload: {
-            agentType: event.payload.agentType,
-            content: "Došlo je do greške pri prebacivanju.",
-            completed: true,
-          },
-          timestamp: Date.now(),
-        });
       } finally {
         isProcessingRef.current = false;
       }
     });
 
     return unsubscribe;
-  }, [askAI, user, thread]);
+  }, [askAI, user, closeDrawer]);
 
   return <>{children}</>;
 }

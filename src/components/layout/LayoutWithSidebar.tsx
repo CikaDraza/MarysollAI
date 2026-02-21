@@ -47,7 +47,10 @@ export default function LayoutWithSidebar({
     <AgentBridge>
       <div className="flex h-screen w-full">
         {/* Leva kolona main kontent */}
-        <div className="relative flex flex-1 flex-col overflow-y-auto min-w-0 transition-all duration-300 ease-in-out">
+        <div
+          id="main-content"
+          className="relative flex flex-1 flex-col overflow-y-auto min-w-0 transition-all duration-300 ease-in-out"
+        >
           <div className="flex-none">
             <Header />
           </div>

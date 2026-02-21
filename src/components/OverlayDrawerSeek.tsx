@@ -6,6 +6,7 @@ import {
   BoltIcon,
   PaperAirplaneIcon,
   XMarkIcon,
+  ChevronDownIcon,
 } from "@heroicons/react/24/outline";
 import { useDrawerSeek } from "@/hooks/useDrawerSeek";
 import { HistoryDropdown } from "@/components/chat/HistoryDropdown";
@@ -23,6 +24,7 @@ export default function OverlayDrawerSeek() {
   const inputRef = useRef<HTMLInputElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const lastMessageCount = useRef(0);
+  const [showScrollButton, setShowScrollButton] = useState(false);
 
   const {
     messages,
@@ -49,6 +51,25 @@ export default function OverlayDrawerSeek() {
       }
     },
   });
+
+  // Funkcija za detekciju skrola
+  const handleScroll = () => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+
+    // Ako je korisnik više od 200px od dna, pokaži dugme
+    const isOffBottom =
+      container.scrollHeight - container.scrollTop >
+      container.clientHeight + 200;
+
+    setShowScrollButton(isOffBottom);
+  };
+
+  // Funkcija za skok na dno
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    setShowScrollButton(false);
+  };
 
   // PAMETAN SCROLL LOGIC
   useEffect(() => {
@@ -169,6 +190,7 @@ export default function OverlayDrawerSeek() {
 
       <div
         ref={scrollContainerRef}
+        onScroll={handleScroll}
         className="flex-1 overflow-y-auto p-4 space-y-4 min-h-0 bg-gray-50/50"
       >
         <div className="space-y-4">
@@ -228,6 +250,14 @@ export default function OverlayDrawerSeek() {
 
           <div ref={messagesEndRef} />
         </div>
+        {showScrollButton && (
+          <button
+            onClick={scrollToBottom}
+            className="cursor-pointer fixed bottom-24 right-8 z-60 bg-(--secondary-color) text-white p-2 rounded-full shadow-xl animate-bounce hover:scale-110 transition-all"
+          >
+            <ChevronDownIcon className="size-6" />
+          </button>
+        )}
       </div>
 
       <footer className="p-4 border-t border-gray-200 flex-none bg-white">
