@@ -69,6 +69,13 @@ export interface LandingPageConfig {
   enabled: boolean;
   slug: string;
   generatedAt?: string;
+  seo?: {
+    title?: string;
+    description?: string;
+    keywords?: string[];
+    ogTitle?: string;
+    ogDescription?: string;
+  };
 }
 
 export interface PaginationInfo {

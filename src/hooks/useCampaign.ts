@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import axios from "axios";
 import { Campaign } from "@/types";
 
-export function useCampaign(id: string) {
+export function useCampaign(id: string, initialData?: Campaign) {
   return useQuery<Campaign>({
     queryKey: ["campaign", id],
     queryFn: async () => {
@@ -10,5 +10,7 @@ export function useCampaign(id: string) {
       return res.data;
     },
     enabled: !!id,
+    initialData,
+    staleTime: 1000 * 60 * 5,
   });
 }

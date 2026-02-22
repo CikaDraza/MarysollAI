@@ -1,33 +1,42 @@
-// src/app/[...slug]/page.tsx
-"use client";
-
-import { useParams } from "next/navigation";
-import { useCampaign } from "@/hooks/useCampaign";
-import { CampaignLayoutEngine } from "@/components/layout/CampaignLayoutEngine";
+// app/[...slug]/page.tsx
+import CampaignClientShell from "@/components/CampaignClientShell";
 import { normalizeCampaignSlug } from "@/helpers/slugNormalizer";
-import { useAuthActions } from "@/hooks/useAuthActions";
-import { AuthProvider } from "@/hooks/context/AuthContext";
-import MiniLoader from "@/components/MiniLoader";
+import { getCampaign } from "@/lib/server/getCampaign";
+import type { Metadata } from "next";
+import { cookies } from "next/headers";
 
-export default function CampaignPage() {
-  const params = useParams<{ slug: string[] }>();
-  const { slugId } = normalizeCampaignSlug(params.slug);
-  const { token } = useAuthActions();
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ slug: string[] }>;
+}): Promise<Metadata> {
+  const { slug } = await params;
+  const { slugId } = normalizeCampaignSlug(slug);
+  const data = await getCampaign(slugId);
 
-  const { data, isLoading } = useCampaign(slugId);
+  const seo = data?.landingPage?.seo;
 
-  if (isLoading || !data)
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <MiniLoader />
-      </div>
-    );
+  return {
+    title: seo?.title ?? "Marysoll Assistant AI",
+    description: seo?.description ?? "AI Generation web app",
+    keywords: seo?.keywords,
+  };
+}
 
-  return (
-    <AuthProvider token={token || null}>
-      <div className="relative isolate px-6 lg:px-8">
-        <CampaignLayoutEngine blocks={data?.landingPage?.layout ?? []} />
-      </div>
-    </AuthProvider>
-  );
+export default async function Page({
+  params,
+}: {
+  params: Promise<{ slug: string[] }>;
+}) {
+  const { slug } = await params;
+  const { slugId } = normalizeCampaignSlug(slug);
+
+  const [data, cookieStore] = await Promise.all([
+    getCampaign(slugId),
+    cookies(),
+  ]);
+
+  const token = cookieStore.get("token")?.value ?? null;
+
+  return <CampaignClientShell initialData={data} token={token} id={slugId} />;
 }

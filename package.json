@@ -1,6 +1,6 @@
 {
   "name": "marysoll-assistant-ai",
-  "version": "1.6.6",
+  "version": "1.7.6",
   "private": true,
   "scripts": {
     "test": "jest",
