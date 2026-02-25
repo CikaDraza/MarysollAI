@@ -20,6 +20,11 @@ export async function generateMetadata({
     title: seo?.title ?? "Marysoll Assistant AI",
     description: seo?.description ?? "AI Generation web app",
     keywords: seo?.keywords,
+    openGraph: {
+      title: seo.ogTitle,
+      description: seo.ogDescription,
+      images: [data?.landingPage.seo.ogImage],
+    },
   };
 }
 

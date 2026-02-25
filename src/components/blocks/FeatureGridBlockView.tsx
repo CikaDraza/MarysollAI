@@ -42,9 +42,7 @@ export default function FeatureGridBlockView({
               <h3 className="mt-3 text-lg/6 font-semibold text-gray-800 group-hover:text-gray-600">
                 {f.title}
               </h3>
-              <p className="mt-5 line-clamp-3 text-sm/6 text-gray-600">
-                {f.description}
-              </p>
+              <p className="mt-5 text-sm/6 text-gray-600">{f.description}</p>
             </div>
           </article>
         ))}
