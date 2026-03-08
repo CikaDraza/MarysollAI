@@ -2,9 +2,10 @@
   "name": "marysoll-assistant-ai",
   "version": "1.7.6",
   "private": true,
+  "type": "module",
   "scripts": {
     "test": "jest",
-    "dev": "next dev",
+    "dev": "next dev --port 3009",
     "build": "next build",
     "start": "next start",
     "lint": "eslint"
