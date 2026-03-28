@@ -1,20 +1,19 @@
-// src/app/api/external/appointments/create/route.ts
 import { NextResponse } from "next/server";
 
-export async function POST(req: Request) {
+export async function DELETE(
+  req: Request,
+  { params }: { params: Promise<{ id: string }> },
+) {
   const MAIN_SITE_API = process.env.MAIN_SITE_API;
+  const { id } = await params;
   try {
     const authHeader = req.headers.get("authorization");
-    const body = await req.json();
 
-    // Prosleđujemo zahtev na pravi Marysoll API
-    const response = await fetch(`${MAIN_SITE_API}/appointments/create`, {
-      method: "POST",
+    const response = await fetch(`${MAIN_SITE_API}/testimonials/delete/${id}`, {
+      method: "DELETE",
       headers: {
-        "Content-Type": "application/json",
         Authorization: authHeader || "",
       },
-      body: JSON.stringify(body),
     });
 
     const data = await response.json();

@@ -20,7 +20,7 @@ export default function LoggedButton({
 }: LoggedButtonProps) {
   return (
     <Menu as="div" className="relative inline-block text-left">
-      <MenuButton className="inline-flex items-center gap-x-1.5 rounded-md bg-black px-3 py-2 text-xs 2xl:text-sm font-semibold text-white hover:bg-gray-800">
+      <MenuButton className="cursor-pointer inline-flex items-center gap-x-1.5 rounded-md bg-(--primary-color)/5 px-3 py-2 text-xs 2xl:text-sm font-semibold text-black hover:bg-(--primary-color)/10">
         Dobro došli, {user?.name || "korisniče"}
         <ChevronDownIcon aria-hidden="true" className="size-5 text-gray-400" />
       </MenuButton>

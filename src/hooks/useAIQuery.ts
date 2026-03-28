@@ -1,3 +1,4 @@
+// src/hooks/useAIQuery.ts
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -25,8 +26,13 @@ interface PendingResponse {
 }
 
 interface AskAIOptions {
-  context?: ThreadItem[]; // Cela istorija razgovora
+  context?: ThreadItem[];
   preserveHistory?: boolean;
+  // ✅ Dodajemo eksplicitne auth podatke
+  explicitAuth?: {
+    isAuthenticated: boolean;
+    userName: string;
+  };
 }
 
 export function useAIQuery(user?: AuthUser | null) {
@@ -36,6 +42,8 @@ export function useAIQuery(user?: AuthUser | null) {
     updateThread: setThread,
     clearHistory,
   } = useChatHistory();
+
+  // ✅ Ref za user sa trenutnim podacima
   const userRef = useRef(user);
   const [streamingText, setStreamingText] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
@@ -44,15 +52,14 @@ export function useAIQuery(user?: AuthUser | null) {
   const targetTextRef = useRef("");
   const isNetworkDoneRef = useRef(false);
   const activeTempIdRef = useRef<string | null>(null);
-
   const [pendingResponse, setPendingResponse] =
     useState<PendingResponse | null>(null);
 
+  // ✅ Odmah ažuriraj ref kada se user promeni
   useEffect(() => {
     userRef.current = user;
   }, [user]);
 
-  // Funkcija za završetak, umotana u useCallback da bismo mogli da je koristimo u useEffect
   const finishQuery = useCallback(() => {
     if (!pendingResponse) return;
     const newElements = createThreadItems(
@@ -60,7 +67,6 @@ export function useAIQuery(user?: AuthUser | null) {
       pendingResponse.data,
     );
     setThread((prev) => {
-      // Filtriramo koristeći ID iz REF-a
       const filtered = prev.filter((i) => i.id !== activeTempIdRef.current);
       const updated = [...filtered, ...newElements];
       saveToHistory(updated);
@@ -71,10 +77,9 @@ export function useAIQuery(user?: AuthUser | null) {
     setIsTextLoading(false);
     setPendingResponse(null);
     setStreamingText("");
-    activeTempIdRef.current = null; // Resetujemo ID nakon završetka
+    activeTempIdRef.current = null;
   }, [pendingResponse, saveToHistory, setThread]);
 
-  // Typewriter efekat: Svakih 30ms dodajemo po jedan karakter
   useEffect(() => {
     if (!isStreaming) return;
 
@@ -84,11 +89,9 @@ export function useAIQuery(user?: AuthUser | null) {
 
         if (prev.length >= target.length && isNetworkDoneRef.current) {
           clearInterval(timer);
-          // DODAJEMO DRAMSKU PAUZU
           setTimeout(() => {
             finishQuery();
-          }, 600); // Malo smo povećali pauzu za bolji UX
-
+          }, 600);
           return prev;
         }
 
@@ -106,19 +109,23 @@ export function useAIQuery(user?: AuthUser | null) {
     async (query: string, options?: AskAIOptions) => {
       if (isStreaming) return;
 
-      // Generišemo ID i odmah ga čuvamo u REF
       const currentId = `temp-${crypto.randomUUID()}`;
       activeTempIdRef.current = currentId;
 
       setIsStreaming(true);
       setIsTextLoading(true);
       isNetworkDoneRef.current = false;
-      setIsTextLoading(true);
       setStreamingText("");
       targetTextRef.current = "";
       setError(null);
 
-      // 1. Odmah dodajemo User poruku u thread da je korisnik vidi
+      // ✅ Koristi eksplicitne auth podatke ako su prosleđeni, inače iz ref-a
+      const currentUser = userRef.current;
+      const isAuthenticated =
+        options?.explicitAuth?.isAuthenticated ?? !!currentUser;
+      const userName =
+        options?.explicitAuth?.userName ?? currentUser?.name ?? "Gost";
+
       setThread((prev) => [
         ...prev,
         {
@@ -134,9 +141,6 @@ export function useAIQuery(user?: AuthUser | null) {
       ]);
 
       try {
-        // 2. Jedan poziv za SVE (Tekst + Layout)
-        const currentUser = userRef.current;
-
         const historyToSend = options?.context || thread;
 
         const response = await fetch("/api/ai/conversation", {
@@ -144,9 +148,9 @@ export function useAIQuery(user?: AuthUser | null) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             message: query,
-            isAuthenticated: !!currentUser && currentUser !== null,
-            userName: currentUser?.name || "Gost",
-            history: historyToSend, // Šaljemo istoriju
+            isAuthenticated,
+            userName,
+            history: historyToSend,
           }),
         });
 
@@ -156,32 +160,19 @@ export function useAIQuery(user?: AuthUser | null) {
         const decoder = new TextDecoder();
         let fullRaw = "";
 
-        // Čitamo stream dok ne završi
         while (true) {
           const { value, done } = await reader.read();
-          if (done) {
-            break;
-          }
+          if (done) break;
 
           const chunk = decoder.decode(value, { stream: true });
           fullRaw += chunk;
 
-          // 3. PARCIJALNO PARSIRANJE
           try {
             const partialData = partialParse(fullRaw) as PartialAIResponse;
             targetTextRef.current =
               partialData?.messages?.map((m) => m.content).join("\n\n") || "";
           } catch (err: unknown) {
-            const errorMessage =
-              err instanceof Error ? err.message : "Greška u parsiranju";
-            setError(errorMessage);
-            setIsStreaming(false);
-            setIsTextLoading(false);
-            isNetworkDoneRef.current = false;
-            console.error(errorMessage);
-            setThread((prev) =>
-              prev.filter((i) => i.id !== activeTempIdRef.current),
-            );
+            // Ignorišem parsiranje u toku stream-a
           }
         }
 
@@ -190,7 +181,6 @@ export function useAIQuery(user?: AuthUser | null) {
           .replace(/```/g, "")
           .trim();
 
-        // 3. Kada se stream završi, parsiramo finalni JSON
         const finalData = JSON.parse(cleanRaw) as AIResponseData;
         if (finalData && Array.isArray(finalData.messages)) {
           setPendingResponse({ query, data: finalData });
@@ -213,20 +203,21 @@ export function useAIQuery(user?: AuthUser | null) {
   );
 
   const retry = useCallback(async () => {
-    // 1. Pronađi poslednju poruku korisnika u thread-u
     const lastUserMessage = [...thread]
       .reverse()
       .find((item) => item.type === "message" && item.data.role === "user");
 
     if (lastUserMessage && lastUserMessage.type === "message") {
-      setError(null); // Sklanjamo grešku
-
-      // 2. Brišemo tu poslednju poruku iz thread-a jer će je askAI ponovo dodati
-      // (Ovo sprečava dupliranje poruke u UI-ju prilikom retry-ja)
+      setError(null);
       setThread((prev) => prev.filter((i) => i.id !== lastUserMessage.id));
 
-      // 3. Ponovo pokrećemo upit
-      await askAI(lastUserMessage.data.content);
+      // ✅ Koristi trenutne auth podatke pri retry-ju
+      await askAI(lastUserMessage.data.content, {
+        explicitAuth: {
+          isAuthenticated: !!userRef.current,
+          userName: userRef.current?.name || "Gost",
+        },
+      });
     }
   }, [thread, askAI, setThread]);
 

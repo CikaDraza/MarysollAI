@@ -7,7 +7,10 @@ export function formatKnowledgeBase(
   services: IService[],
   profile: SalonProfile,
 ) {
-  const servicesText = services
+  // ✅ Zaštita: ako nije niz, pretvori u prazan niz
+  const servicesArray = Array.isArray(services) ? services : [];
+
+  const servicesText = servicesArray
     .map((s) => {
       const variantList =
         s.variants?.map((v: IServiceVariant) => v.name).join(", ") || "Nema";

@@ -19,7 +19,6 @@ const getInitialThread = (): ThreadItem[] => {
   if (saved) {
     try {
       const parsed = JSON.parse(saved);
-      console.log(`📚 Loaded chat history for ${pathKey}:`, parsed.length);
       return parsed;
     } catch (e) {
       console.error("Greška pri parsiranju istorije:", e);

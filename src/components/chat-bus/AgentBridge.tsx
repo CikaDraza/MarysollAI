@@ -14,7 +14,6 @@ interface AgentBridgeProps {
   children: ReactNode;
 }
 
-// Konvertor iz DeepSeek Message u ThreadItem (samo user/assistant poruke, bez system)
 const convertDeepSeekHistoryToThreadItems = (
   history: DeepSeekMessage[],
 ): ThreadItem[] => {
@@ -32,9 +31,7 @@ const convertDeepSeekHistoryToThreadItems = (
     }));
 };
 
-// Pronađi poslednju KORISNIČKU poruku iz istorije
 const findLastUserMessage = (history: DeepSeekMessage[]): string | null => {
-  // Idi unazad kroz istoriju i nađi prvu user poruku (to je ono što je korisnik pitao)
   for (let i = history.length - 1; i >= 0; i--) {
     if (history[i].role === "user") {
       return history[i].content;
@@ -59,6 +56,19 @@ export function AgentBridge({ children }: AgentBridgeProps) {
   const { askAI } = useAIQuery(user);
   const { closeDrawer } = useDrawerSeek();
   const isProcessingRef = useRef(false);
+  // ✅ Ref za trenutne auth podatke
+  const authRef = useRef({
+    isAuthenticated: !!user,
+    userName: user?.name || "Gost",
+  });
+
+  // ✅ Odmah ažuriraj auth ref
+  useEffect(() => {
+    authRef.current = {
+      isAuthenticated: !!user,
+      userName: user?.name || "Gost",
+    };
+  }, [user]);
 
   useEffect(() => {
     const unsubscribe = chatEvents.subscribe("CALL_AGENT", async (event) => {
@@ -69,7 +79,6 @@ export function AgentBridge({ children }: AgentBridgeProps) {
       try {
         const { agentType, userMessage, history } = event.payload;
 
-        // 1. Skroluj glavni kontejner na dno pre nego što Gemini krene
         const mainContent = document.getElementById("main-content");
         if (mainContent) {
           mainContent.scrollTo({
@@ -85,10 +94,11 @@ export function AgentBridge({ children }: AgentBridgeProps) {
           ? convertDeepSeekHistoryToThreadItems(history)
           : [];
 
-        // 2. Pokreni Gemini
+        // ✅ Prosledi eksplicitne auth podatke
         await askAI(originalUserQuery || userMessage, {
           context: convertedHistory,
           preserveHistory: true,
+          explicitAuth: authRef.current, // ✅ Ključno: trenutni auth podaci
         });
 
         chatEvents.emit({
@@ -109,7 +119,7 @@ export function AgentBridge({ children }: AgentBridgeProps) {
     });
 
     return unsubscribe;
-  }, [askAI, user, closeDrawer]);
+  }, [askAI, closeDrawer]);
 
   return <>{children}</>;
 }

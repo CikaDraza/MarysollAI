@@ -1,5 +1,4 @@
 // src/lib/ai/schemas.ts
-import { Schema, SchemaType } from "@google/generative-ai";
 
 const blockEnum = [
   "AuthBlock",
@@ -17,62 +16,60 @@ const blockEnum = [
 ];
 
 // src/lib/ai/schemas.ts
-export const unifiedSchema: Schema = {
-  type: SchemaType.OBJECT,
+export const unifiedSchema = {
+  type: "object",
   properties: {
     messages: {
-      type: SchemaType.ARRAY,
+      type: "array",
       items: {
-        type: SchemaType.OBJECT,
+        type: "object",
         properties: {
-          content: { type: SchemaType.STRING },
+          content: { type: "string" },
           role: {
-            type: SchemaType.STRING,
+            type: "string",
             enum: ["assistant"],
-            format: "enum",
           },
           attachToBlockType: {
-            type: SchemaType.STRING,
+            type: "string",
             enum: [...blockEnum, "none"],
-            format: "enum",
           },
         },
         required: ["content", "role", "attachToBlockType"],
       },
     },
     layout: {
-      type: SchemaType.ARRAY,
+      type: "array",
       items: {
-        type: SchemaType.OBJECT,
+        type: "object",
         properties: {
-          type: { type: SchemaType.STRING, enum: blockEnum, format: "enum" },
-          priority: { type: SchemaType.NUMBER },
+          type: { type: "string", enum: blockEnum },
+          priority: { type: "number" },
           query: {
-            type: SchemaType.STRING,
+            type: "string",
             description:
               "Search term for services, e.g., 'gel lak' or 'manikir' or 'šminkanje'",
           },
           metadata: {
-            type: SchemaType.OBJECT,
+            type: "object",
             properties: {
-              serviceId: { type: SchemaType.STRING },
+              serviceId: { type: "string" },
               serviceName: {
-                type: SchemaType.STRING,
+                type: "string",
                 description:
                   "REQUIRED. The main name of the service from the knowledge base. Example: 'Gel lak'.",
               },
               variantName: {
-                type: SchemaType.STRING,
+                type: "string",
                 description:
                   "OPTIONAL. Only if a specific variant or size is chosen. Otherwise empty string.",
               },
-              time: { type: SchemaType.STRING, description: "HH:mm format" },
+              time: { type: "string", description: "HH:mm format" },
               date: {
-                type: SchemaType.STRING,
+                type: "string",
                 description: "ISO format date YYYY-MM-DD",
               },
               mode: {
-                type: SchemaType.STRING,
+                type: "string",
                 enum: [
                   "login",
                   "logout",
@@ -84,7 +81,6 @@ export const unifiedSchema: Schema = {
                 ],
                 description:
                   "Mode for AuthBlock (login/register) or CalendarBlock (preview/list)",
-                format: "enum",
               },
             },
           },
@@ -94,4 +90,15 @@ export const unifiedSchema: Schema = {
     },
   },
   required: ["messages", "layout"],
-};
+} as const;
+
+// ✅ Export za DeepSeek response_format
+export const deepseekResponseFormat = {
+  type: "json_schema",
+  json_schema: {
+    name: "assistant_response",
+    description: "AI assistant response with messages and layout blocks",
+    schema: unifiedSchema,
+    strict: true,
+  },
+} as const;

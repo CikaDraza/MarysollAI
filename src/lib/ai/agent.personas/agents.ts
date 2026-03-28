@@ -1,13 +1,14 @@
+// app/lib/ai/agent.personas/agents.ts
 export const AGENT_PERSONAS = {
   deepseek: {
-    name: "Marysoll",
-    avatar: "/avatars/marysoll.png", // Postavi svoju sličicu
+    name: "Maria Deep",
+    avatar: "/avatars/maria-deep.png",
     color: "text-blue-500",
     role: "Glavni asistent",
   },
-  gemini: {
-    name: "Maria",
-    avatar: "/avatars/maria.png",
+  deepseek_sysadmin: {
+    name: "Claudia Makelele",
+    avatar: "/avatars/claudia-makelele.png",
     color: "text-pink-500",
     role: "Specijalista za zakazivanje",
   },

@@ -53,8 +53,8 @@ export function UsageStats({ isOpen, usage }: Props) {
 
             <div className="pt-2 border-t border-white/5">
               <p className="text-[10px] text-gray-400 leading-relaxed">
-                <span className="text-[#BA34B7] font-bold">Model:</span> Gemini
-                2.0 Flash
+                <span className="text-[#BA34B7] font-bold">Model:</span>{" "}
+                Launching DeepSeek-V3.2
                 <br />
                 <span className="text-[#BA34B7] font-bold">Tokens:</span> ~
                 {usage.estimatedTokens} used

@@ -89,6 +89,10 @@ export interface PricingBlockType extends BaseBlock {
   query?: string;
 }
 
+export interface TestimonialBlockType extends BaseBlock {
+  type: "TestimonialBlock";
+}
+
 export interface AppointmentCalendarBlockType extends BaseBlock {
   type: "AppointmentCalendarBlock";
   metadata: {

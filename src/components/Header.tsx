@@ -14,10 +14,10 @@ export default function Header() {
   const { openDrawer, isOpen } = useDrawerSeek();
 
   return (
-    <header className="bg-transparent relative z-50">
+    <header className="bg-transparent relative z-10">
       <nav
         aria-label="Global"
-        className="flex items-center justify-between p-6 lg:px-8"
+        className="flex flex-wrap items-center justify-between p-6 lg:px-8"
       >
         <div className="flex">
           <Link href="/" className="-m-1.5 p-1.5">
@@ -27,44 +27,45 @@ export default function Header() {
               alt="Marysoll Assistant AI"
               width={130}
               height={27}
+              className="w-24 h-6 md:w-32 md:h-7"
             />
           </Link>
         </div>
-        <div className="hidden lg:flex">
-          <Link
-            href={"#articles"}
-            className="text-center text-xs font-semibold text-gray-900 px-6"
-          >
-            💡 Tip: Click on any article and ask Marysoll Assistant for a
-            summary, recommendation, or to schedule a service.
-          </Link>
-        </div>
+        <Link
+          href="#blog"
+          className="block text-center hidden lg:block text-xs font-semibold text-gray-900 hover:text-(--secondary-color) px-6"
+        >
+          💡 Tip: Click on any article and ask Marysoll Assistant for a summary,
+          recommendation, or to schedule a service.
+        </Link>
         <div className="flex space-x-4">
           {!isOpen && (
             <Button
               onClick={() => openDrawer()}
-              className="group cursor-pointer flex items-center justify-center text-xs md:text-sm font-semibold text-gray-900 group"
+              className="group cursor-pointer flex items-center justify-center text-sm font-semibold text-gray-900 group"
             >
               <SparklesIcon className="size-4 text-(--primary-color) group-hover:text-(--secondary-color)" />{" "}
               <span className="text-(--primary-color) group-hover:text-(--secondary-color)">
-                Ask Marysoll
+                Ask Maria Deep
               </span>
             </Button>
-          )}
-          {user && (
-            <Reveal>
-              <LoggedButton user={user} logout={logout} />
-            </Reveal>
           )}
         </div>
       </nav>
       <Link
-        href={"#articles"}
-        className="block lg:hidden text-center text-xs font-semibold text-gray-900 px-6"
+        href="#blog"
+        className="block lg:hidden text-center text-xs font-semibold text-gray-900 hover:text-(--secondary-color) px-6"
       >
         💡 Tip: Click on any article and ask Marysoll Assistant for a summary,
         recommendation, or to schedule a service.
       </Link>
+      <div className="flex justify-center mt-6">
+        {user && (
+          <Reveal>
+            <LoggedButton user={user} logout={logout} />
+          </Reveal>
+        )}
+      </div>
     </header>
   );
 }

@@ -4,7 +4,7 @@
 import { useDrawerSeek } from "@/hooks/useDrawerSeek";
 import Header from "../Header";
 import OverlayDrawerSeek from "../OverlayDrawerSeek";
-import { ReactNode } from "react";
+import { ReactNode, useCallback } from "react";
 import dynamic from "next/dynamic";
 import { AuthProvider } from "@/hooks/context/AuthContext";
 import { AIAgentPanel } from "../AIAgentPanel";
@@ -43,10 +43,22 @@ export default function LayoutWithSidebar({
     clearChat,
   } = useAIQuery(user);
 
+  // ✅ Wrapper koji prosleđuje trenutne auth podatke
+  const handleAskAI = useCallback(
+    (query: string) => {
+      askAI(query, {
+        explicitAuth: {
+          isAuthenticated: !!user,
+          userName: user?.name || "Gost",
+        },
+      });
+    },
+    [askAI, user],
+  );
+
   return (
     <AgentBridge>
       <div className="flex h-screen w-full">
-        {/* Leva kolona main kontent */}
         <div
           id="main-content"
           className="relative flex flex-1 flex-col overflow-y-auto min-w-0 transition-all duration-300 ease-in-out"
@@ -62,7 +74,7 @@ export default function LayoutWithSidebar({
                 <TimelineRendererNoSSR
                   key={thread.length}
                   thread={thread}
-                  onAction={askAI}
+                  onAction={handleAskAI} // ✅ Koristi wrapper
                   streamingText={streamingText}
                   isStreaming={isStreaming}
                   error={error}
@@ -71,7 +83,7 @@ export default function LayoutWithSidebar({
                 />
                 <div className="sticky bottom-0 left-0 right-0 z-40">
                   <AIAgentPanel
-                    onSubmit={askAI}
+                    onSubmit={handleAskAI} // ✅ Koristi wrapper
                     isLoading={isTextLoading}
                     thread={thread}
                     clearChat={clearChat}
@@ -82,7 +94,6 @@ export default function LayoutWithSidebar({
           </main>
         </div>
 
-        {/* DESNA KOLONA: Sidebar (Chat) */}
         <aside
           className={`
           relative h-screen border-l border-gray-200 bg-white transition-all duration-300 ease-in-out flex-none

@@ -10,6 +10,7 @@ import { AuthBlockView } from "../blocks/AuthBlockView";
 import PricingBlockView from "../blocks/PricingBlockView";
 import AppointmentCalendarBlockView from "../blocks/AppointmentCalendarBlockView";
 import { CalendarBlockView } from "../blocks/CalendarBlockView";
+import TestimonialBlockView from "../blocks/TestimonialBlockView";
 
 export function blockFactory(
   block: BaseBlock,
@@ -47,6 +48,10 @@ export function blockFactory(
           block={block as CalendarBlockType}
           onAction={safeOnAction}
         />
+      );
+    case "TestimonialBlock":
+      return (
+        <TestimonialBlockView key={block.id} onActionComplete={safeOnAction} />
       );
     default:
       console.warn("Factory: Unknown block type", block.type);

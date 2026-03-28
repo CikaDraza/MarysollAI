@@ -37,7 +37,7 @@ export async function POST(req: Request) {
     // Vraćamo stream sa specijalnim headerima
     return new Response(stream, {
       headers: {
-        "Content-Type": "text/event-stream", // Ključno za streaming
+        "Content-Type": "text/event-stream",
         "Cache-Control": "no-cache",
         Connection: "keep-alive",
       },
@@ -45,7 +45,7 @@ export async function POST(req: Request) {
   } catch (error: unknown) {
     console.error("SERVER ERROR:", error);
     return NextResponse.json(
-      { error: error instanceof Error && "Failed to fetch AI" },
+      { error: error instanceof Error ? error.message : "Failed to fetch AI" },
       { status: 500 },
     );
   }

@@ -1,4 +1,3 @@
-// src/app/api/external/appointments/create/route.ts
 import { NextResponse } from "next/server";
 
 export async function POST(req: Request) {
@@ -7,8 +6,7 @@ export async function POST(req: Request) {
     const authHeader = req.headers.get("authorization");
     const body = await req.json();
 
-    // Prosleđujemo zahtev na pravi Marysoll API
-    const response = await fetch(`${MAIN_SITE_API}/appointments/create`, {
+    const response = await fetch(`${MAIN_SITE_API}/testimonials/create`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
