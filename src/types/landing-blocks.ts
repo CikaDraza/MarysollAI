@@ -36,6 +36,7 @@ export interface HeroVisualBlock extends BaseLandingBlock {
 /* ---------- ARTICLE ---------- */
 export interface ArticleSectionBlock extends BaseLandingBlock {
   type: "ArticleSectionBlock";
+  title: string;
   content: string;
 }
 
