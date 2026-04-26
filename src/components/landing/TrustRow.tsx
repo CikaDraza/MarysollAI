@@ -14,7 +14,7 @@ export default function TrustRow() {
           padding: 0;
           margin: 22px auto 0;
           display: grid;
-          grid-template-columns: repeat(4, auto);
+          grid-template-columns: repeat(2, auto);
           gap: 10px 28px;
           justify-content: center;
           max-width: 720px;
@@ -47,7 +47,13 @@ export default function TrustRow() {
               color: "var(--fg-2)",
             }}
           >
-            <span style={{ color: "var(--secondary-color)", fontWeight: 700, fontSize: 16 }}>
+            <span
+              style={{
+                color: "var(--secondary-color)",
+                fontWeight: 700,
+                fontSize: 16,
+              }}
+            >
               ✔
             </span>
             {item}

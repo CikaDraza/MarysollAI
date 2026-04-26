@@ -14,12 +14,9 @@ import { useAIQuery } from "@/hooks/useAIQuery";
 import { useChatSeek } from "@/hooks/useChatSeek";
 import { ThreadItem } from "@/types/ai/chat-thread";
 
-const STICKY_KEY = "marysoll_sticky_dismissed";
-
 export default function LandingPage() {
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [stickyVisible, setStickyVisible] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
 
   // Maria Deep — frontline conversational agent (DeepSeek)
@@ -84,18 +81,6 @@ export default function LandingPage() {
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
   }, [theme]);
-
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      const dismissed = localStorage.getItem(STICKY_KEY);
-      if (!dismissed) setStickyVisible(true);
-    }
-  }, []);
-
-  const dismissSticky = () => {
-    localStorage.setItem(STICKY_KEY, "1");
-    setStickyVisible(false);
-  };
 
   const scrollToBooking = () => {
     document
@@ -197,9 +182,12 @@ export default function LandingPage() {
       )}
 
       <StickyOffer
-        visible={stickyVisible && !drawerOpen}
-        onDismiss={dismissSticky}
+        visible={!drawerOpen}
         onBook={scrollToBooking}
+        category="Masaža"
+        time="14:00"
+        city="Novi Sad"
+        salonName="Studio Lavanda"
       />
 
       <AIDrawer

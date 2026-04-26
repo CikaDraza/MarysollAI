@@ -44,6 +44,8 @@ export default function AppointmentCalendarBlockView({
     selectedDate,
     selectedTime,
     isAiSuggested,
+    clientName,
+    clientPhone,
   } = displayValues;
 
   const workingHoursForDay = useMemo(() => {
@@ -63,27 +65,16 @@ export default function AppointmentCalendarBlockView({
       return { isWorking: false, start: null, end: null };
     }
 
-    const dayName = dayNames[getDay(selectedDate)]; // npr. "Sreda"
+    const dayName = dayNames[getDay(selectedDate)];
     const timeRange = hoursSource[dayName];
 
     if (!timeRange) {
-      return {
-        dayName,
-        isWorking: false,
-        start: null,
-        end: null,
-      };
+      return { dayName, isWorking: false, start: null, end: null };
     }
 
     if (timeRange.includes(" - ")) {
       const [start, end] = timeRange.split(" - ");
-      return {
-        dayName,
-        timeRange,
-        isWorking: true,
-        start: start.trim(),
-        end: end.trim(),
-      };
+      return { dayName, timeRange, isWorking: true, start: start.trim(), end: end.trim() };
     }
 
     return { isWorking: false, start: null, end: null };
@@ -97,22 +88,15 @@ export default function AppointmentCalendarBlockView({
     return toMins(slot) >= toMins(start) && toMins(slot) < toMins(end);
   }
 
-  // FUNKCIJA ZA SKROL KOJA CILJA GLAVNI KONTEJNER
   const triggerGlobalScroll = () => {
     const mainContent = document.getElementById("main-content");
     if (mainContent && containerRef.current) {
-      // Skrolujemo tako da ovaj blok dođe u vidno polje
-      containerRef.current.scrollIntoView({
-        behavior: "smooth",
-        block: "start", // "start" je bolje za velike blokove kao cenovnik
-      });
+      containerRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
     }
   };
 
-  // 1. Skroluj čim podaci prestanu da se učitavaju
   useEffect(() => {
     if (!isLoading && services.length > 0) {
-      // Mali delay da dozvolimo React-u da renderuje listu
       const timer = setTimeout(triggerGlobalScroll, 100);
       return () => clearTimeout(timer);
     }
@@ -127,11 +111,41 @@ export default function AppointmentCalendarBlockView({
 
   if (services?.length === 0) return null;
 
+  const locationLabel = [profile?.city, profile?.name].filter(Boolean).join(" · ");
+
   return (
     <div ref={containerRef} className="scroll-mt-20">
       <Reveal>
         <div className="bg-white rounded-3xl p-6 shadow-xl max-w-md mx-auto my-6">
           <Toaster position="top-right" />
+
+          {/* Header */}
+          <div className="flex justify-between items-center mb-5">
+            <h3
+              style={{
+                fontFamily: "var(--main-font)",
+                fontWeight: 700,
+                fontSize: 15,
+                color: "var(--fg-1, #111114)",
+                margin: 0,
+              }}
+            >
+              Zakaži termin
+            </h3>
+            {locationLabel && (
+              <span
+                style={{
+                  fontFamily: "var(--main-font)",
+                  fontWeight: 500,
+                  fontSize: 11,
+                  color: "var(--fg-3, #9a8f9a)",
+                }}
+              >
+                {locationLabel}
+              </span>
+            )}
+          </div>
+
           {/* AI Suggestion Alert */}
           {isAiSuggested && (
             <div className="bg-blue-50 p-4 rounded-xl mb-4 border border-blue-100 flex justify-between items-center">
@@ -149,22 +163,50 @@ export default function AppointmentCalendarBlockView({
             </div>
           )}
 
-          <div className="space-y-4">
-            {/* Dropdown za uslugu */}
-            <select
-              value={displayValues.serviceId}
-              onChange={(e) => setters.setServiceId(e.target.value)}
-              className="cursor-pointer w-full p-3 bg-gray-50 hover:bg-gray-100 rounded-xl border-none text-sm"
-            >
-              <option value="">Izaberite uslugu</option>
-              {services.map((s) => (
-                <option key={s._id} value={s._id}>
-                  {s.name}
-                </option>
-              ))}
-            </select>
+          <div className="space-y-3">
+            {/* Row 1 — Ime + Telefon (2 cols desktop, 1 mobile) */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <input
+                type="text"
+                placeholder="Ime i prezime"
+                value={clientName}
+                onChange={(e) => setters.setClientName(e.target.value)}
+                className="w-full p-3 bg-gray-50 hover:bg-gray-100 rounded-xl border-none text-sm outline-none"
+              />
+              <input
+                type="tel"
+                placeholder="Telefon"
+                value={clientPhone}
+                onChange={(e) => setters.setClientPhone(e.target.value)}
+                className="w-full p-3 bg-gray-50 hover:bg-gray-100 rounded-xl border-none text-sm outline-none"
+              />
+            </div>
 
-            {/* Variants Buttons */}
+            {/* Row 2 — Usluga + Datum (2 cols desktop, 1 mobile) */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <select
+                value={displayValues.serviceId}
+                onChange={(e) => setters.setServiceId(e.target.value)}
+                className="cursor-pointer w-full p-3 bg-gray-50 hover:bg-gray-100 rounded-xl border-none text-sm"
+              >
+                <option value="">Izaberite uslugu</option>
+                {services.map((s) => (
+                  <option key={s._id} value={s._id}>
+                    {s.name}
+                  </option>
+                ))}
+              </select>
+
+              <input
+                type="date"
+                value={selectedDate}
+                min={new Date().toISOString().split("T")[0]}
+                onChange={(e) => setters.setDate(e.target.value)}
+                className="w-full p-3 bg-gray-50 hover:bg-gray-100 rounded-xl border-none text-sm"
+              />
+            </div>
+
+            {/* Variants */}
             {selectedService?.type === "variant" && (
               <div className="flex flex-wrap gap-2">
                 {selectedService.variants?.map((v) => (
@@ -183,28 +225,12 @@ export default function AppointmentCalendarBlockView({
               </div>
             )}
 
-            {/* Date & Time Grid */}
-            <input
-              type="date"
-              value={selectedDate}
-              min={new Date().toISOString().split("T")[0]}
-              onChange={(e) => setters.setDate(e.target.value)}
-              className="w-full p-3 bg-gray-50 hover:bg-gray-100 rounded-2xl border-none text-sm"
-            />
-
+            {/* Time grid */}
             <div className="grid grid-cols-4 gap-2">
-              {/* Ovde mapiraš tvoje timeOptions */}
               {timeOptions.map((t) => {
-                // Provera radnog vremena
                 const isOutside = workingHoursForDay?.isWorking
-                  ? !isTimeBetween(
-                      t,
-                      workingHoursForDay.start!,
-                      workingHoursForDay.end!,
-                    )
+                  ? !isTimeBetween(t, workingHoursForDay.start!, workingHoursForDay.end!)
                   : true;
-
-                // Ako je van radnog vremena, preskoči render
                 if (isOutside) return null;
                 return (
                   <button
@@ -217,7 +243,8 @@ export default function AppointmentCalendarBlockView({
                 );
               })}
             </div>
-            {/* Footer info */}
+
+            {/* Footer */}
             <div className="pt-4 border-t border-gray-200 flex justify-between items-center">
               <div className="text-xl font-black">
                 {formatPriceToString(

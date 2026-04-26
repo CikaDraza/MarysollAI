@@ -27,9 +27,9 @@ export function useAIAppointment({
   const [manualServiceId, setManualServiceId] = useState<string | null>(null);
   const [manualDate, setManualDate] = useState<string | null>(null);
   const [manualTime, setManualTime] = useState<string | null>(null);
-  const [manualVariantName, setManualVariantName] = useState<string | null>(
-    null,
-  );
+  const [manualVariantName, setManualVariantName] = useState<string | null>(null);
+  const [clientName, setClientName] = useState<string>(user?.name || "");
+  const [clientPhone, setClientPhone] = useState<string>("");
 
   // 2. Destruktuiranje AI predloga da bi React Compiler lakše pratio zavisnosti
   const aiServiceId = block.metadata?.serviceId;
@@ -105,8 +105,9 @@ export function useAIAppointment({
 
     const payload: IAppointment = {
       clientId: user.id,
-      clientName: user.name,
+      clientName: clientName || user.name,
       clientEmail: user.email,
+      note: clientPhone || undefined,
       serviceName: `${selectedService.name}${activeVariant ? ` - ${activeVariant.name}` : ""}`,
       services: [
         {
@@ -153,6 +154,8 @@ export function useAIAppointment({
       selectedService,
       activeVariant,
       isAiSuggested: !!suggestedService && !manualServiceId,
+      clientName,
+      clientPhone,
     },
     // Setteri za promenu (kada korisnik klikne u kalendaru)
     setters: {
@@ -160,6 +163,8 @@ export function useAIAppointment({
       setDate: setManualDate,
       setTime: setManualTime,
       setVariantName: setManualVariantName,
+      setClientName,
+      setClientPhone,
     },
     // Akcije
     handleAIConfirm,

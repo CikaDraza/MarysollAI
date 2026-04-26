@@ -63,15 +63,18 @@ export default function AIDrawer({
   onClearChat,
 }: Props) {
   const streamingInfo = AGENT_INFO[streamingAgent];
-  const activeAgent = useMemo<Agent>(() => {
-    if (isStreaming) return streamingAgent;
-    if (!aiThread) return "maria";
+  // Keep SSR and initial client render in sync (always "maria") to avoid hydration mismatch.
+  // useEffect updates the displayed agent after mount when thread state is available.
+  const [activeAgent, setActiveAgent] = useState<Agent>("maria");
+  useEffect(() => {
+    if (isStreaming) { setActiveAgent(streamingAgent); return; }
+    if (!aiThread) { setActiveAgent("maria"); return; }
     for (let i = aiThread.length - 1; i >= 0; i--) {
       const it = aiThread[i];
-      if (it.type === "block") return "claudia";
-      if (it.type === "message" && it.data.role !== "user") return detectAgent(it.id);
+      if (it.type === "block") { setActiveAgent("claudia"); return; }
+      if (it.type === "message" && it.data.role !== "user") { setActiveAgent(detectAgent(it.id)); return; }
     }
-    return "maria";
+    setActiveAgent("maria");
   }, [aiThread, isStreaming, streamingAgent]);
   const activeInfo = AGENT_INFO[activeAgent];
   const [localThread, setLocalThread] = useState<Message[]>(INITIAL);
@@ -79,19 +82,20 @@ export default function AIDrawer({
   const [showStats, setShowStats] = useState(false);
   const bodyRef = useRef<HTMLDivElement>(null);
 
-  const syntheticSessions = useMemo<ChatSession[]>(() => {
-    if (!aiThread || aiThread.length === 0) return [];
+  const [syntheticSessions, setSyntheticSessions] = useState<ChatSession[]>([]);
+  const [usage, setUsage] = useState({ messagesSent: 0, estimatedTokens: 0 });
+  useEffect(() => {
+    if (!aiThread || aiThread.length === 0) { setSyntheticSessions([]); return; }
     const msgItems = aiThread.filter(
       (i): i is Extract<ThreadItem, { type: "message" }> => i.type === "message",
     );
-    if (msgItems.length === 0) return [];
+    if (msgItems.length === 0) { setSyntheticSessions([]); return; }
     const firstUser = msgItems.find((i) => i.data.role === "user");
-    return [
+    setSyntheticSessions([
       {
         id: "landing-session",
         title: firstUser
-          ? firstUser.data.content.slice(0, 50) +
-            (firstUser.data.content.length > 50 ? "..." : "")
+          ? firstUser.data.content.slice(0, 50) + (firstUser.data.content.length > 50 ? "..." : "")
           : "Konverzacija",
         messages: msgItems.map((i) => ({
           id: i.data.id,
@@ -102,76 +106,61 @@ export default function AIDrawer({
         createdAt: new Date(msgItems[0].data.timestamp),
         updatedAt: new Date(msgItems[msgItems.length - 1].data.timestamp),
       },
-    ];
-  }, [aiThread]);
-
-  const usage = useMemo(() => {
-    const msgItems =
-      aiThread?.filter(
-        (i): i is Extract<ThreadItem, { type: "message" }> => i.type === "message",
-      ) || [];
+    ]);
     const messagesSent = msgItems.filter((i) => i.data.role === "user").length;
-    const estimatedTokens = msgItems.reduce(
-      (acc, i) => acc + Math.ceil(i.data.content.length / 4),
-      0,
-    );
-    return { messagesSent, estimatedTokens };
+    const estimatedTokens = msgItems.reduce((acc, i) => acc + Math.ceil(i.data.content.length / 4), 0);
+    setUsage({ messagesSent, estimatedTokens });
   }, [aiThread]);
 
-  const displayItems = useMemo<DisplayItem[]>(() => {
+  const [displayItems, setDisplayItems] = useState<DisplayItem[]>(() =>
+    INITIAL.map((m, i) => ({ kind: "msg" as const, id: `init-${i}`, from: "maria" as const, text: m.text })),
+  );
+  useEffect(() => {
     if (!aiThread) {
-      return localThread.map((m, i) => ({
-        kind: "msg" as const,
-        id: `local-${i}`,
-        from: m.from === "me" ? ("me" as const) : ("maria" as const),
-        text: m.text,
-        suggest: m.kind === "suggest",
-      }));
+      setDisplayItems(
+        localThread.map((m, i) => ({
+          kind: "msg" as const,
+          id: `local-${i}`,
+          from: m.from === "me" ? ("me" as const) : ("maria" as const),
+          text: m.text,
+          suggest: m.kind === "suggest",
+        })),
+      );
+      return;
     }
     if (aiThread.length === 0) {
-      return INITIAL.map((m, i) => ({
-        kind: "msg" as const,
-        id: `init-${i}`,
-        from: "maria" as const,
-        text: m.text,
-      }));
+      setDisplayItems(
+        INITIAL.map((m, i) => ({ kind: "msg" as const, id: `init-${i}`, from: "maria" as const, text: m.text })),
+      );
+      return;
     }
-
     const out: DisplayItem[] = [];
     let prevAgent: Agent | null = null;
     let lastAgentForLabel: Agent | null = null;
-
     for (const item of aiThread) {
       if (item.type === "message") {
         if (item.data.role === "user") {
           if (item.data.content) {
             out.push({ kind: "msg", id: item.id, from: "me", text: item.data.content });
           }
-          prevAgent = null; // user breaks agent context
+          prevAgent = null;
           lastAgentForLabel = null;
         } else {
           const agent = detectAgent(item.id);
           if (prevAgent && prevAgent !== agent) {
             out.push({ kind: "handoff", id: `handoff-${item.id}`, toAgent: agent });
           }
-          const showLabel = agent !== lastAgentForLabel; // first bubble of a run
-          out.push({
-            kind: "msg",
-            id: item.id,
-            from: agent,
-            text: item.data.content,
-            showLabel,
-          });
+          const showLabel = agent !== lastAgentForLabel;
+          out.push({ kind: "msg", id: item.id, from: agent, text: item.data.content, showLabel });
           prevAgent = agent;
           lastAgentForLabel = agent;
         }
       } else {
         out.push({ kind: "block", id: item.id, block: item.data });
-        // Block came from Claudia; subsequent assistant message from Claudia shouldn't re-label
         lastAgentForLabel = "claudia";
       }
     }
-    return out;
+    setDisplayItems(out);
   }, [aiThread, localThread]);
 
   useEffect(() => {
