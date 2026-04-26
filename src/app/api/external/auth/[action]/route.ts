@@ -1,19 +1,19 @@
-import { connectToDB } from "@/lib/db/mongodb";
+// src/app/api/external/auth/[action]/route.ts
 import { NextResponse } from "next/server";
+import { platformHeaders } from "@/lib/api/platformHeaders";
 
 export async function POST(
   req: Request,
   context: { params: Promise<{ action: string }> },
 ) {
-  await connectToDB();
-
   const body = await req.json();
   const { action } = await context.params;
+  const MAIN_SITE_API = process.env.MAIN_SITE_API;
 
   try {
-    const res = await fetch(`https://www.marysoll.makeup/api/auth/${action}`, {
+    const res = await fetch(`${MAIN_SITE_API}/auth/${action}`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: platformHeaders(),
       body: JSON.stringify(body),
     });
 
@@ -25,7 +25,6 @@ export async function POST(
 
     const response = NextResponse.json(data);
 
-    // ⬇⬇⬇ KRITIČNI DEO ⬇⬇⬇
     response.cookies.set("token", data.token, {
       httpOnly: true,
       sameSite: "strict",
@@ -44,10 +43,7 @@ export async function POST(
 
     return response;
   } catch (error: unknown) {
-    console.error("❌ Register error details:", error);
-    return NextResponse.json(
-      { error: error instanceof Error && "Auth Proxy Error" },
-      { status: 500 },
-    );
+    console.error("❌ Auth proxy error:", error);
+    return NextResponse.json({ error: "Auth Proxy Error" }, { status: 500 });
   }
 }

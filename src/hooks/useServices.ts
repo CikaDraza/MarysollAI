@@ -4,17 +4,20 @@ import axios from "axios";
 
 interface ServiceProps {
   query?: string;
+  salonId?: string;
 }
 
-export function useServices({ query = "" }: ServiceProps) {
+export function useServices({ query = "", salonId }: ServiceProps) {
   return useQuery<IService[]>({
-    queryKey: ["services", query],
+    queryKey: ["services", salonId ?? "", query],
     queryFn: async () => {
+      if (!salonId) return [];
       const { data } = await axios.get("/api/external/services", {
-        params: { query: query || "" },
+        params: { salonId, query: query || undefined },
       });
-      return data;
+      return Array.isArray(data) ? data : [];
     },
+    enabled: !!salonId,
     staleTime: 1000 * 60,
     refetchOnWindowFocus: false,
   });

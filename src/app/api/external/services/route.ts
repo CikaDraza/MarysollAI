@@ -1,26 +1,18 @@
 // src/app/api/external/services/route.ts
-import { connectToDB } from "@/lib/db/mongodb";
+// Proxies to marketplace/services — requires salonId, returns [] if missing
 import { NextResponse } from "next/server";
+import { platformClient } from "@/lib/api/platformClient";
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
-  const query = searchParams.get("query");
-  const MAIN_SITE_API = process.env.MAIN_SITE_API;
+  const salonId = searchParams.get("salonId");
+
+  if (!salonId) return NextResponse.json([]);
 
   try {
-    await connectToDB();
-    const response = await fetch(`${MAIN_SITE_API}/services?query=${query}`, {
-      next: { revalidate: 60 },
-    });
-
-    const data = await response.json();
-    return NextResponse.json(data);
-  } catch (error: unknown) {
-    return NextResponse.json(
-      {
-        error: error instanceof Error ? error.message : "External fetch failed",
-      },
-      { status: 500 },
-    );
+    const services = await platformClient.getSalonServices(salonId);
+    return NextResponse.json(Array.isArray(services) ? services : []);
+  } catch {
+    return NextResponse.json([]);
   }
 }

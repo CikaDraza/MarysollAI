@@ -1,22 +1,48 @@
 // src/lib/api/platformClient.ts
+import crypto from "crypto";
 
 const BASE = (process.env.PLATFORM_API_URL ?? "").replace(/\/$/, "");
+const API_KEY = process.env.PLATFORM_API_KEY ?? "";
+const API_SECRET = process.env.PLATFORM_API_SECRET ?? "";
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const url = `${BASE}${path}`;
-  const res = await fetch(url, {
+function signedHeaders(method: string, body?: object): Record<string, string> {
+  const timestamp = Date.now().toString();
+  const bodyString = method === "GET" ? "" : JSON.stringify(body ?? {});
+  const signature = crypto
+    .createHmac("sha256", API_SECRET)
+    .update(bodyString + timestamp)
+    .digest("hex");
+
+  return {
+    "Content-Type": "application/json",
+    "x-api-key": API_KEY,
+    "x-timestamp": timestamp,
+    "x-signature": signature,
+  };
+}
+
+async function request<T>(path: string, init?: RequestInit & { _body?: object }): Promise<T> {
+  const method = (init?.method ?? "GET").toUpperCase();
+  const body = init?._body;
+
+  const res = await fetch(`${BASE}${path}`, {
     ...init,
     headers: {
-      "Content-Type": "application/json",
+      ...signedHeaders(method, body),
       ...(init?.headers ?? {}),
     },
+    body: body ? JSON.stringify(body) : init?.body,
   });
+
   if (!res.ok) {
     const text = await res.text().catch(() => res.statusText);
     throw new Error(`Platform API ${res.status}: ${text}`);
   }
+
   return res.json() as Promise<T>;
 }
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface PlatformSalon {
   _id: string;
@@ -24,7 +50,13 @@ export interface PlatformSalon {
   city?: string;
   lat?: number;
   lng?: number;
-  workingHours?: Record<string, string>;
+  phone?: string;
+  description?: string;
+  logo?: string;
+  slug?: string;
+  tenantId?: string;
+  distance?: number | null;
+  services?: PlatformService[];
   [key: string]: unknown;
 }
 
@@ -34,6 +66,7 @@ export interface PlatformService {
   duration?: number;
   basePrice?: number;
   price?: number;
+  category?: string;
   [key: string]: unknown;
 }
 
@@ -64,6 +97,8 @@ export interface RegisterPayload {
   password: string;
 }
 
+// ─── Client ──────────────────────────────────────────────────────────────────
+
 export const platformClient = {
   getSalonProfiles(params?: { city?: string; lat?: number; lng?: number }) {
     const qs = new URLSearchParams();
@@ -71,19 +106,19 @@ export const platformClient = {
     if (params?.lat != null) qs.set("lat", String(params.lat));
     if (params?.lng != null) qs.set("lng", String(params.lng));
     const q = qs.toString();
-    return request<PlatformSalon[]>(`/salons${q ? `?${q}` : ""}`, {
-      next: { revalidate: 300 },
+    return request<PlatformSalon[]>(`/marketplace/salons${q ? `?${q}` : ""}`, {
+      next: { revalidate: 60 },
     } as RequestInit);
   },
 
   getSalonServices(salonId: string) {
-    return request<PlatformService[]>(`/salons/${salonId}/services`, {
+    return request<PlatformService[]>(`/marketplace/services?salonId=${salonId}`, {
       next: { revalidate: 60 },
     } as RequestInit);
   },
 
   getSalonWorkingHours(salonId: string) {
-    return request<Record<string, string>>(`/salons/${salonId}/working-hours`, {
+    return request<Record<string, string>>(`/marketplace/working-hours?salonId=${salonId}`, {
       next: { revalidate: 3600 },
     } as RequestInit);
   },
@@ -92,29 +127,29 @@ export const platformClient = {
     const qs = new URLSearchParams({ salonId: params.salonId });
     if (params.serviceId) qs.set("serviceId", params.serviceId);
     if (params.date) qs.set("date", params.date);
-    return request<PlatformSlot[]>(`/slots?${qs.toString()}`, {
+    return request<PlatformSlot[]>(`/marketplace/slots?${qs.toString()}`, {
       next: { revalidate: 30 },
     } as RequestInit);
   },
 
   createBooking(payload: CreateBookingPayload) {
-    return request<{ _id: string }>("/bookings", {
+    return request<{ _id: string }>("/booking", {
       method: "POST",
-      body: JSON.stringify(payload),
+      _body: payload,
     });
   },
 
   login(payload: LoginPayload) {
     return request<{ token: string; refreshToken?: string }>("/auth/login", {
       method: "POST",
-      body: JSON.stringify(payload),
+      _body: payload,
     });
   },
 
   register(payload: RegisterPayload) {
     return request<{ token: string; refreshToken?: string }>("/auth/register", {
       method: "POST",
-      body: JSON.stringify(payload),
+      _body: payload,
     });
   },
 };
