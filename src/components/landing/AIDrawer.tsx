@@ -2,11 +2,29 @@
 
 import Image from "next/image";
 import { useState, useRef, useEffect, useMemo } from "react";
-import { XMarkIcon, CheckIcon, PaperAirplaneIcon, BoltIcon } from "@heroicons/react/24/outline";
+import { XMarkIcon, CheckIcon, PaperAirplaneIcon, BoltIcon, SparklesIcon } from "@heroicons/react/24/outline";
 import { ThreadItem } from "@/types/ai/chat-thread";
 import { ChatSession } from "@/types/ai/deepseek";
+import { BaseBlock } from "@/types/landing-block";
 import { HistoryDropdown } from "@/components/chat/HistoryDropdown";
 import { UsageStats } from "@/components/chat/UsageStats";
+import { LayoutEngine } from "@/components/layout/LayoutEngine";
+
+type Agent = "maria" | "claudia";
+
+const AGENT_INFO: Record<Agent, { name: string; avatar: string }> = {
+  maria: { name: "Maria Deep", avatar: "/avatars/maria.png" },
+  claudia: { name: "Claudia Makelele", avatar: "/avatars/claudia-makelele.png" },
+};
+
+const detectAgent = (id: string): Agent =>
+  id.startsWith("maria-") ? "maria" : "claudia";
+
+type DisplayItem =
+  | { kind: "msg"; id: string; from: "me"; text: string }
+  | { kind: "msg"; id: string; from: Agent; text: string; suggest?: boolean; showLabel?: boolean }
+  | { kind: "block"; id: string; block: BaseBlock }
+  | { kind: "handoff"; id: string; toAgent: Agent };
 
 type Message = { from: "maria" | "me"; text: string; kind?: "suggest" };
 
@@ -30,6 +48,7 @@ interface Props {
   aiThread?: ThreadItem[];
   streamingText?: string;
   isStreaming?: boolean;
+  streamingAgent?: Agent;
   onClearChat?: () => void;
 }
 
@@ -40,8 +59,21 @@ export default function AIDrawer({
   aiThread,
   streamingText,
   isStreaming,
+  streamingAgent = "maria",
   onClearChat,
 }: Props) {
+  const streamingInfo = AGENT_INFO[streamingAgent];
+  const activeAgent = useMemo<Agent>(() => {
+    if (isStreaming) return streamingAgent;
+    if (!aiThread) return "maria";
+    for (let i = aiThread.length - 1; i >= 0; i--) {
+      const it = aiThread[i];
+      if (it.type === "block") return "claudia";
+      if (it.type === "message" && it.data.role !== "user") return detectAgent(it.id);
+    }
+    return "maria";
+  }, [aiThread, isStreaming, streamingAgent]);
+  const activeInfo = AGENT_INFO[activeAgent];
   const [localThread, setLocalThread] = useState<Message[]>(INITIAL);
   const [input, setInput] = useState("");
   const [showStats, setShowStats] = useState(false);
@@ -86,22 +118,67 @@ export default function AIDrawer({
     return { messagesSent, estimatedTokens };
   }, [aiThread]);
 
-  const displayMessages = useMemo<Message[]>(() => {
-    if (!aiThread) return localThread;
-    const mapped = aiThread
-      .filter((item): item is ThreadItem & { type: "message" } => item.type === "message")
-      .map((item) => ({
-        from: item.data.role === "user" ? ("me" as const) : ("maria" as const),
-        text: item.data.content,
+  const displayItems = useMemo<DisplayItem[]>(() => {
+    if (!aiThread) {
+      return localThread.map((m, i) => ({
+        kind: "msg" as const,
+        id: `local-${i}`,
+        from: m.from === "me" ? ("me" as const) : ("maria" as const),
+        text: m.text,
+        suggest: m.kind === "suggest",
       }));
-    return mapped.length === 0 ? INITIAL : mapped;
+    }
+    if (aiThread.length === 0) {
+      return INITIAL.map((m, i) => ({
+        kind: "msg" as const,
+        id: `init-${i}`,
+        from: "maria" as const,
+        text: m.text,
+      }));
+    }
+
+    const out: DisplayItem[] = [];
+    let prevAgent: Agent | null = null;
+    let lastAgentForLabel: Agent | null = null;
+
+    for (const item of aiThread) {
+      if (item.type === "message") {
+        if (item.data.role === "user") {
+          if (item.data.content) {
+            out.push({ kind: "msg", id: item.id, from: "me", text: item.data.content });
+          }
+          prevAgent = null; // user breaks agent context
+          lastAgentForLabel = null;
+        } else {
+          const agent = detectAgent(item.id);
+          if (prevAgent && prevAgent !== agent) {
+            out.push({ kind: "handoff", id: `handoff-${item.id}`, toAgent: agent });
+          }
+          const showLabel = agent !== lastAgentForLabel; // first bubble of a run
+          out.push({
+            kind: "msg",
+            id: item.id,
+            from: agent,
+            text: item.data.content,
+            showLabel,
+          });
+          prevAgent = agent;
+          lastAgentForLabel = agent;
+        }
+      } else {
+        out.push({ kind: "block", id: item.id, block: item.data });
+        // Block came from Claudia; subsequent assistant message from Claudia shouldn't re-label
+        lastAgentForLabel = "claudia";
+      }
+    }
+    return out;
   }, [aiThread, localThread]);
 
   useEffect(() => {
     if (bodyRef.current) {
       bodyRef.current.scrollTop = bodyRef.current.scrollHeight;
     }
-  }, [displayMessages, streamingText, isStreaming]);
+  }, [displayItems, streamingText, isStreaming]);
 
   const send = () => {
     const msg = input.trim();
@@ -134,9 +211,19 @@ export default function AIDrawer({
           0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
           40%           { transform: scale(1);   opacity: 1;   }
         }
+        .ai-drawer-aside {
+          width: 500px;
+        }
+        @media (max-width: 640px) {
+          .ai-drawer-aside {
+            width: 100vw !important;
+            border-left: none !important;
+          }
+        }
       `}</style>
 
       <aside
+        className="ai-drawer-aside"
         aria-hidden={!open}
         aria-label="AI asistent"
         style={{
@@ -144,7 +231,6 @@ export default function AIDrawer({
           right: 0,
           top: 0,
           bottom: 0,
-          width: "min(420px, 92vw)",
           background: "var(--surface)",
           boxShadow: "var(--shadow-lg)",
           display: "flex",
@@ -178,8 +264,8 @@ export default function AIDrawer({
               }}
             >
               <Image
-                src="/avatars/maria.png"
-                alt="Maria"
+                src={activeInfo.avatar}
+                alt={activeInfo.name}
                 width={36}
                 height={36}
                 style={{ objectFit: "cover" }}
@@ -192,9 +278,10 @@ export default function AIDrawer({
                   fontWeight: 700,
                   fontSize: 14,
                   color: "var(--fg-1)",
+                  transition: "color 200ms",
                 }}
               >
-                Maria Deep
+                {activeInfo.name}
               </div>
               <div
                 style={{
@@ -205,7 +292,9 @@ export default function AIDrawer({
                   transition: "color 200ms",
                 }}
               >
-                AI asistent · {isStreaming ? "kuca..." : "online"}
+                {activeAgent === "claudia" ? "Specijalista za zakazivanje" : "AI asistent"}
+                {" · "}
+                {isStreaming ? "kuca..." : "online"}
               </div>
             </div>
           </div>
@@ -258,90 +347,154 @@ export default function AIDrawer({
             gap: 12,
           }}
         >
-          {displayMessages.map((m, i) =>
-            m.from === "maria" ? (
+          {displayItems.map((item) => {
+            if (item.kind === "block") {
+              return (
+                <div
+                  key={item.id}
+                  style={{
+                    alignSelf: "stretch",
+                    width: "100%",
+                  }}
+                >
+                  <LayoutEngine blocks={item.block} onMessageAction={onAsk} />
+                </div>
+              );
+            }
+            if (item.kind === "handoff") {
+              const info = AGENT_INFO[item.toAgent];
+              return (
+                <div
+                  key={item.id}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 10,
+                    margin: "4px 0",
+                    color: "var(--fg-3)",
+                    fontFamily: "var(--main-font)",
+                    fontWeight: 600,
+                    fontSize: 11,
+                    textTransform: "uppercase",
+                    letterSpacing: 0.4,
+                  }}
+                >
+                  <div style={{ flex: 1, height: 1, background: "var(--border-1)" }} />
+                  <SparklesIcon style={{ width: 12, height: 12, color: "var(--secondary-color)" }} />
+                  <span>Prebačeno na {info.name}</span>
+                  <div style={{ flex: 1, height: 1, background: "var(--border-1)" }} />
+                </div>
+              );
+            }
+            if (item.from === "me") {
+              return (
+                <div key={item.id} style={{ maxWidth: "85%", alignSelf: "flex-end" }}>
+                  <div
+                    style={{
+                      background: "var(--secondary-color)",
+                      padding: "10px 14px",
+                      borderRadius: "16px 16px 4px 16px",
+                      fontFamily: "var(--main-font)",
+                      fontWeight: 400,
+                      fontSize: 14,
+                      lineHeight: 1.45,
+                      color: "#fff",
+                      whiteSpace: "pre-wrap",
+                    }}
+                  >
+                    {item.text}
+                  </div>
+                </div>
+              );
+            }
+            const info = AGENT_INFO[item.from];
+            return (
               <div
-                key={i}
+                key={item.id}
                 style={{
                   display: "flex",
-                  gap: 8,
+                  flexDirection: "column",
+                  gap: 4,
                   maxWidth: "85%",
                   alignSelf: "flex-start",
                 }}
               >
-                <div
-                  style={{
-                    width: 28,
-                    height: 28,
-                    borderRadius: "999px",
-                    overflow: "hidden",
-                    flexShrink: 0,
-                  }}
-                >
-                  <Image
-                    src="/avatars/maria.png"
-                    alt=""
-                    width={28}
-                    height={28}
-                    style={{ objectFit: "cover" }}
-                  />
-                </div>
-                <div
-                  style={{
-                    background: "var(--surface-2)",
-                    padding: "10px 14px",
-                    borderRadius: "16px 16px 16px 4px",
-                    fontFamily: "var(--main-font)",
-                    fontWeight: 400,
-                    fontSize: 14,
-                    lineHeight: 1.45,
-                    color: "var(--fg-1)",
-                  }}
-                >
-                  {m.text}
-                  {m.kind === "suggest" && (
-                    <button
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 6,
-                        marginTop: 8,
-                        border: "none",
-                        cursor: "pointer",
-                        fontFamily: "var(--main-font)",
-                        fontWeight: 700,
-                        fontSize: 12,
-                        padding: "9px 14px",
-                        borderRadius: 10,
-                        background: "var(--secondary-color)",
-                        color: "#fff",
-                      }}
-                    >
-                      <CheckIcon style={{ width: 14, height: 14 }} strokeWidth={2} />
-                      Potvrdi termin
-                    </button>
-                  )}
+                {item.showLabel && (
+                  <div
+                    style={{
+                      fontFamily: "var(--main-font)",
+                      fontWeight: 700,
+                      fontSize: 11,
+                      color: item.from === "claudia" ? "var(--secondary-color)" : "var(--fg-3)",
+                      paddingLeft: 36,
+                    }}
+                  >
+                    {info.name}
+                  </div>
+                )}
+                <div style={{ display: "flex", gap: 8 }}>
+                  <div
+                    style={{
+                      width: 28,
+                      height: 28,
+                      borderRadius: "999px",
+                      overflow: "hidden",
+                      flexShrink: 0,
+                      border:
+                        item.from === "claudia"
+                          ? "2px solid var(--secondary-color)"
+                          : "none",
+                    }}
+                  >
+                    <Image
+                      src={info.avatar}
+                      alt=""
+                      width={28}
+                      height={28}
+                      style={{ objectFit: "cover" }}
+                    />
+                  </div>
+                  <div
+                    style={{
+                      background: "var(--surface-2)",
+                      padding: "10px 14px",
+                      borderRadius: "16px 16px 16px 4px",
+                      fontFamily: "var(--main-font)",
+                      fontWeight: 400,
+                      fontSize: 14,
+                      lineHeight: 1.45,
+                      color: "var(--fg-1)",
+                      whiteSpace: "pre-wrap",
+                    }}
+                  >
+                    {item.text}
+                    {item.suggest && (
+                      <button
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 6,
+                          marginTop: 8,
+                          border: "none",
+                          cursor: "pointer",
+                          fontFamily: "var(--main-font)",
+                          fontWeight: 700,
+                          fontSize: 12,
+                          padding: "9px 14px",
+                          borderRadius: 10,
+                          background: "var(--secondary-color)",
+                          color: "#fff",
+                        }}
+                      >
+                        <CheckIcon style={{ width: 14, height: 14 }} strokeWidth={2} />
+                        Potvrdi termin
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
-            ) : (
-              <div key={i} style={{ maxWidth: "85%", alignSelf: "flex-end" }}>
-                <div
-                  style={{
-                    background: "var(--secondary-color)",
-                    padding: "10px 14px",
-                    borderRadius: "16px 16px 4px 16px",
-                    fontFamily: "var(--main-font)",
-                    fontWeight: 400,
-                    fontSize: 14,
-                    lineHeight: 1.45,
-                    color: "#fff",
-                  }}
-                >
-                  {m.text}
-                </div>
-              </div>
-            )
-          )}
+            );
+          })}
 
           {/* Streaming text bubble */}
           {isStreaming && streamingText && (
@@ -360,10 +513,14 @@ export default function AIDrawer({
                   borderRadius: "999px",
                   overflow: "hidden",
                   flexShrink: 0,
+                  border:
+                    streamingAgent === "claudia"
+                      ? "2px solid var(--secondary-color)"
+                      : "none",
                 }}
               >
                 <Image
-                  src="/avatars/maria.png"
+                  src={streamingInfo.avatar}
                   alt=""
                   width={28}
                   height={28}
@@ -416,10 +573,14 @@ export default function AIDrawer({
                   borderRadius: "999px",
                   overflow: "hidden",
                   flexShrink: 0,
+                  border:
+                    streamingAgent === "claudia"
+                      ? "2px solid var(--secondary-color)"
+                      : "none",
                 }}
               >
                 <Image
-                  src="/avatars/maria.png"
+                  src={streamingInfo.avatar}
                   alt=""
                   width={28}
                   height={28}

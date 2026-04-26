@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { CheckIcon } from "@heroicons/react/24/outline";
 import LandingHeader from "./LandingHeader";
 import Hero from "./Hero";
@@ -11,6 +11,8 @@ import BookingWidget from "./BookingWidget";
 import StickyOffer from "./StickyOffer";
 import AIDrawer from "./AIDrawer";
 import { useAIQuery } from "@/hooks/useAIQuery";
+import { useChatSeek } from "@/hooks/useChatSeek";
+import { ThreadItem } from "@/types/ai/chat-thread";
 
 const STICKY_KEY = "marysoll_sticky_dismissed";
 
@@ -19,7 +21,65 @@ export default function LandingPage() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [stickyVisible, setStickyVisible] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
-  const { askAI, thread, streamingText, isStreaming, clearChat } = useAIQuery(null);
+
+  // Maria Deep — frontline conversational agent (DeepSeek)
+  const maria = useChatSeek();
+  // Claudia Makelele — specialist for blocks (askAgent → useChatHistory thread)
+  // AgentBridge (in LayoutWithSidebar) listens to Maria's CALL_AGENT events and calls askAI
+  const claudia = useAIQuery(null);
+
+  // Merge Maria's session messages with Claudia's thread items (messages + blocks)
+  // Maria messages → ThreadItems with timestamp from createdAt
+  // Claudia thread already in ThreadItem form; blocks inherit timestamp from preceding message
+  const unifiedThread = useMemo<ThreadItem[]>(() => {
+    const mariaItems: ThreadItem[] = maria.messages
+      .filter((m) => m.role !== "system")
+      .map((m) => ({
+        id: `maria-${m.id}`,
+        type: "message",
+        data: {
+          id: `maria-${m.id}`,
+          role: m.role === "user" ? "user" : "assistant",
+          content: m.content.replace(/\[CALL_AGENT:\w+\]/g, "").trim(),
+          timestamp: m.createdAt.getTime(),
+        },
+      }));
+
+    // Claudia: drop user-message echoes (Maria already shows the user's query)
+    let lastTs = Date.now();
+    const claudiaItems: Array<ThreadItem & { _ts: number }> = [];
+    claudia.thread.forEach((item) => {
+      if (item.type === "message") {
+        if (item.data.role === "user") return; // dedup
+        lastTs = item.data.timestamp;
+        claudiaItems.push({ ...item, _ts: lastTs });
+      } else {
+        claudiaItems.push({ ...item, _ts: lastTs + 1 });
+      }
+    });
+
+    const all: Array<ThreadItem & { _ts: number }> = [
+      ...mariaItems.map((i) => ({
+        ...i,
+        _ts: i.type === "message" ? i.data.timestamp : Date.now(),
+      })),
+      ...claudiaItems,
+    ];
+    all.sort((a, b) => a._ts - b._ts);
+    return all.map(({ _ts, ...rest }) => rest as ThreadItem);
+  }, [maria.messages, claudia.thread]);
+
+  const handleAsk = useCallback(
+    (q: string) => {
+      void maria.sendMessage(q);
+    },
+    [maria],
+  );
+
+  const handleClear = useCallback(() => {
+    maria.clearChat();
+    claudia.clearChat();
+  }, [maria, claudia]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -145,11 +205,12 @@ export default function LandingPage() {
       <AIDrawer
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
-        onAsk={askAI}
-        aiThread={thread}
-        streamingText={streamingText}
-        isStreaming={isStreaming}
-        onClearChat={clearChat}
+        onAsk={handleAsk}
+        aiThread={unifiedThread}
+        streamingText={claudia.streamingText}
+        isStreaming={maria.isStreaming || claudia.isStreaming}
+        streamingAgent={claudia.isStreaming ? "claudia" : "maria"}
+        onClearChat={handleClear}
       />
     </div>
   );
