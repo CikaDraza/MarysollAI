@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="sr-Latn">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Marysoll · Moji termini</title>
+  <link rel="icon" href="../../assets/favicon.ico" />
+  <link rel="stylesheet" href="../../colors_and_type.css" />
+  <link rel="stylesheet" href="../landing/landing.css" />
+  <link rel="stylesheet" href="app.css" />
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel" src="../shared/Icons.jsx"></script>
+  <script type="text/babel" src="AppShell.jsx"></script>
+  <script type="text/babel" src="AppointmentsList.jsx"></script>
+  <script type="text/babel" src="CalendarBlock.jsx"></script>
+  <script type="text/babel" src="LoginCard.jsx"></script>
+  <script type="text/babel" src="AIAgentDock.jsx"></script>
+
+  <script type="text/babel">
+    function App() {
+      const [user, setUser] = React.useState(null);
+      const [screen, setScreen] = React.useState('dashboard');
+      const [aiSuggested, setAiSuggested] = React.useState(false);
+      const [aiLoading, setAiLoading] = React.useState(false);
+      const [appts, setAppts] = React.useState([
+        { id: '1', date: 'Sreda, 14. maj', time: '14:00', service: 'Masaža leđa · 30 min', salon: 'Studio Lavanda · Novi Sad', past: false },
+        { id: '2', date: 'Petak, 23. maj', time: '11:30', service: 'Tretman lica', salon: 'Studio Lavanda · Novi Sad', past: false },
+        { id: 'p1', date: '8. april', time: '17:00', service: 'Šišanje + pranje', salon: 'Studio Lavanda', past: true },
+        { id: 'p2', date: '15. mart', time: '10:30', service: 'Masaža celog tela · 60 min', salon: 'Studio Lavanda', past: true },
+      ]);
+
+      const handleAI = (msg) => {
+        setAiLoading(true);
+        setTimeout(() => {
+          setAiLoading(false);
+          setScreen('book');
+          setAiSuggested(true);
+        }, 700);
+      };
+
+      const handleConfirm = () => {
+        setAiSuggested(false);
+        setAppts((a) => [
+          { id: 'new-' + Date.now(), date: 'Danas', time: '14:00', service: 'Masaža leđa · 30 min', salon: 'Studio Lavanda · Novi Sad', past: false },
+          ...a,
+        ]);
+        setScreen('dashboard');
+      };
+
+      if (!user) {
+        return (
+          <div className="app-shell">
+            <header className="app-header">
+              <a className="app-logo"><img src="../../assets/logo.svg" alt="Marysoll" /></a>
+              <div className="app-spacer" />
+              <a href="../landing/index.html" style={{ font: '600 13px var(--main-font)', color: 'var(--fg-2)', textDecoration: 'none' }}>← Nazad na sajt</a>
+            </header>
+            <div className="login-wrap">
+              <LoginCard onLogin={() => setUser({ name: 'Marija' })} />
+            </div>
+          </div>
+        );
+      }
+
+      return (
+        <AppShell user={user} screen={screen} onScreen={setScreen} onLogout={() => setUser(null)}>
+          {screen === 'dashboard' && <AppointmentsList appointments={appts} onCancel={(id) => setAppts((a) => a.filter((x) => x.id !== id))} />}
+          {screen === 'book' && (
+            <div>
+              <div className="appts-head">
+                <span className="ms-eyebrow">Zakaži novi</span>
+                <h2 className="ms-h2">Studio Lavanda · Novi Sad</h2>
+              </div>
+              <CalendarBlock aiSuggested={aiSuggested} onConfirm={handleConfirm} />
+            </div>
+          )}
+          {screen === 'salons' && (
+            <div className="empty" style={{ marginTop: 60 }}>
+              Trenutno je dostupan jedan salon — <strong>Studio Lavanda</strong>. Više salona uskoro.
+            </div>
+          )}
+
+          <AIAgentDock onSubmit={handleAI} isLoading={aiLoading} thread={[]} />
+        </AppShell>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>

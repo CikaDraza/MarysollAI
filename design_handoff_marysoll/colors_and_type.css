@@ -1,0 +1,167 @@
+/* =========================================================
+   Marysoll Design System — Colors & Type
+   Source of truth: src/app/globals.css from MarysollAI codebase
+   ========================================================= */
+
+@import url('https://fonts.googleapis.com/css2?family=Changa:wght@200;300;400;500;600;700;800&family=Berkshire+Swash&display=swap');
+
+/* Local Abril Fatface — provided by user, used as romantic display accent */
+@font-face {
+  font-family: 'Abril Fatface';
+  src: url('fonts/AbrilFatface-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-display: swap;
+}
+
+:root {
+  /* ---------- BRAND PALETTE ---------- */
+  --primary-color: #5D0156;     /* deep aubergine — primary brand */
+  --secondary-color: #BA34B7;   /* magenta — accent / interactive */
+  --secondary-hover: #962992;   /* magenta hover (from scrollbar) */
+  --red-color: #D20003;         /* destructive / error */
+  --black-color: #000000;
+  --white-color: #ffffff;
+
+  /* Brand tints — derived (oklch family of secondary) */
+  --brand-50:  #fbf3fb;
+  --brand-100: #f5e1f4;
+  --brand-200: #e9bfe8;
+  --brand-300: #d57ed3;
+  --brand-400: #c454c1;
+  --brand-500: #BA34B7;   /* === secondary */
+  --brand-600: #962992;
+  --brand-700: #761e74;
+  --brand-800: #5D0156;   /* === primary */
+  --brand-900: #3d0138;
+
+  /* ---------- SURFACES ---------- */
+  --background: #F4F6F8;        /* page background (light) */
+  --surface:    #ffffff;        /* card surface */
+  --surface-2:  #FAF7FB;        /* faint lavender wash */
+  --surface-elev: #ffffff;
+  --overlay-blur: rgba(255,255,255,0.6);
+
+  /* ---------- TEXT ---------- */
+  --foreground: var(--black-color);
+  --fg-1: #111114;              /* primary text */
+  --fg-2: #4B4B55;              /* secondary text */
+  --fg-3: #8A8A93;              /* muted / hint */
+  --fg-on-brand: #ffffff;
+
+  /* ---------- BORDERS / DIVIDERS ---------- */
+  --border-1: #E7E5EA;
+  --border-2: #D9D5DD;
+  --border-strong: #B8B3BD;
+
+  /* ---------- SEMANTIC ---------- */
+  --success: #1F9D55;
+  --warning: #E8A400;
+  --error:   var(--red-color);
+  --info:    var(--secondary-color);
+
+  /* ---------- SHADOWS ---------- */
+  --shadow-xs: 0 1px 2px rgba(20, 0, 18, 0.04);
+  --shadow-sm: 0 2px 6px rgba(20, 0, 18, 0.06);
+  --shadow-md: 0 8px 24px rgba(20, 0, 18, 0.08);
+  --shadow-lg: 0 16px 48px rgba(20, 0, 18, 0.12);
+  --shadow-brand: 0 12px 32px rgba(93, 1, 86, 0.18);
+
+  /* ---------- RADII ---------- */
+  --radius-xs: 6px;
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --radius-lg: 20px;
+  --radius-xl: 28px;
+  --radius-2xl: 36px;
+  --radius-pill: 999px;
+
+  /* ---------- SPACING SCALE (4pt) ---------- */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-8: 32px;
+  --sp-10: 40px;
+  --sp-12: 48px;
+  --sp-16: 64px;
+  --sp-20: 80px;
+
+  /* ---------- TYPOGRAPHY ---------- */
+  --main-font: 'Changa', system-ui, -apple-system, Segoe UI, sans-serif;
+  --heading-font: 'Berkshire Swash', 'Changa', cursive;
+  --display-font: 'Abril Fatface', 'Berkshire Swash', serif;
+  --mono-font: ui-monospace, 'SFMono-Regular', Menlo, monospace;
+
+  /* Type scale — desktop-first */
+  --display-1: 700 64px/1.05 var(--main-font);
+  --display-2: 700 48px/1.08 var(--main-font);
+  --h1: 700 40px/1.1 var(--main-font);
+  --h2: 700 32px/1.15 var(--main-font);
+  --h3: 600 24px/1.25 var(--main-font);
+  --h4: 600 20px/1.3 var(--main-font);
+  --body-lg: 400 18px/1.55 var(--main-font);
+  --body: 400 16px/1.55 var(--main-font);
+  --body-sm: 400 14px/1.5 var(--main-font);
+  --caption: 500 12px/1.4 var(--main-font);
+  --eyebrow: 600 12px/1.2 var(--main-font);
+
+  /* Script display (Berkshire Swash) — used for romantic accent words */
+  --script-display: 400 56px/1.05 var(--heading-font);
+
+  /* ---------- MOTION ---------- */
+  --ease-out: cubic-bezier(.2,.7,.2,1);
+  --ease-in-out: cubic-bezier(.4,0,.2,1);
+  --dur-fast: 140ms;
+  --dur-base: 220ms;
+  --dur-slow: 380ms;
+}
+
+/* =========================================================
+   Dark mode (extension — codebase only declares bg/fg flip)
+   ========================================================= */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #120111;
+    --surface:    #1B0419;
+    --surface-2:  #240824;
+    --foreground: var(--white-color);
+    --fg-1: #F4EEF3;
+    --fg-2: #C4B6C2;
+    --fg-3: #8A7A87;
+    --border-1: #2C1029;
+    --border-2: #3A1A36;
+  }
+}
+
+/* =========================================================
+   Element defaults
+   ========================================================= */
+html, body { scroll-behavior: smooth; }
+
+body {
+  background: var(--background);
+  color: var(--fg-1);
+  font: var(--body);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+h1 { font: var(--h1); letter-spacing: -0.01em; }
+h2 { font: var(--h2); letter-spacing: -0.01em; }
+h3 { font: var(--h3); }
+h4 { font: var(--h4); }
+p  { font: var(--body); color: var(--fg-2); }
+small, .caption { font: var(--caption); color: var(--fg-3); }
+.eyebrow { font: var(--eyebrow); letter-spacing: .12em; text-transform: uppercase; color: var(--secondary-color); }
+.script  { font: var(--script-display); color: var(--primary-color); }
+
+code, kbd, pre { font-family: var(--mono-font); }
+
+/* Custom scrollbar — copied verbatim from globals.css */
+.scrollbar-custom::-webkit-scrollbar { height: 4px; width: 4px; }
+.scrollbar-custom::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 10px; }
+.scrollbar-custom::-webkit-scrollbar-thumb { background: var(--secondary-color); border-radius: 10px; }
+.scrollbar-custom::-webkit-scrollbar-thumb:hover { background: var(--secondary-hover); }
+.scrollbar-custom { scrollbar-width: thin; scrollbar-color: var(--secondary-color) #f1f1f1; }

@@ -1,0 +1,152 @@
+/* App UI Kit styles */
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--background); font-family: var(--main-font); color: var(--fg-1); }
+
+.app-shell { min-height: 100vh; padding-bottom: 140px; }
+
+.app-header {
+  display: flex; align-items: center; gap: 18px;
+  background: #fff; padding: 12px 24px;
+  border-bottom: 1px solid var(--border-1);
+  position: sticky; top: 0; z-index: 20;
+}
+.app-logo img { height: 24px; display: block; }
+.app-nav { display: flex; gap: 4px; }
+.app-nav button {
+  background: transparent; border: none; cursor: pointer;
+  font: 600 13px var(--main-font); color: var(--fg-2);
+  padding: 8px 14px; border-radius: 12px;
+}
+.app-nav button:hover { background: #F4F4F6; color: var(--fg-1); }
+.app-nav button.active { background: var(--brand-100); color: var(--primary-color); }
+.app-spacer { flex: 1; }
+.app-user { display: inline-flex; align-items: center; gap: 8px; font: 600 13px var(--main-font); }
+
+.app-main { max-width: 1080px; margin: 0 auto; padding: 32px 24px; }
+
+/* Login */
+.login-wrap { display: flex; justify-content: center; padding-top: 60px; }
+.login-card {
+  background: #fff; border-radius: 28px; padding: 26px;
+  box-shadow: var(--shadow-md); width: 100%; max-width: 420px;
+  display: flex; flex-direction: column; gap: 10px;
+}
+.login-tabs { display: flex; background: #F4F4F6; padding: 4px; border-radius: 14px; align-self: flex-start; }
+.login-tabs button {
+  background: transparent; border: none; cursor: pointer;
+  font: 600 13px var(--main-font); color: var(--fg-2);
+  padding: 8px 14px; border-radius: 10px;
+}
+.login-tabs button.active { background: #fff; color: var(--fg-1); box-shadow: var(--shadow-xs); }
+.forgot { display: block; text-align: center; margin-top: 12px; font: 600 13px var(--main-font); color: var(--primary-color); text-decoration: none; }
+.forgot:hover { color: var(--secondary-color); }
+
+/* Appointments */
+.appts-head { margin-bottom: 22px; }
+.appts-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 14px;
+}
+.appts-grid.muted { opacity: .85; }
+.appt-card {
+  background: #fff; border-radius: 22px; padding: 18px;
+  box-shadow: var(--shadow-sm);
+  display: flex; flex-direction: column; gap: 8px;
+}
+.appt-card.past { background: #FAF7FB; box-shadow: none; }
+.appt-when { display: inline-flex; align-items: center; gap: 8px; color: var(--primary-color); font: 600 13px var(--main-font); }
+.appt-service { font: 700 17px var(--main-font); color: var(--fg-1); }
+.appt-salon { display: inline-flex; align-items: center; gap: 6px; font: 500 13px var(--main-font); color: var(--fg-3); }
+.appt-foot { display: flex; align-items: center; justify-content: space-between; margin-top: 4px; }
+.empty {
+  background: #FAF7FB; border: 1px dashed var(--border-2); border-radius: 18px;
+  padding: 22px; text-align: center; color: var(--fg-2);
+}
+.empty a { color: var(--primary-color); font-weight: 700; text-decoration: none; }
+
+/* Calendar block */
+.cal-block {
+  background: #fff; border-radius: 28px; padding: 22px;
+  box-shadow: var(--shadow-md);
+  display: flex; flex-direction: column; gap: 14px;
+  max-width: 480px; margin: 0 auto;
+}
+.ai-suggest {
+  display: flex; align-items: center; gap: 10px;
+  background: #FAF7FB; border: 1px solid var(--brand-100);
+  border-radius: 16px; padding: 12px;
+}
+.ai-suggest p { margin: 0; font: 400 13px var(--main-font); color: var(--fg-2); flex: 1; }
+.ai-suggest button { flex-shrink: 0; }
+
+.cal-select, .cal-date {
+  font: 500 14px var(--main-font); color: var(--fg-1);
+  background: #F4F4F6; border: none; border-radius: 14px;
+  padding: 14px; outline: 2px solid transparent; transition: outline-color .18s;
+}
+.cal-select:focus, .cal-date:focus { outline-color: var(--secondary-color); background: #fff; }
+.cal-variants { display: flex; gap: 6px; flex-wrap: wrap; }
+.cal-variant {
+  background: #F4F4F6; border: none; border-radius: 12px;
+  padding: 8px 14px; font: 500 13px var(--main-font); color: var(--fg-2); cursor: pointer;
+}
+.cal-variant.active { background: #111114; color: #fff; }
+
+.cal-slots { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.cal-slot {
+  background: #F4F4F6; border: none; border-radius: 10px;
+  padding: 10px 0; font: 500 13px var(--main-font); cursor: pointer;
+}
+.cal-slot:hover { background: var(--brand-100); }
+.cal-slot.active { background: var(--secondary-color); color: #fff; }
+
+.cal-foot {
+  display: flex; align-items: center; justify-content: space-between;
+  border-top: 1px solid var(--border-1); padding-top: 14px;
+}
+.cal-price { font: 800 22px var(--main-font); }
+.ms-btn:disabled { opacity: .35; cursor: not-allowed; }
+
+/* AI dock — matches AIAgentPanel.tsx aesthetic */
+.ai-dock {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
+  background: rgba(255, 255, 255, .55); backdrop-filter: blur(12px);
+  padding: 14px 24px;
+  border-top: 1px solid rgba(186, 52, 183, .15);
+}
+.ai-dock-inner {
+  max-width: 920px; margin: 0 auto;
+  background: rgba(250, 247, 251, .8); backdrop-filter: blur(8px);
+  border-radius: 18px; padding: 14px 18px;
+  box-shadow: var(--shadow-md);
+  position: relative; overflow: hidden;
+}
+.ai-dock-inner::before, .ai-dock-inner::after {
+  content: ''; position: absolute; top: 50%; transform: translateY(-50%);
+  width: 200px; height: 200px; border-radius: 50%;
+  filter: blur(60px); opacity: .35; z-index: 0; pointer-events: none;
+}
+.ai-dock-inner::before { left: -60px; background: #ff80b5; }
+.ai-dock-inner::after { right: -60px; background: #9089fc; }
+.ai-dock-tag {
+  position: relative; z-index: 1; text-align: center; margin: 0 0 10px;
+  font: 600 12px var(--main-font); color: #6B21A8;
+  letter-spacing: -.01em;
+}
+.ai-dock-row {
+  position: relative; z-index: 1;
+  display: flex; align-items: center; gap: 10px;
+}
+.ai-dock-bolt {
+  width: 38px; height: 38px; border-radius: 999px; border: none; cursor: pointer;
+  background: transparent; color: #BA34B7;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.ai-dock-bolt:hover { background: #FCE7FA; }
+.ai-dock-row textarea {
+  flex: 1; resize: none; border: 1px solid var(--border-2);
+  background: #fff; border-radius: 12px; padding: 10px 14px;
+  font: 400 14px var(--main-font);
+}
+.ai-dock-row textarea:focus { outline: 2px solid var(--secondary-color); border-color: transparent; }

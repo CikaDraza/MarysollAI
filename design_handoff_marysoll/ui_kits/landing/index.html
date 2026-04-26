@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="sr-Latn">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Marysoll — Slobodni termini u salonima lepote i velnesa danas | Novi Sad, Beograd, Niš, Bor</title>
+  <meta name="description" content="Marysoll — pronađi slobodne termine u salonima lepote i velnesa u Novom Sadu, Beogradu, Nišu i Boru. Maникir, masaža, šišanje, šminka — rezerviši bez poziva, danas." />
+  <meta name="keywords" content="saloni lepote, termini, manikir, masaža, šišanje, šminka, Novi Sad, Beograd, Niš, Bor, rezervacija, online" />
+  <meta name="robots" content="index, follow, max-image-preview:large" />
+  <link rel="canonical" href="https://marysoll.rs/" />
+
+  <!-- Open Graph -->
+  <meta property="og:type" content="website" />
+  <meta property="og:locale" content="sr_RS" />
+  <meta property="og:site_name" content="Marysoll" />
+  <meta property="og:title" content="Slobodni termini u salonima lepote i velnesa — danas" />
+  <meta property="og:description" content="Pronađi i rezerviši stručnjake za lepotu i velnes u svom gradu. Bez poziva, bez čekanja." />
+  <meta property="og:url" content="https://marysoll.rs/" />
+  <meta property="og:image" content="https://marysoll.rs/og.jpg" />
+
+  <!-- Twitter -->
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Marysoll — saloni lepote i velnesa" />
+  <meta name="twitter:description" content="Slobodni termini u realnom vremenu. Rezerviši odmah." />
+
+  <!-- Structured data — LocalBusiness directory -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    "name": "Marysoll",
+    "url": "https://marysoll.rs/",
+    "inLanguage": "sr-Latn-RS",
+    "potentialAction": {
+      "@type": "SearchAction",
+      "target": "https://marysoll.rs/pretraga?q={search_term_string}",
+      "query-input": "required name=search_term_string"
+    }
+  }
+  </script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "Organization",
+    "name": "Marysoll",
+    "url": "https://marysoll.rs/",
+    "logo": "https://marysoll.rs/assets/logo.svg",
+    "areaServed": ["Novi Sad", "Beograd", "Niš", "Bor"],
+    "sameAs": ["https://www.instagram.com/marysoll", "https://www.tiktok.com/@marysoll"]
+  }
+  </script>
+
+  <link rel="icon" href="../../assets/favicon.ico" />
+  <link rel="stylesheet" href="../../colors_and_type.css" />
+  <link rel="stylesheet" href="landing.css" />
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel" src="../shared/Icons.jsx"></script>
+  <script type="text/babel" src="Header.jsx"></script>
+  <script type="text/babel" src="Hero.jsx"></script>
+  <script type="text/babel" src="TrustRow.jsx"></script>
+  <script type="text/babel" src="QuickAccess.jsx"></script>
+  <script type="text/babel" src="AIPrompt.jsx"></script>
+  <script type="text/babel" src="BookingWidget.jsx"></script>
+  <script type="text/babel" src="StickyOffer.jsx"></script>
+  <script type="text/babel" src="AIDrawer.jsx"></script>
+
+  <script type="text/babel">
+    function App() {
+      const [theme, setTheme] = React.useState('light');
+      const [drawer, setDrawer] = React.useState(false);
+      const [sticky, setSticky] = React.useState(true);
+      const [confirmed, setConfirmed] = React.useState(false);
+
+      React.useEffect(() => {
+        document.documentElement.dataset.theme = theme;
+      }, [theme]);
+
+      return (
+        <div className="ms-app">
+          <Header
+            theme={theme}
+            onToggleTheme={() => setTheme((t) => t === 'dark' ? 'light' : 'dark')}
+            onOpenAI={() => setDrawer(true)}
+          />
+          <Hero
+            onPrimary={() => document.querySelector('.ms-bw').scrollIntoView({ behavior: 'smooth', block: 'center' })}
+            onAskAI={() => setDrawer(true)}
+          />
+          <TrustRow />
+          <QuickAccess onPick={() => document.querySelector('.ms-bw').scrollIntoView({ behavior: 'smooth' })} />
+          <AIPrompt onAskAI={() => setDrawer(true)} />
+          <BookingWidget onConfirm={() => setConfirmed(true)} onAskAI={() => setDrawer(true)} />
+
+          {confirmed && (
+            <div className="ms-toast">
+              <Icon.Check width="16" height="16" /> Termin potvrđen za 14:00
+            </div>
+          )}
+
+          <StickyOffer
+            visible={sticky && !drawer}
+            onDismiss={() => setSticky(false)}
+            onBook={() => document.querySelector('.ms-bw').scrollIntoView({ behavior: 'smooth' })}
+          />
+          <AIDrawer open={drawer} onClose={() => setDrawer(false)} />
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+
+  <style>
+    .ms-toast {
+      position: fixed; left: 50%; top: 22px; transform: translateX(-50%);
+      background: #111114; color: #fff; padding: 12px 18px; border-radius: 14px;
+      box-shadow: var(--shadow-lg); z-index: 80;
+      display: inline-flex; align-items: center; gap: 8px;
+      font: 600 13px var(--main-font);
+    }
+  </style>
+</body>
+</html>

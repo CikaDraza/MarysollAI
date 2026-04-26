@@ -11,6 +11,7 @@ import { AIAgentPanel } from "../AIAgentPanel";
 import { useAuthActions } from "@/hooks/useAuthActions";
 import { useAIQuery } from "@/hooks/useAIQuery";
 import { AgentBridge } from "../chat-bus/AgentBridge";
+import { usePathname } from "next/navigation";
 
 const TimelineRendererNoSSR = dynamic(
   () => import("@/components/chat/TimelineRenderer"),
@@ -29,6 +30,8 @@ export default function LayoutWithSidebar({
 }: {
   children: ReactNode;
 }) {
+  const pathname = usePathname();
+  const isLanding = pathname === "/";
   const { user, token } = useAuthActions();
   const { isOpen } = useDrawerSeek();
   const {
@@ -56,6 +59,10 @@ export default function LayoutWithSidebar({
     [askAI, user],
   );
 
+  if (isLanding) {
+    return <AgentBridge>{children}</AgentBridge>;
+  }
+
   return (
     <AgentBridge>
       <div className="flex h-screen w-full">
@@ -74,7 +81,7 @@ export default function LayoutWithSidebar({
                 <TimelineRendererNoSSR
                   key={thread.length}
                   thread={thread}
-                  onAction={handleAskAI} // ✅ Koristi wrapper
+                  onAction={handleAskAI}
                   streamingText={streamingText}
                   isStreaming={isStreaming}
                   error={error}
@@ -83,7 +90,7 @@ export default function LayoutWithSidebar({
                 />
                 <div className="sticky bottom-0 left-0 right-0 z-40">
                   <AIAgentPanel
-                    onSubmit={handleAskAI} // ✅ Koristi wrapper
+                    onSubmit={handleAskAI}
                     isLoading={isTextLoading}
                     thread={thread}
                     clearChat={clearChat}
