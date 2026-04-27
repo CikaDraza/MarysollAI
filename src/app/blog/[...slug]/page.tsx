@@ -1,4 +1,4 @@
-// app/[...slug]/page.tsx
+// app/blog/[...slug]/page.tsx
 import CampaignClientShell from "@/components/CampaignClientShell";
 import { normalizeCampaignSlug } from "@/helpers/slugNormalizer";
 import { getCampaign } from "@/lib/server/getCampaign";

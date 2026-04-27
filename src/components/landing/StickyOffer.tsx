@@ -1,30 +1,33 @@
 "use client";
 
 import { useState } from "react";
-import {
-  BoltIcon,
-  ChevronUpIcon,
-  ChevronDownIcon,
-} from "@heroicons/react/24/outline";
+import { BoltIcon, ChevronUpIcon, ChevronDownIcon } from "@heroicons/react/24/outline";
+import type { FlatSlot } from "@/types/slots";
 
 interface Props {
   visible: boolean;
-  onBook: () => void;
-  category?: string;
-  time?: string;
-  city?: string;
-  salonName?: string;
+  slot: FlatSlot | null;
+  onBook: (slot: FlatSlot) => void;
 }
 
-export default function StickyOffer({
-  visible,
-  onBook,
-  category = "Masaža",
-  time = "14:00",
-}: Props) {
+function formatTime(iso: string): string {
+  try {
+    return new Date(iso).toLocaleTimeString("sr-Latn", {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  } catch {
+    return iso.slice(11, 16);
+  }
+}
+
+export default function StickyOffer({ visible, slot, onBook }: Props) {
   const [minimized, setMinimized] = useState(false);
 
-  if (!visible) return null;
+  if (!visible || !slot) return null;
+
+  const time = formatTime(slot.startTime);
+  const label = `${slot.serviceName} · ${slot.salonName}`;
 
   if (minimized) {
     return (
@@ -49,7 +52,6 @@ export default function StickyOffer({
           fontFamily: "var(--main-font)",
           fontWeight: 700,
           fontSize: 13,
-          transition: "opacity 150ms",
         }}
         onMouseEnter={(e) => {
           (e.currentTarget as HTMLButtonElement).style.opacity = "0.85";
@@ -63,10 +65,7 @@ export default function StickyOffer({
           strokeWidth={1.5}
         />
         {time}
-        <ChevronUpIcon
-          style={{ width: 14, height: 14, color: "#c4b6c2" }}
-          strokeWidth={2}
-        />
+        <ChevronUpIcon style={{ width: 14, height: 14, color: "#c4b6c2" }} strokeWidth={2} />
       </button>
     );
   }
@@ -87,10 +86,10 @@ export default function StickyOffer({
         borderRadius: 20,
         padding: "14px 16px",
         boxShadow: "var(--shadow-lg)",
-        maxWidth: 380,
+        maxWidth: 400,
       }}
     >
-      {/* Col 1 — Icon */}
+      {/* Icon */}
       <div
         style={{
           width: 38,
@@ -103,14 +102,11 @@ export default function StickyOffer({
           flexShrink: 0,
         }}
       >
-        <BoltIcon
-          style={{ width: 18, height: 18, color: "#fff" }}
-          strokeWidth={1.5}
-        />
+        <BoltIcon style={{ width: 18, height: 18, color: "#fff" }} strokeWidth={1.5} />
       </div>
 
-      {/* Col 2 — Text */}
-      <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+      {/* Text */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
         <span
           style={{
             fontFamily: "var(--main-font)",
@@ -121,7 +117,7 @@ export default function StickyOffer({
             color: "#d57ed3",
           }}
         >
-          Brzo
+          Možeš već u {time}
         </span>
         <span
           style={{
@@ -130,16 +126,19 @@ export default function StickyOffer({
             fontSize: 13,
             lineHeight: 1.4,
             color: "#fff",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
           }}
         >
-          Prvi slobodan termin u {time} – {category}
+          {label}
         </span>
       </div>
 
-      {/* Col 3 — CTA + Minimize */}
+      {/* CTA + minimize */}
       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
         <button
-          onClick={onBook}
+          onClick={() => onBook(slot)}
           style={{
             display: "inline-flex",
             alignItems: "center",
@@ -158,12 +157,10 @@ export default function StickyOffer({
             transition: "background var(--dur-fast) var(--ease-out)",
           }}
           onMouseEnter={(e) => {
-            (e.currentTarget as HTMLButtonElement).style.background =
-              "var(--secondary-hover)";
+            (e.currentTarget as HTMLButtonElement).style.background = "var(--secondary-hover)";
           }}
           onMouseLeave={(e) => {
-            (e.currentTarget as HTMLButtonElement).style.background =
-              "var(--secondary-color)";
+            (e.currentTarget as HTMLButtonElement).style.background = "var(--secondary-color)";
           }}
         >
           Rezerviši
@@ -186,13 +183,11 @@ export default function StickyOffer({
             transition: "background var(--dur-fast), color var(--dur-fast)",
           }}
           onMouseEnter={(e) => {
-            (e.currentTarget as HTMLButtonElement).style.background =
-              "rgba(255,255,255,.08)";
+            (e.currentTarget as HTMLButtonElement).style.background = "rgba(255,255,255,.08)";
             (e.currentTarget as HTMLButtonElement).style.color = "#fff";
           }}
           onMouseLeave={(e) => {
-            (e.currentTarget as HTMLButtonElement).style.background =
-              "transparent";
+            (e.currentTarget as HTMLButtonElement).style.background = "transparent";
             (e.currentTarget as HTMLButtonElement).style.color = "#c4b6c2";
           }}
         >

@@ -1,32 +1,33 @@
 "use client";
 
 import { useState } from "react";
-import { SparklesIcon } from "@heroicons/react/24/outline";
-
-const SLOTS = [
-  "12:30",
-  "13:00",
-  "13:30",
-  "14:00",
-  "14:30",
-  "15:00",
-  "15:30",
-  "16:00",
-];
+import type { FlatSlot } from "@/types/slots";
+import type { CitySlots } from "@/hooks/useSlotWindow";
 
 interface Props {
-  onConfirm: () => void;
-  onOpenAI: () => void;
+  slotsByCity: CitySlots[];
+  loading?: boolean;
+  onBook: (slot: FlatSlot) => void;
 }
 
-export default function BookingWidget({ onConfirm, onOpenAI }: Props) {
-  const [service, setService] = useState("Masaža leđa · 30 min");
-  const [selectedSlot, setSelectedSlot] = useState("14:00");
+function formatTime(iso: string): string {
+  try {
+    return new Date(iso).toLocaleTimeString("sr-Latn", {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  } catch {
+    return iso.slice(11, 16);
+  }
+}
+
+export default function BookingWidget({ slotsByCity, loading, onBook }: Props) {
+  const hasAny = slotsByCity.some((g) => g.slots.length > 0);
 
   return (
-    <section style={{ marginTop: 56 }} className="ms-bw-section">
-      {/* Left copy block */}
-      <div style={{ paddingTop: 12 }}>
+    <section id="booking-widget" style={{ marginTop: 56 }}>
+      {/* Section header */}
+      <div style={{ textAlign: "center", marginBottom: 40 }}>
         <p
           style={{
             fontFamily: "var(--main-font)",
@@ -38,7 +39,7 @@ export default function BookingWidget({ onConfirm, onOpenAI }: Props) {
             margin: "0 0 6px",
           }}
         >
-          Nema termina?
+          Slobodni termini
         </p>
         <h2
           style={{
@@ -47,344 +48,241 @@ export default function BookingWidget({ onConfirm, onOpenAI }: Props) {
             fontSize: "clamp(28px, 3.6vw, 38px)",
             lineHeight: 1.15,
             letterSpacing: "-0.01em",
-            margin: "6px 0 12px",
+            margin: "6px 0 0",
             color: "var(--fg-1)",
           }}
         >
-          Svi termini su trenutno zauzeti? Želiš da te ubacimo na prvi slobodan?
-          <br />
-          <span
-            style={{
-              fontFamily: "var(--heading-font)",
-              fontWeight: 400,
-              color: "var(--secondary-color)",
-            }}
-          >
-            Obavesti me
-          </span>{" "}
-          opcija rešava problem
+          Zakaži odmah
         </h2>
-        <h3
-          style={{
-            fontFamily: "var(--main-font)",
-            fontWeight: 300,
-            fontSize: 20,
-            lineHeight: 1.55,
-            color: "var(--fg-2)",
-            margin: "0 0 18px",
-            maxWidth: 380,
-          }}
-        >
-          Ostavi ime i broj — Obaveštavamo te sa prvim slobodnim terminom.
-        </h3>
-        <button
-          className="hero-search-btn mr-4"
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: 8,
-            border: "none",
-            cursor: "pointer",
-            fontFamily: "var(--main-font)",
-            fontWeight: 700,
-            fontSize: 14,
-            padding: "12px 18px",
-            borderRadius: 14,
-            background: "var(--secondary-color)",
-            color: "#fff",
-            boxShadow: "var(--shadow-brand)",
-            transition: "background var(--dur-fast) var(--ease-out)",
-          }}
-          onMouseEnter={(e) => {
-            (e.currentTarget as HTMLButtonElement).style.background =
-              "var(--secondary-hover)";
-          }}
-          onMouseLeave={(e) => {
-            (e.currentTarget as HTMLButtonElement).style.background =
-              "var(--secondary-color)";
-          }}
-        >
-          Obavesti me
-        </button>
-        <button
-          onClick={onOpenAI}
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 8,
-            background: "transparent",
-            border: "none",
-            cursor: "pointer",
-            fontFamily: "var(--main-font)",
-            fontWeight: 700,
-            fontSize: 14,
-            padding: "12px 18px",
-            borderRadius: 14,
-            color: "var(--secondary-color)",
-            transition:
-              "color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out)",
-          }}
-          onMouseEnter={(e) => {
-            (e.currentTarget as HTMLButtonElement).style.color =
-              "var(--secondary-hover)";
-            (e.currentTarget as HTMLButtonElement).style.background =
-              "var(--brand-50)";
-          }}
-          onMouseLeave={(e) => {
-            (e.currentTarget as HTMLButtonElement).style.color =
-              "var(--secondary-color)";
-            (e.currentTarget as HTMLButtonElement).style.background =
-              "transparent";
-          }}
-        >
-          <SparklesIcon style={{ width: 16, height: 16 }} strokeWidth={1.5} />
-          Pitaj asistenta
-        </button>
       </div>
 
-      {/* Right booking card */}
-      <div
-        id="booking-widget"
-        style={{
-          background: "var(--surface)",
-          borderRadius: 28,
-          padding: 22,
-          boxShadow: "var(--shadow-lg)",
-          display: "flex",
-          flexDirection: "column",
-          gap: 14,
-        }}
-      >
-        {/* Card header */}
-        <div
-          style={{
-            display: "flex",
-            alignItems: "baseline",
-            justifyContent: "space-between",
-          }}
-        >
-          <h3
-            style={{
-              margin: 0,
-              fontFamily: "var(--main-font)",
-              fontWeight: 700,
-              fontSize: 20,
-              color: "var(--fg-1)",
-            }}
-          >
-            Zakaži termin
-          </h3>
-          <span
-            style={{
-              fontFamily: "var(--main-font)",
-              fontWeight: 500,
-              fontSize: 12,
-              color: "var(--fg-3)",
-              padding: "4px 10px",
-              background: "var(--surface-2)",
-              borderRadius: 999,
-            }}
-          >
-            Studio Lavanda
-          </span>
-        </div>
-
-        {/* Service select */}
-        <Field label="Usluga">
-          <select
-            value={service}
-            onChange={(e) => setService(e.target.value)}
-            style={inputStyle}
-          >
-            <option>Masaža leđa · 30 min</option>
-            <option>Masaža celog tela · 60 min</option>
-            <option>Tretman lica</option>
-            <option>Šišanje</option>
-          </select>
-        </Field>
-
-        {/* Date + Phone */}
-        <div
-          style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}
-        >
-          <Field label="Datum">
-            <input
-              type="text"
-              defaultValue="Sreda, 14. maj"
-              style={inputStyle}
-            />
-          </Field>
-          <Field label="Telefon">
-            <input type="tel" placeholder="+381 …" style={inputStyle} />
-          </Field>
-        </div>
-
-        {/* Name */}
-        <Field label="Ime">
-          <input type="text" placeholder="Marija Petrović" style={inputStyle} />
-        </Field>
-
-        {/* Slot grid */}
+      {/* Loading skeletons */}
+      {loading && (
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "repeat(4, 1fr)",
-            gap: 6,
+            gridTemplateColumns: "repeat(auto-fill, minmax(210px, 1fr))",
+            gap: 14,
           }}
         >
-          {SLOTS.map((t) => (
-            <SlotButton
-              key={t}
-              time={t}
-              active={selectedSlot === t}
-              onClick={() => setSelectedSlot(t)}
-            />
+          {[0, 1, 2, 3, 4, 5].map((i) => (
+            <SlotSkeleton key={i} />
           ))}
         </div>
+      )}
 
-        {/* Footer */}
-        <div
+      {/* Empty state */}
+      {!loading && !hasAny && (
+        <p
           style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            borderTop: "1px solid var(--border-1)",
-            paddingTop: 14,
-            marginTop: 4,
+            textAlign: "center",
+            fontFamily: "var(--main-font)",
+            fontSize: 14,
+            color: "var(--fg-3)",
+            marginTop: 24,
           }}
         >
-          <span
-            style={{
-              fontFamily: "var(--main-font)",
-              fontWeight: 800,
-              fontSize: 22,
-              color: "var(--fg-1)",
-            }}
-          >
-            2 400 RSD
-          </span>
-          <button
-            onClick={onConfirm}
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: 8,
-              border: "none",
-              cursor: "pointer",
-              fontFamily: "var(--main-font)",
-              fontWeight: 700,
-              fontSize: 14,
-              padding: "12px 18px",
-              borderRadius: 14,
-              background: "#111114",
-              color: "#fff",
-              transition: "background var(--dur-fast) var(--ease-out)",
-            }}
-            onMouseEnter={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.background =
-                "#2A1828";
-            }}
-            onMouseLeave={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.background =
-                "#111114";
-            }}
-          >
-            Zakaži termin
-          </button>
-        </div>
-      </div>
+          Nema slobodnih termina za odabrane gradove.
+        </p>
+      )}
 
-      <style>{`
-        .ms-bw-section {
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 40px;
-          align-items: start;
-        }
-        @media (max-width: 880px) {
-          .ms-bw-section { grid-template-columns: 1fr !important; }
-        }
-      `}</style>
+      {/* City groups */}
+      {!loading &&
+        slotsByCity
+          .filter((g) => g.slots.length > 0)
+          .map((group) => (
+            <div key={group.city} style={{ marginBottom: 44 }}>
+              <h3
+                style={{
+                  fontFamily: "var(--main-font)",
+                  fontWeight: 700,
+                  fontSize: "clamp(16px, 2vw, 20px)",
+                  color: "var(--fg-1)",
+                  margin: "0 0 18px",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 10,
+                }}
+              >
+                <span
+                  style={{
+                    display: "inline-block",
+                    width: 4,
+                    height: 20,
+                    borderRadius: 4,
+                    background: "var(--secondary-color)",
+                    flexShrink: 0,
+                  }}
+                />
+                Slobodni termini sada — {group.city}
+              </h3>
+
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fill, minmax(210px, 1fr))",
+                  gap: 14,
+                }}
+              >
+                {group.slots.map((slot, i) => (
+                  <SlotCard
+                    key={`${slot.salonId}-${slot.startTime}-${i}`}
+                    slot={slot}
+                    onBook={() => onBook(slot)}
+                  />
+                ))}
+              </div>
+            </div>
+          ))}
     </section>
   );
 }
 
-function Field({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-      <span
-        style={{
-          fontFamily: "var(--main-font)",
-          fontWeight: 600,
-          fontSize: 11,
-          color: "var(--fg-2)",
-          textTransform: "uppercase",
-          letterSpacing: ".06em",
-        }}
-      >
-        {label}
-      </span>
-      {children}
-    </label>
-  );
-}
+/* ── Slot card ─────────────────────────────────────────────────────────────── */
 
-const inputStyle: React.CSSProperties = {
-  fontFamily: "var(--main-font)",
-  fontWeight: 500,
-  fontSize: 14,
-  color: "var(--fg-1)",
-  background: "var(--surface-2)",
-  border: "none",
-  borderRadius: 14,
-  padding: "13px 14px",
-  outline: "2px solid transparent",
-  transition: "outline-color 180ms, background 180ms",
-  width: "100%",
-};
-
-function SlotButton({
-  time,
-  active,
-  onClick,
-}: {
-  time: string;
-  active: boolean;
-  onClick: () => void;
-}) {
+function SlotCard({ slot, onBook }: { slot: FlatSlot; onBook: () => void }) {
   const [hovered, setHovered] = useState(false);
 
   return (
-    <button
-      onClick={onClick}
+    <div
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
-        background: active
-          ? "var(--secondary-color)"
-          : hovered
-            ? "var(--brand-100)"
-            : "var(--surface-2)",
-        border: "none",
-        borderRadius: 12,
-        padding: "10px 0",
-        fontFamily: "var(--main-font)",
-        fontWeight: 500,
-        fontSize: 13,
-        color: active ? "#fff" : "var(--fg-1)",
-        cursor: "pointer",
-        transition: "background 150ms, color 150ms",
+        background: "var(--surface)",
+        borderRadius: 20,
+        padding: "18px 18px 14px",
+        display: "flex",
+        flexDirection: "column",
+        gap: 10,
+        boxShadow: hovered ? "var(--shadow-md)" : "var(--shadow-sm)",
+        transform: hovered ? "translateY(-2px)" : "translateY(0)",
+        transition:
+          "transform var(--dur-base) var(--ease-out), box-shadow var(--dur-base) var(--ease-out)",
       }}
     >
-      {time}
-    </button>
+      {/* Time */}
+      <span
+        style={{
+          fontFamily: "var(--display-font)",
+          fontWeight: 400,
+          fontSize: 30,
+          lineHeight: 1,
+          color: "var(--fg-1)",
+        }}
+      >
+        {formatTime(slot.startTime)}
+      </span>
+
+      {/* Salon + service */}
+      <div>
+        <p
+          style={{
+            fontFamily: "var(--main-font)",
+            fontWeight: 700,
+            fontSize: 13,
+            color: "var(--fg-1)",
+            margin: "0 0 2px",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {slot.salonName}
+        </p>
+        <p
+          style={{
+            fontFamily: "var(--main-font)",
+            fontWeight: 500,
+            fontSize: 12,
+            color: "var(--fg-3)",
+            margin: 0,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {slot.serviceName}
+          {slot.distanceKm != null ? ` · ${slot.distanceKm.toFixed(1)} km` : ""}
+        </p>
+      </div>
+
+      <button
+        onClick={onBook}
+        style={{
+          border: "none",
+          cursor: "pointer",
+          fontFamily: "var(--main-font)",
+          fontWeight: 700,
+          fontSize: 13,
+          padding: "9px 0",
+          borderRadius: 12,
+          background: hovered ? "var(--secondary-color)" : "var(--brand-100, #f3e8ff)",
+          color: hovered ? "#fff" : "var(--secondary-color)",
+          transition:
+            "background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out)",
+          width: "100%",
+        }}
+      >
+        Zakaži
+      </button>
+    </div>
+  );
+}
+
+/* ── Slot skeleton ─────────────────────────────────────────────────────────── */
+
+function SlotSkeleton() {
+  return (
+    <div
+      style={{
+        background: "var(--surface)",
+        borderRadius: 20,
+        padding: "18px 18px 14px",
+        display: "flex",
+        flexDirection: "column",
+        gap: 10,
+        boxShadow: "var(--shadow-sm)",
+      }}
+    >
+      <div
+        style={{
+          width: 72,
+          height: 30,
+          borderRadius: 8,
+          background: "var(--border)",
+          opacity: 0.5,
+        }}
+      />
+      <div>
+        <div
+          style={{
+            width: "70%",
+            height: 13,
+            borderRadius: 6,
+            background: "var(--border)",
+            opacity: 0.5,
+            marginBottom: 6,
+          }}
+        />
+        <div
+          style={{
+            width: "50%",
+            height: 11,
+            borderRadius: 6,
+            background: "var(--border)",
+            opacity: 0.3,
+          }}
+        />
+      </div>
+      <div
+        style={{
+          width: "100%",
+          height: 34,
+          borderRadius: 12,
+          background: "var(--border)",
+          opacity: 0.3,
+        }}
+      />
+    </div>
   );
 }

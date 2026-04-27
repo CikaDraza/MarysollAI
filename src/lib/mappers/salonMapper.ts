@@ -4,8 +4,11 @@ import type { PlatformSalon, PlatformService, PlatformSlot } from "@/lib/api/pla
 export interface MappedSalon {
   id: string;
   name: string;
+  city?: string;
   location: { lat?: number; lng?: number; city?: string };
   services: MappedService[];
+  nextAvailableSlot: string | null;
+  nextSlots: { startTime: string; serviceId: string | null }[];
   workingHours: Record<string, string>;
   distanceKm?: number;
 }
@@ -13,6 +16,7 @@ export interface MappedSalon {
 export interface MappedService {
   id: string;
   name: string;
+  category: string;
   duration: number;
   price: number;
 }
@@ -28,22 +32,22 @@ export interface MappedSlot {
 
 export function mapSalon(raw: PlatformSalon): MappedSalon {
   return {
-    id: raw._id,
+    id: raw.id ?? raw._id ?? "",
     name: raw.name,
-    location: {
-      lat: raw.lat,
-      lng: raw.lng,
-      city: raw.city,
-    },
-    services: [],
+    city: raw.city,
+    location: { lat: raw.lat, lng: raw.lng, city: raw.city },
+    services: (raw.services ?? []).map(mapService),
+    nextAvailableSlot: (raw.nextAvailableSlot as string | null | undefined) ?? null,
+    nextSlots: (raw.nextSlots as { startTime: string; serviceId: string | null }[] | undefined) ?? [],
     workingHours: (raw.workingHours as Record<string, string>) ?? {},
   };
 }
 
 export function mapService(raw: PlatformService): MappedService {
   return {
-    id: raw._id,
+    id: raw.id ?? raw._id ?? "",
     name: raw.name,
+    category: raw.category ?? "",
     duration: raw.duration ?? 60,
     price: raw.basePrice ?? raw.price ?? 0,
   };

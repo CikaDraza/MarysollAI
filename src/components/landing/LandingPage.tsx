@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { CheckIcon } from "@heroicons/react/24/outline";
 import LandingHeader from "./LandingHeader";
 import Hero from "./Hero";
@@ -8,26 +9,54 @@ import TrustRow from "./TrustRow";
 import QuickAccess from "./QuickAccess";
 import AIPrompt from "./AIPrompt";
 import BookingWidget from "./BookingWidget";
+import BookingModal from "./BookingModal";
+import NotifyMeWidget from "./NotifyMeWidget";
 import StickyOffer from "./StickyOffer";
 import AIDrawer from "./AIDrawer";
 import { useAIQuery } from "@/hooks/useAIQuery";
 import { useChatSeek } from "@/hooks/useChatSeek";
 import { ThreadItem } from "@/types/ai/chat-thread";
+import { useSalons } from "@/hooks/useSalons";
+import { useSlotWindow } from "@/hooks/useSlotWindow";
+import { useCitySelector } from "@/hooks/useCitySelector";
+import { SERBIAN_CITIES } from "@/lib/cities";
 
-export default function LandingPage() {
+const todayStr = () => new Date().toISOString().slice(0, 10);
+
+interface Props {
+  initialCity?: string;
+  initialCategory?: string;
+}
+
+export default function LandingPage({ initialCity = "", initialCategory = "" }: Props) {
+  const router = useRouter();
+
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
+  const [modalSlot, setModalSlot] = useState<import("@/types/slots").FlatSlot | null>(null);
+
+  // City selection — geo + localStorage, falls back to Novi Sad
+  const { city: selectedCity, setCity } = useCitySelector(initialCity || undefined);
+  const cityName = selectedCity.name;
+
+  const [category, setCategory] = useState(initialCategory);
+  const [_date, setDate] = useState(todayStr());
+
+  // Salons — for QuickAccess category grid (city-filtered)
+  const { data: salons = [], isLoading: salonsLoading } = useSalons(cityName.toLowerCase());
+
+  // Slot window — fetches all salons, groups by 2 nearest cities
+  const { slotsByCity, bestSlot, isLoading: slotsLoading } = useSlotWindow({
+    selectedCity: cityName,
+    category: category || undefined,
+  });
 
   // Maria Deep — frontline conversational agent (DeepSeek)
   const maria = useChatSeek();
   // Claudia Makelele — specialist for blocks (askAgent → useChatHistory thread)
-  // AgentBridge (in LayoutWithSidebar) listens to Maria's CALL_AGENT events and calls askAI
   const claudia = useAIQuery(null);
 
-  // Merge Maria's session messages with Claudia's thread items (messages + blocks)
-  // Maria messages → ThreadItems with timestamp from createdAt
-  // Claudia thread already in ThreadItem form; blocks inherit timestamp from preceding message
   const unifiedThread = useMemo<ThreadItem[]>(() => {
     const mariaItems: ThreadItem[] = maria.messages
       .filter((m) => m.role !== "system")
@@ -42,12 +71,11 @@ export default function LandingPage() {
         },
       }));
 
-    // Claudia: drop user-message echoes (Maria already shows the user's query)
     let lastTs = Date.now();
     const claudiaItems: Array<ThreadItem & { _ts: number }> = [];
     claudia.thread.forEach((item) => {
       if (item.type === "message") {
-        if (item.data.role === "user") return; // dedup
+        if (item.data.role === "user") return;
         lastTs = item.data.timestamp;
         claudiaItems.push({ ...item, _ts: lastTs });
       } else {
@@ -78,6 +106,12 @@ export default function LandingPage() {
     claudia.clearChat();
   }, [maria, claudia]);
 
+  const handleLoginRequest = useCallback(() => {
+    setModalSlot(null);
+    setDrawerOpen(true);
+    void maria.sendMessage("Prijavi se");
+  }, [maria]);
+
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
   }, [theme]);
@@ -88,9 +122,24 @@ export default function LandingPage() {
       ?.scrollIntoView({ behavior: "smooth", block: "center" });
   };
 
+  // Category chip click — slug-based routing, no encoding needed
+  const handleCategoryPick = useCallback(
+    (slug: string) => {
+      const next = category === slug ? "" : slug;
+      setCategory(next);
+      if (cityName && next) {
+        router.push(
+          `/${encodeURIComponent(cityName.toLowerCase())}/${next}`,
+          { scroll: false },
+        );
+      }
+    },
+    [category, cityName, router],
+  );
+
   return (
     <div style={{ fontFamily: "var(--main-font)", minHeight: "100vh", position: "relative" }}>
-      {/* Page-level gradient — starts at very top, fades out before QuickAccess */}
+      {/* Page gradient */}
       <div
         aria-hidden="true"
         style={{
@@ -111,7 +160,7 @@ export default function LandingPage() {
         }}
       />
 
-      {/* Fixed floating header — avoids mobile browser chrome reflow */}
+      {/* Fixed floating header */}
       <div
         style={{
           position: "fixed",
@@ -127,16 +176,29 @@ export default function LandingPage() {
             theme={theme}
             onToggleTheme={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
             onOpenAI={() => setDrawerOpen(true)}
+            onLogin={handleLoginRequest}
+            city={cityName}
+            onCityChange={(name) => {
+              const found = SERBIAN_CITIES.find((c) => c.name === name);
+              if (found) setCity(found);
+            }}
           />
         </div>
       </div>
-      {/* Spacer so content starts below the fixed header (12px top pad + ~48px header + 12px bottom pad) */}
       <div style={{ height: 72 }} aria-hidden="true" />
 
-      {/* Hero — full viewport width, gradient bleeds to edges */}
-      <Hero onSearch={scrollToBooking} onOpenAI={() => setDrawerOpen(true)} />
+      <Hero
+        onSearch={({ city: c, category: cat, date: d }) => {
+          const found = SERBIAN_CITIES.find(
+            (x) => x.name.toLowerCase() === c.toLowerCase(),
+          );
+          if (found) setCity(found);
+          setCategory(cat);
+          setDate(d);
+        }}
+        onOpenAI={() => setDrawerOpen(true)}
+      />
 
-      {/* Remaining sections — contained */}
       <div
         style={{
           maxWidth: 1240,
@@ -145,11 +207,23 @@ export default function LandingPage() {
         }}
       >
         <TrustRow />
-        <QuickAccess onPick={scrollToBooking} />
+        <QuickAccess
+          salons={salons}
+          loading={salonsLoading}
+          category={category}
+          onPick={scrollToBooking}
+          onCategoryPick={handleCategoryPick}
+        />
         <AIPrompt onOpenAI={() => setDrawerOpen(true)} />
         <BookingWidget
-          onConfirm={() => setConfirmed(true)}
+          slotsByCity={slotsByCity}
+          loading={slotsLoading}
+          onBook={setModalSlot}
+        />
+        <NotifyMeWidget
           onOpenAI={() => setDrawerOpen(true)}
+          city={cityName}
+          category={category}
         />
       </div>
 
@@ -177,17 +251,21 @@ export default function LandingPage() {
           }}
         >
           <CheckIcon style={{ width: 16, height: 16 }} strokeWidth={2} />
-          Termin potvrđen za 14:00
+          Termin potvrđen za {bestSlot ? new Date(bestSlot.startTime).toLocaleTimeString("sr-Latn", { hour: "2-digit", minute: "2-digit" }) : ""}
         </div>
       )}
 
       <StickyOffer
-        visible={!drawerOpen}
-        onBook={scrollToBooking}
-        category="Masaža"
-        time="14:00"
-        city="Novi Sad"
-        salonName="Studio Lavanda"
+        visible={!drawerOpen && !modalSlot}
+        slot={bestSlot}
+        onBook={setModalSlot}
+      />
+
+      <BookingModal
+        slot={modalSlot}
+        onClose={() => setModalSlot(null)}
+        onConfirm={() => { setModalSlot(null); setConfirmed(true); }}
+        onLoginRequest={handleLoginRequest}
       />
 
       <AIDrawer

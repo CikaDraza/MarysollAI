@@ -45,7 +45,8 @@ async function request<T>(path: string, init?: RequestInit & { _body?: object })
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface PlatformSalon {
-  _id: string;
+  _id?: string;
+  id?: string;
   name: string;
   city?: string;
   lat?: number;
@@ -56,12 +57,15 @@ export interface PlatformSalon {
   slug?: string;
   tenantId?: string;
   distance?: number | null;
+  nextAvailableSlot?: string | null;
+  nextSlots?: { startTime: string; serviceId: string | null }[];
   services?: PlatformService[];
   [key: string]: unknown;
 }
 
 export interface PlatformService {
-  _id: string;
+  _id?: string;
+  id?: string;
   name: string;
   duration?: number;
   basePrice?: number;

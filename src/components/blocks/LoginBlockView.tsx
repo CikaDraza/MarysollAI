@@ -2,7 +2,8 @@
 "use client";
 import { useAuthActions } from "@/hooks/useAuthActions";
 import { AuthBlockType } from "@/types/landing-block";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
+import type { AxiosError } from "axios";
 import { Toaster } from "react-hot-toast";
 import { LockClosedIcon } from "@heroicons/react/24/outline";
 import { LockOpenIcon } from "@heroicons/react/24/outline";
@@ -28,22 +29,25 @@ export function LoginBlockView({
   const { user, login, isLoggingIn } = useAuthActions();
   const [email, setEmail] = useState(block.defaultEmail || "");
   const [password, setPassword] = useState("");
+  const [errorMsg, setErrorMsg] = useState("");
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
+    setErrorMsg("");
     try {
       await login({ email, password });
-      // ✅ OBAVEŠTAVAMO AGENTA
       if (onActionComplete) {
         onActionComplete("USPEŠNA PRIJAVA.");
       }
-    } catch (error: unknown) {
-      return console.error({
-        error: error instanceof Error && "Auth Login Error",
-        status: 500,
-      });
+    } catch (err: unknown) {
+      const axiosErr = err as AxiosError<{ error?: string; message?: string }>;
+      const msg =
+        axiosErr.response?.data?.error ??
+        axiosErr.response?.data?.message ??
+        "Pogrešan email ili lozinka.";
+      setErrorMsg(msg);
     }
-  };
+  }, [email, password, login, onActionComplete]);
 
   // FUNKCIJA ZA SKROL KOJA CILJA GLAVNI KONTEJNER
   const triggerGlobalScroll = () => {
@@ -156,6 +160,12 @@ export function LoginBlockView({
                       />
                     </div>
                   </div>
+
+                  {errorMsg && (
+                    <p className="text-sm text-red-400 text-center -mt-2">
+                      {errorMsg}
+                    </p>
+                  )}
 
                   <div>
                     <button
