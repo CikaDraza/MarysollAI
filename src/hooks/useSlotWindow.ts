@@ -34,7 +34,7 @@ export function useSlotWindow({ selectedCity, category }: Params = {}) {
           ? (CANONICAL_TO_SLUG[rawCat] ?? normalizeCategory(serviceName))
           : normalizeCategory(serviceName);
 
-        if (category && cat !== category) continue;
+        if (category && s.serviceId != null && cat !== category) continue;
 
         flat.push({
           salonId: salon.id,
