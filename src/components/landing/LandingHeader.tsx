@@ -61,7 +61,10 @@ export default function LandingHeader({
           boxShadow: "var(--shadow-sm)",
         }}
       >
-        <Link href="/" style={{ display: "flex", alignItems: "center", flexShrink: 0 }}>
+        <Link
+          href="/"
+          style={{ display: "flex", alignItems: "center", flexShrink: 0 }}
+        >
           <Logo width={120} />
         </Link>
 
@@ -84,21 +87,28 @@ export default function LandingHeader({
             transition: "background var(--dur-fast) var(--ease-out)",
           }}
           onMouseEnter={(e) => {
-            (e.currentTarget as HTMLButtonElement).style.background = "var(--brand-100)";
-            (e.currentTarget as HTMLButtonElement).style.color = "var(--secondary-color)";
+            (e.currentTarget as HTMLButtonElement).style.background =
+              "var(--brand-100)";
+            (e.currentTarget as HTMLButtonElement).style.color =
+              "var(--secondary-color)";
           }}
           onMouseLeave={(e) => {
-            (e.currentTarget as HTMLButtonElement).style.background = "var(--surface-2)";
+            (e.currentTarget as HTMLButtonElement).style.background =
+              "var(--surface-2)";
             (e.currentTarget as HTMLButtonElement).style.color = "var(--fg-2)";
           }}
         >
-          {theme === "dark"
-            ? <SunIcon style={{ width: 18, height: 18 }} />
-            : <MoonIcon style={{ width: 18, height: 18 }} />}
+          {theme === "dark" ? (
+            <SunIcon style={{ width: 18, height: 18 }} />
+          ) : (
+            <MoonIcon style={{ width: 18, height: 18 }} />
+          )}
         </button>
 
         <div className="lh-pills">
-          <Pill>SR <ChevronDownIcon style={{ width: 12, height: 12 }} /></Pill>
+          <Pill>
+            SR <ChevronDownIcon style={{ width: 12, height: 12 }} />
+          </Pill>
           <CityPill city={city} onChange={onCityChange} />
         </div>
 
@@ -126,10 +136,12 @@ export default function LandingHeader({
               transition: "background var(--dur-fast) var(--ease-out)",
             }}
             onMouseEnter={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.background = "var(--secondary-hover)";
+              (e.currentTarget as HTMLButtonElement).style.background =
+                "var(--secondary-hover)";
             }}
             onMouseLeave={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.background = "var(--secondary-color)";
+              (e.currentTarget as HTMLButtonElement).style.background =
+                "var(--secondary-color)";
             }}
           >
             Login
@@ -155,10 +167,12 @@ export default function LandingHeader({
             transition: "color var(--dur-fast) var(--ease-out)",
           }}
           onMouseEnter={(e) => {
-            (e.currentTarget as HTMLButtonElement).style.color = "var(--secondary-hover)";
+            (e.currentTarget as HTMLButtonElement).style.color =
+              "var(--secondary-hover)";
           }}
           onMouseLeave={(e) => {
-            (e.currentTarget as HTMLButtonElement).style.color = "var(--secondary-color)";
+            (e.currentTarget as HTMLButtonElement).style.color =
+              "var(--secondary-color)";
           }}
         >
           <SparklesIcon style={{ width: 16, height: 16 }} />
@@ -171,13 +185,20 @@ export default function LandingHeader({
 
 /* ── City pill with dropdown ────────────────────────────────────────────────── */
 
-function CityPill({ city, onChange }: { city: string; onChange: (name: string) => void }) {
+function CityPill({
+  city,
+  onChange,
+}: {
+  city: string;
+  onChange: (name: string) => void;
+}) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     function handle(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+      if (ref.current && !ref.current.contains(e.target as Node))
+        setOpen(false);
     }
     document.addEventListener("mousedown", handle);
     return () => document.removeEventListener("mousedown", handle);
@@ -202,18 +223,22 @@ function CityPill({ city, onChange }: { city: string; onChange: (name: string) =
           fontSize: 13,
           color: open ? "var(--secondary-color)" : "var(--fg-1)",
           cursor: "pointer",
-          transition: "background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out)",
+          transition:
+            "background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out)",
           whiteSpace: "nowrap",
         }}
         onMouseEnter={(e) => {
           if (!open) {
-            (e.currentTarget as HTMLButtonElement).style.background = "var(--brand-100)";
-            (e.currentTarget as HTMLButtonElement).style.color = "var(--secondary-color)";
+            (e.currentTarget as HTMLButtonElement).style.background =
+              "var(--brand-100)";
+            (e.currentTarget as HTMLButtonElement).style.color =
+              "var(--secondary-color)";
           }
         }}
         onMouseLeave={(e) => {
           if (!open) {
-            (e.currentTarget as HTMLButtonElement).style.background = "var(--surface-2)";
+            (e.currentTarget as HTMLButtonElement).style.background =
+              "var(--surface-2)";
             (e.currentTarget as HTMLButtonElement).style.color = "var(--fg-1)";
           }
         }}
@@ -275,10 +300,14 @@ function CityPill({ city, onChange }: { city: string; onChange: (name: string) =
                   transition: "background var(--dur-fast)",
                 }}
                 onMouseEnter={(e) => {
-                  if (!isSelected) (e.currentTarget as HTMLButtonElement).style.background = "var(--surface-2)";
+                  if (!isSelected)
+                    (e.currentTarget as HTMLButtonElement).style.background =
+                      "var(--surface-2)";
                 }}
                 onMouseLeave={(e) => {
-                  if (!isSelected) (e.currentTarget as HTMLButtonElement).style.background = "none";
+                  if (!isSelected)
+                    (e.currentTarget as HTMLButtonElement).style.background =
+                      "none";
                 }}
               >
                 {isSelected && (
@@ -316,7 +345,8 @@ function UserButton({
 
   useEffect(() => {
     function handle(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+      if (ref.current && !ref.current.contains(e.target as Node))
+        setOpen(false);
     }
     document.addEventListener("mousedown", handle);
     return () => document.removeEventListener("mousedown", handle);
@@ -352,10 +382,12 @@ function UserButton({
           transition: "background var(--dur-fast) var(--ease-out)",
         }}
         onMouseEnter={(e) => {
-          (e.currentTarget as HTMLButtonElement).style.background = "var(--brand-200, #e9d5ff)";
+          (e.currentTarget as HTMLButtonElement).style.background =
+            "var(--brand-200, #e9d5ff)";
         }}
         onMouseLeave={(e) => {
-          (e.currentTarget as HTMLButtonElement).style.background = "var(--brand-100, #f3e8ff)";
+          (e.currentTarget as HTMLButtonElement).style.background =
+            "var(--brand-100, #f3e8ff)";
         }}
       >
         <span
@@ -457,12 +489,15 @@ function UserButton({
               transition: "background var(--dur-fast), color var(--dur-fast)",
             }}
             onMouseEnter={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.background = "var(--surface-2)";
-              (e.currentTarget as HTMLButtonElement).style.color = "var(--fg-1)";
+              (e.currentTarget as HTMLButtonElement).style.background =
+                "var(--surface-2)";
+              (e.currentTarget as HTMLButtonElement).style.color =
+                "var(--fg-1)";
             }}
             onMouseLeave={(e) => {
               (e.currentTarget as HTMLButtonElement).style.background = "none";
-              (e.currentTarget as HTMLButtonElement).style.color = "var(--fg-2)";
+              (e.currentTarget as HTMLButtonElement).style.color =
+                "var(--fg-2)";
             }}
           >
             Odjavi se

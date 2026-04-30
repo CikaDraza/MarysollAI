@@ -8,6 +8,7 @@ export interface SearchParams {
   category: string;
   date: string;
   time?: string;
+  subcategory?: string;
 }
 
 interface Props {
@@ -74,7 +75,10 @@ function parseInput(raw: string): SearchParams {
   else if (lower.includes("sutra")) date = offsetDateStr(1);
 
   let time: string | undefined;
-  const timeMatch = lower.match(/u\s*(\d{1,2})(?::(\d{2}))?h?/) ?? lower.match(/(\d{1,2}):(\d{2})/);
+  const timeMatch =
+    lower.match(/u\s*(\d{1,2})(?::(\d{2}))?h?/) ??
+    lower.match(/(\d{1,2}):(\d{2})/) ??
+    lower.match(/\b(\d{1,2})h\b/);
   if (timeMatch) {
     const h = timeMatch[1].padStart(2, "0");
     const m = timeMatch[2] ?? "00";
@@ -91,7 +95,18 @@ function parseInput(raw: string): SearchParams {
     if (lower.includes(key)) { category = cat; break; }
   }
 
-  return { city, category, date, time };
+  // Subcategory: query minus city, date, and time tokens only
+  // Do NOT strip category keywords — they're part of service names like "izlivanje noktiju"
+  let remainder = lower;
+  if (city) remainder = remainder.replace(CITY_LOWER[CITIES.findIndex((c) => c === city)], "");
+  remainder = remainder
+    .replace(/\b(danas|sutra|prekosutra|today|tomorrow)\b/g, "")
+    .replace(/u\s*\d{1,2}(?::\d{2})?h?|\d{1,2}:\d{2}|\d{1,2}h\b/g, "")
+    .trim()
+    .replace(/\s+/g, " ");
+  const subcategory = remainder.length >= 4 ? remainder : undefined;
+
+  return { city, category, date, time, subcategory };
 }
 
 function getSuggestions(input: string): string[] {

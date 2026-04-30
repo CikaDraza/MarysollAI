@@ -83,6 +83,51 @@ export interface PlatformSlot {
   isAvailable: boolean;
 }
 
+// ─── Search types ─────────────────────────────────────────────────────────────
+
+export interface PlatformSearchSlot {
+  id: string;
+  startTime: string;
+  endTime: string;
+  status: string;
+}
+
+export interface PlatformSearchService {
+  id: string;
+  name: string;
+  category: string;
+  slug: string;
+  duration: number;
+  price: number | null;
+}
+
+export interface PlatformSearchSalon {
+  id: string;
+  name: string;
+  city: string;
+  lat: number | null;
+  lng: number | null;
+  logo: string | null;
+  slug: string | null;
+  phone: string | null;
+}
+
+export interface PlatformSearchResult {
+  slot: PlatformSearchSlot;
+  service: PlatformSearchService | null;
+  salon: PlatformSearchSalon;
+  distanceKm: number | null;
+  fallbackLevel: number;
+}
+
+export interface PlatformSearchResponse {
+  results: PlatformSearchResult[];
+  total: number;
+  fallbackLevel: number;
+  fallbackLabel: string;
+  debug: Record<string, unknown>;
+}
+
 export interface CreateBookingPayload {
   salonId: string;
   serviceId: string;
@@ -134,6 +179,29 @@ export const platformClient = {
     return request<PlatformSlot[]>(`/marketplace/slots?${qs.toString()}`, {
       next: { revalidate: 30 },
     } as RequestInit);
+  },
+
+  searchSlots(params: {
+    category?: string;
+    city?: string;
+    date?: string;
+    time?: string;
+    lat?: number;
+    lng?: number;
+    limit?: number;
+  }) {
+    const qs = new URLSearchParams();
+    if (params.category) qs.set("category", params.category);
+    if (params.city)     qs.set("city",     params.city);
+    if (params.date)     qs.set("date",     params.date);
+    if (params.time)     qs.set("time",     params.time);
+    if (params.lat != null) qs.set("lat",   String(params.lat));
+    if (params.lng != null) qs.set("lng",   String(params.lng));
+    if (params.limit)    qs.set("limit",    String(params.limit));
+    return request<PlatformSearchResponse>(
+      `/marketplace/search?${qs.toString()}`,
+      { next: { revalidate: 0 } } as RequestInit,
+    );
   },
 
   createBooking(payload: CreateBookingPayload) {

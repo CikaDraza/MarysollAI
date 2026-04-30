@@ -17,7 +17,7 @@ import { useAIQuery } from "@/hooks/useAIQuery";
 import { useChatSeek } from "@/hooks/useChatSeek";
 import { ThreadItem } from "@/types/ai/chat-thread";
 import { useSalons } from "@/hooks/useSalons";
-import { useSlotWindow } from "@/hooks/useSlotWindow";
+import { useSearch } from "@/hooks/useSearch";
 import { useCitySelector } from "@/hooks/useCitySelector";
 import { SERBIAN_CITIES } from "@/lib/cities";
 
@@ -28,28 +28,48 @@ interface Props {
   initialCategory?: string;
 }
 
-export default function LandingPage({ initialCity = "", initialCategory = "" }: Props) {
+export default function LandingPage({
+  initialCity = "",
+  initialCategory = "",
+}: Props) {
   const router = useRouter();
 
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
-  const [modalSlot, setModalSlot] = useState<import("@/types/slots").FlatSlot | null>(null);
+  const [modalSlot, setModalSlot] = useState<
+    import("@/types/slots").FlatSlot | null
+  >(null);
 
   // City selection — geo + localStorage, falls back to Novi Sad
-  const { city: selectedCity, setCity } = useCitySelector(initialCity || undefined);
+  const { city: selectedCity, setCity } = useCitySelector(
+    initialCity || undefined,
+  );
   const cityName = selectedCity.name;
 
   const [category, setCategory] = useState(initialCategory);
-  const [_date, setDate] = useState(todayStr());
+  const [dateFilter, setDateFilter] = useState<string | undefined>(undefined);
+  const [timeFilter, setTimeFilter] = useState<string | undefined>(undefined);
+  const [subcategoryFilter, setSubcategoryFilter] = useState<
+    string | undefined
+  >(undefined);
 
   // Salons — for QuickAccess category grid (city-filtered)
-  const { data: salons = [], isLoading: salonsLoading } = useSalons(cityName.toLowerCase());
+  const { data: salons = [], isLoading: salonsLoading } = useSalons(
+    cityName.toLowerCase(),
+  );
 
-  // Slot window — fetches all salons, groups by 2 nearest cities
-  const { slotsByCity, bestSlot, isLoading: slotsLoading } = useSlotWindow({
-    selectedCity: cityName,
+  // Central search — single API call, 5-level fallback engine
+  const {
+    slotsByCity,
+    bestSlot,
+    isLoading: slotsLoading,
+  } = useSearch({
+    city: cityName,
     category: category || undefined,
+    date: dateFilter,
+    time: timeFilter,
+    subcategory: subcategoryFilter,
   });
 
   // Maria Deep — frontline conversational agent (DeepSeek)
@@ -116,29 +136,28 @@ export default function LandingPage({ initialCity = "", initialCategory = "" }: 
     document.documentElement.dataset.theme = theme;
   }, [theme]);
 
-  const scrollToBooking = () => {
-    document
-      .getElementById("booking-widget")
-      ?.scrollIntoView({ behavior: "smooth", block: "center" });
-  };
-
   // Category chip click — slug-based routing, no encoding needed
   const handleCategoryPick = useCallback(
     (slug: string) => {
       const next = category === slug ? "" : slug;
       setCategory(next);
       if (cityName && next) {
-        router.push(
-          `/${encodeURIComponent(cityName.toLowerCase())}/${next}`,
-          { scroll: false },
-        );
+        router.push(`/${encodeURIComponent(cityName.toLowerCase())}/${next}`, {
+          scroll: false,
+        });
       }
     },
     [category, cityName, router],
   );
 
   return (
-    <div style={{ fontFamily: "var(--main-font)", minHeight: "100vh", position: "relative" }}>
+    <div
+      style={{
+        fontFamily: "var(--main-font)",
+        minHeight: "100vh",
+        position: "relative",
+      }}
+    >
       {/* Page gradient */}
       <div
         aria-hidden="true"
@@ -155,8 +174,10 @@ export default function LandingPage({ initialCity = "", initialCategory = "" }: 
             "radial-gradient(ellipse 55% 50% at 92% 28%, rgba(93,1,86,0.22) 0%, transparent 58%)",
             "radial-gradient(ellipse 40% 35% at 50% 55%, rgba(186,52,183,0.10) 0%, transparent 65%)",
           ].join(", "),
-          maskImage: "linear-gradient(to bottom, black 0%, black 60%, transparent 100%)",
-          WebkitMaskImage: "linear-gradient(to bottom, black 0%, black 60%, transparent 100%)",
+          maskImage:
+            "linear-gradient(to bottom, black 0%, black 60%, transparent 100%)",
+          WebkitMaskImage:
+            "linear-gradient(to bottom, black 0%, black 60%, transparent 100%)",
         }}
       />
 
@@ -170,11 +191,14 @@ export default function LandingPage({ initialCity = "", initialCategory = "" }: 
           zIndex: 50,
           padding: "12px 24px",
         }}
+        className="bg-white/5 backdrop-blur"
       >
         <div style={{ maxWidth: 1240, margin: "0 auto" }}>
           <LandingHeader
             theme={theme}
-            onToggleTheme={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
+            onToggleTheme={() =>
+              setTheme((t) => (t === "dark" ? "light" : "dark"))
+            }
             onOpenAI={() => setDrawerOpen(true)}
             onLogin={handleLoginRequest}
             city={cityName}
@@ -188,13 +212,21 @@ export default function LandingPage({ initialCity = "", initialCategory = "" }: 
       <div style={{ height: 72 }} aria-hidden="true" />
 
       <Hero
-        onSearch={({ city: c, category: cat, date: d }) => {
+        onSearch={({
+          city: c,
+          category: cat,
+          date: d,
+          time: t,
+          subcategory: sub,
+        }) => {
           const found = SERBIAN_CITIES.find(
             (x) => x.name.toLowerCase() === c.toLowerCase(),
           );
           if (found) setCity(found);
           setCategory(cat);
-          setDate(d);
+          setDateFilter(d || undefined);
+          setTimeFilter(t);
+          setSubcategoryFilter(sub);
         }}
         onOpenAI={() => setDrawerOpen(true)}
       />
@@ -211,7 +243,17 @@ export default function LandingPage({ initialCity = "", initialCategory = "" }: 
           salons={salons}
           loading={salonsLoading}
           category={category}
-          onPick={scrollToBooking}
+          onPick={(slot) =>
+            setModalSlot({
+              salonId: slot.salonId,
+              salonName: slot.salonName,
+              serviceId: slot.serviceId,
+              serviceName: slot.serviceName,
+              category: slot.serviceCategory,
+              startTime: slot.startTime,
+              city: slot.city,
+            })
+          }
           onCategoryPick={handleCategoryPick}
         />
         <AIPrompt onOpenAI={() => setDrawerOpen(true)} />
@@ -251,7 +293,13 @@ export default function LandingPage({ initialCity = "", initialCategory = "" }: 
           }}
         >
           <CheckIcon style={{ width: 16, height: 16 }} strokeWidth={2} />
-          Termin potvrđen za {bestSlot ? new Date(bestSlot.startTime).toLocaleTimeString("sr-Latn", { hour: "2-digit", minute: "2-digit" }) : ""}
+          Termin potvrđen za{" "}
+          {bestSlot
+            ? new Date(bestSlot.startTime).toLocaleTimeString("sr-Latn", {
+                hour: "2-digit",
+                minute: "2-digit",
+              })
+            : ""}
         </div>
       )}
 
@@ -264,7 +312,10 @@ export default function LandingPage({ initialCity = "", initialCategory = "" }: 
       <BookingModal
         slot={modalSlot}
         onClose={() => setModalSlot(null)}
-        onConfirm={() => { setModalSlot(null); setConfirmed(true); }}
+        onConfirm={() => {
+          setModalSlot(null);
+          setConfirmed(true);
+        }}
         onLoginRequest={handleLoginRequest}
       />
 

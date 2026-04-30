@@ -70,13 +70,11 @@ export default function LayoutWithSidebar({
           id="main-content"
           className="relative flex flex-1 flex-col overflow-y-auto min-w-0 transition-all duration-300 ease-in-out"
         >
-          <div className="flex-none">
-            <Header />
-          </div>
           <div id="top" />
           <main className="flex-1">
             <div className="max-w-full pt-6">{children}</div>
-            <AuthProvider token={token || null}>
+            {/* Leave this for now no needed */}
+            {/* <AuthProvider token={token || null}>
               <div className="relative isolate px-6 lg:px-8">
                 <TimelineRendererNoSSR
                   key={thread.length}
@@ -97,7 +95,7 @@ export default function LayoutWithSidebar({
                   />
                 </div>
               </div>
-            </AuthProvider>
+            </AuthProvider> */}
           </main>
         </div>
 

@@ -10,7 +10,7 @@ interface Props {
   salons: MappedSalon[];
   loading?: boolean;
   category: string;
-  onPick: () => void;
+  onPick: (slot: QuickSlot) => void;
   onCategoryPick: (category: string) => void;
 }
 
@@ -138,7 +138,7 @@ export default function QuickAccess({ salons, loading, category, onPick, onCateg
           )}
 
           {quickSlots.map((slot) => (
-            <SlotCard key={`${slot.salonId}-${slot.startTime}`} slot={slot} onBook={onPick} />
+            <SlotCard key={`${slot.salonId}-${slot.startTime}`} slot={slot} onBook={() => onPick(slot)} />
           ))}
         </div>
       </div>

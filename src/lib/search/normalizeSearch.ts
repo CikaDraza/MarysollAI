@@ -1,0 +1,159 @@
+import { stripDiacritics } from "@/lib/intent/parseIntent";
+import { CATEGORY_MAP, CANONICAL_TO_SLUG, SLUG_TO_CANONICAL, type CategorySlug } from "@/lib/intent/categoryMap";
+import { SERBIAN_CITIES, type SerbianCity, findCity } from "@/lib/cities";
+
+export interface NormalizedSearch {
+  citySlug: string;       // "novi-sad"
+  cityDisplay: string;    // "Novi Sad"
+  cityRef?: SerbianCity;
+  category?: CategorySlug;
+  canonicalCategory?: string; // "Nokti", "Masaža" — for matching platform DB values
+  subcategoryNorm?: string;   // diacritics stripped
+  date: string;               // YYYY-MM-DD in Europe/Belgrade
+  requestedHour?: number;
+  timeWindowStart?: number;   // hour (inclusive lower bound, requestedHour - 1)
+  timeWindowEnd?: number;     // hour (inclusive upper bound, requestedHour + 2)
+  lat?: number;
+  lng?: number;
+  limit: number;
+}
+
+// Returns YYYY-MM-DD in Europe/Belgrade timezone
+export function todayInBelgrade(): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Belgrade" }).format(new Date());
+}
+
+export function tomorrowInBelgrade(): string {
+  const d = new Date();
+  d.setDate(d.getDate() + 1);
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Belgrade" }).format(d);
+}
+
+function slugToDisplayName(slug: string): string {
+  return slug.split("-").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+}
+
+function resolveCity(raw: string): { slug: string; display: string; ref?: SerbianCity } {
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    const fallback = SERBIAN_CITIES[0]; // Novi Sad
+    return { slug: fallback.name.toLowerCase().replace(/\s+/g, "-"), display: fallback.name, ref: fallback };
+  }
+
+  // Exact display name match ("Novi Sad")
+  const direct = findCity(trimmed);
+  if (direct) {
+    return { slug: direct.name.toLowerCase().replace(/\s+/g, "-"), display: direct.name, ref: direct };
+  }
+
+  // URL slug match ("novi-sad" → "Novi Sad")
+  const fromSlugName = slugToDisplayName(trimmed);
+  const fromSlug = findCity(fromSlugName);
+  if (fromSlug) {
+    return { slug: trimmed.toLowerCase(), display: fromSlug.name, ref: fromSlug };
+  }
+
+  // Diacritics-stripped fuzzy match
+  const normRaw = stripDiacritics(trimmed).replace(/-/g, " ");
+  const fuzzy = SERBIAN_CITIES.find((c) => stripDiacritics(c.name) === normRaw);
+  if (fuzzy) {
+    return { slug: fuzzy.name.toLowerCase().replace(/\s+/g, "-"), display: fuzzy.name, ref: fuzzy };
+  }
+
+  // Unknown city — use raw, fallback to Beograd ref
+  const beogradRef = SERBIAN_CITIES.find((c) => c.name === "Beograd");
+  return {
+    slug: trimmed.toLowerCase().replace(/\s+/g, "-"),
+    display: fromSlugName || trimmed,
+    ref: beogradRef,
+  };
+}
+
+function resolveCategory(raw: string): { slug?: CategorySlug; canonical?: string } {
+  if (!raw) return {};
+
+  // Already a valid slug
+  if (raw in SLUG_TO_CANONICAL) {
+    return { slug: raw as CategorySlug, canonical: SLUG_TO_CANONICAL[raw as CategorySlug] };
+  }
+
+  // Serbian canonical label ("Masaža", "Nokti", ...)
+  const fromCanonical = CANONICAL_TO_SLUG[raw];
+  if (fromCanonical) {
+    return { slug: fromCanonical, canonical: raw };
+  }
+
+  // Fuzzy via CATEGORY_MAP synonyms
+  const norm = stripDiacritics(raw);
+  for (const [slug, synonyms] of CATEGORY_MAP) {
+    if (synonyms.some((s) => norm.includes(s) || s.includes(norm))) {
+      return { slug, canonical: SLUG_TO_CANONICAL[slug] };
+    }
+  }
+
+  return {};
+}
+
+export function normalizeSearch(params: {
+  city?: string;
+  category?: string;
+  subcategory?: string;
+  date?: string;
+  time?: string;
+  lat?: string | number;
+  lng?: string | number;
+  limit?: string | number;
+}): NormalizedSearch {
+  const today = todayInBelgrade();
+
+  const cityNorm = resolveCity(params.city ?? "Beograd");
+  const catNorm = resolveCategory(params.category ?? "");
+
+  const date = params.date ?? today;
+
+  let requestedHour: number | undefined;
+  let timeWindowStart: number | undefined;
+  let timeWindowEnd: number | undefined;
+
+  if (params.time) {
+    const parts = params.time.split(":");
+    const h = parseInt(parts[0], 10);
+    if (!isNaN(h) && h >= 0 && h <= 23) {
+      requestedHour = h;
+      timeWindowStart = Math.max(0, h - 1);
+      timeWindowEnd = Math.min(23, h + 2);
+    }
+  }
+
+  const subcategoryNorm = params.subcategory
+    ? stripDiacritics(params.subcategory.trim())
+    : undefined;
+
+  const lat = params.lat !== undefined && params.lat !== "" ? Number(params.lat) : undefined;
+  const lng = params.lng !== undefined && params.lng !== "" ? Number(params.lng) : undefined;
+  const limit = params.limit ? Math.min(Math.max(1, Number(params.limit)), 50) : 20;
+
+  return {
+    citySlug: cityNorm.slug,
+    cityDisplay: cityNorm.display,
+    cityRef: cityNorm.ref,
+    category: catNorm.slug,
+    canonicalCategory: catNorm.canonical,
+    subcategoryNorm,
+    date,
+    requestedHour,
+    timeWindowStart,
+    timeWindowEnd,
+    lat,
+    lng,
+    limit,
+  };
+}
+
+/** Match a salon's city string against the normalized city */
+export function cityMatches(salonCity: string | undefined, norm: NormalizedSearch): boolean {
+  if (!salonCity) return false;
+  const salonNorm = stripDiacritics(salonCity);
+  const targetNorm = stripDiacritics(norm.cityDisplay);
+  return salonNorm === targetNorm || salonNorm.includes(targetNorm) || targetNorm.includes(salonNorm);
+}
