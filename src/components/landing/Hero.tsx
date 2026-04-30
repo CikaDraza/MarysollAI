@@ -1,7 +1,14 @@
+// src/components/landing/Hero
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { MagnifyingGlassIcon, MapPinIcon, SparklesIcon } from "@heroicons/react/24/outline";
+import {
+  MagnifyingGlassIcon,
+  MapPinIcon,
+  SparklesIcon,
+} from "@heroicons/react/24/outline";
+import { resolveCategoryFromText } from "@/lib/search/categoryResolver";
+import { useCategories } from "@/hooks/useCategories";
 
 export interface SearchParams {
   city: string;
@@ -27,32 +34,49 @@ const PLACEHOLDERS = [
 ];
 
 const CITIES = [
-  "Novi Sad", "Beograd", "Niš", "Bor", "Kragujevac",
-  "Subotica", "Zrenjanin", "Pančevo", "Čačak", "Leskovac",
+  "Novi Sad",
+  "Beograd",
+  "Niš",
+  "Bor",
+  "Kragujevac",
+  "Subotica",
+  "Zrenjanin",
+  "Pančevo",
+  "Čačak",
+  "Leskovac",
 ];
 const CITY_LOWER = CITIES.map((c) => c.toLowerCase());
 
 const SERVICE_MAP: [string, string][] = [
-  ["masaž",    "massage"],
-  ["manikir",  "nails"],
-  ["nokt",     "nails"],
-  ["pedikir",  "nails"],
+  ["masaž", "massage"],
+  ["manikir", "nails"],
+  ["nokt", "nails"],
+  ["pedikir", "nails"],
   ["gel nokt", "nails"],
-  ["akril",    "nails"],
-  ["šišanj",   "hair"],
-  ["frizur",   "hair"],
-  ["šmink",    "makeup"],
-  ["depilacij","waxing"],
-  ["obrv",     "eyebrows"],
+  ["akril", "nails"],
+  ["šišanj", "hair"],
+  ["frizur", "hair"],
+  ["šmink", "makeup"],
+  ["depilacij", "waxing"],
+  ["obrv", "eyebrows"],
   ["trepavic", "eyebrows"],
-  ["tretman",  "facial"],
+  ["tretman", "facial"],
 ];
 
 const ALL_SUGGESTIONS = [
   ...CITIES,
-  "Masaža", "Manikir", "Nokti", "Frizure", "Šminka",
-  "Šišanje", "Depilacija", "Tretman lica",
-  "Danas", "Sutra", "Večeras", "Jutros",
+  "Masaža",
+  "Manikir",
+  "Nokti",
+  "Frizure",
+  "Šminka",
+  "Šišanje",
+  "Depilacija",
+  "Tretman lica",
+  "Danas",
+  "Sutra",
+  "Večeras",
+  "Jutros",
 ];
 
 /* ── Helpers ────────────────────────────────────────────────────────────── */
@@ -67,13 +91,17 @@ function offsetDateStr(days: number) {
   return d.toISOString().slice(0, 10);
 }
 
+// src/components/landing/Hero.tsx – zameni postojeću parseInput
+
 function parseInput(raw: string): SearchParams {
   const lower = raw.toLowerCase();
 
+  // 1. Datum
   let date = todayStr();
   if (lower.includes("prekosutra")) date = offsetDateStr(2);
   else if (lower.includes("sutra")) date = offsetDateStr(1);
 
+  // 2. Vreme
   let time: string | undefined;
   const timeMatch =
     lower.match(/u\s*(\d{1,2})(?::(\d{2}))?h?/) ??
@@ -85,26 +113,46 @@ function parseInput(raw: string): SearchParams {
     time = `${h}:${m}`;
   }
 
+  // 3. Grad (iz liste poznatih gradova)
   let city = "";
-  for (let i = 0; i < CITY_LOWER.length; i++) {
-    if (lower.includes(CITY_LOWER[i])) { city = CITIES[i]; break; }
-  }
+  const cityIndex = CITY_LOWER.findIndex((c) => lower.includes(c));
+  if (cityIndex !== -1) city = CITIES[cityIndex];
 
+  // 4. Kategorija (ključ, npr. "massage")
   let category = "";
+  let matchedCategoryWord = ""; // pamtimo koju reč smo mapirali (npr. "masaža")
   for (const [key, cat] of SERVICE_MAP) {
-    if (lower.includes(key)) { category = cat; break; }
+    if (lower.includes(key)) {
+      category = cat;
+      matchedCategoryWord = key; // "masaž", "manikir", itd.
+      break;
+    }
   }
 
-  // Subcategory: query minus city, date, and time tokens only
-  // Do NOT strip category keywords — they're part of service names like "izlivanje noktiju"
+  // 5. Subkategorija – ostatak teksta BEZ grada, datuma, vremena i reči kategorije
   let remainder = lower;
-  if (city) remainder = remainder.replace(CITY_LOWER[CITIES.findIndex((c) => c === city)], "");
+  // ukloni grad
+  if (city) remainder = remainder.replace(CITY_LOWER[cityIndex], "");
+  // ukloni oznake datuma
   remainder = remainder
     .replace(/\b(danas|sutra|prekosutra|today|tomorrow)\b/g, "")
-    .replace(/u\s*\d{1,2}(?::\d{2})?h?|\d{1,2}:\d{2}|\d{1,2}h\b/g, "")
-    .trim()
-    .replace(/\s+/g, " ");
-  const subcategory = remainder.length >= 4 ? remainder : undefined;
+    .replace(/u\s*\d{1,2}(?::\d{2})?h?|\d{1,2}:\d{2}|\d{1,2}h\b/g, "");
+
+  // ukloni reč koja je korišćena za kategoriju (ali samo ako stoji kao zasebna reč)
+  if (matchedCategoryWord) {
+    const regex = new RegExp(`\\b${matchedCategoryWord}\\w*\\b`, "gi");
+    remainder = remainder.replace(regex, "");
+  }
+
+  // preostali deo očisti i uzmi ako ima bar 3 karaktera
+  remainder = remainder.trim().replace(/\s+/g, " ");
+  const subcategory = remainder.length >= 3 ? remainder : undefined;
+
+  // Ako nema grada, neka bude undefined – kasnije će se koristiti geolokacija ili fallback
+  if (!city) {
+    // Grad će biti određen u LandingPage preko useCitySelector (koji već radi geo)
+    // Zato ostavljamo prazan string, LandingPage će iskoristiti svoj selectedCity
+  }
 
   return { city, category, date, time, subcategory };
 }
@@ -115,9 +163,9 @@ function getSuggestions(input: string): string[] {
   const words = trimmed.split(/\s+/);
   const last = words[words.length - 1].toLowerCase();
   if (last.length < 2) return [];
-  return ALL_SUGGESTIONS
-    .filter((s) => s.toLowerCase().startsWith(last) || s.toLowerCase().includes(last))
-    .slice(0, 5);
+  return ALL_SUGGESTIONS.filter(
+    (s) => s.toLowerCase().startsWith(last) || s.toLowerCase().includes(last),
+  ).slice(0, 5);
 }
 
 function applySuggestion(current: string, suggestion: string): string {
@@ -138,6 +186,8 @@ export default function Hero({ onSearch, onOpenAI }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
+  const { data: categories = [] } = useCategories(); // dohvati kategorije sa platforme
+
   // Rotate placeholder
   useEffect(() => {
     const id = setInterval(
@@ -156,7 +206,10 @@ export default function Hero({ onSearch, onOpenAI }: Props) {
   // Close suggestions on outside click
   useEffect(() => {
     function onDown(e: MouseEvent) {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+      if (
+        containerRef.current &&
+        !containerRef.current.contains(e.target as Node)
+      ) {
         setSuggestions([]);
       }
     }
@@ -164,19 +217,34 @@ export default function Hero({ onSearch, onOpenAI }: Props) {
     return () => document.removeEventListener("mousedown", onDown);
   }, []);
 
+  // Izmeni submit funkciju
   const submit = useCallback(() => {
-    const params = parseInput(value);
-    onSearch(params);
+    if (!categories.length) return; // ili sačekaj da se učitaju
+    const { categoryKey, subcategoryKey } = resolveCategoryFromText(
+      value,
+      categories,
+    );
+    const parsed = parseInput(value); // ovo i dalje parsira grad, datum, vreme
+    onSearch({
+      city: parsed.city,
+      category: categoryKey || parsed.category, // ako resolver ne nađe, padni na stari
+      date: parsed.date,
+      time: parsed.time,
+      subcategory: subcategoryKey || parsed.subcategory,
+    });
     setSuggestions([]);
-  }, [value, onSearch]);
+  }, [value, onSearch, categories]);
 
-  const pickSuggestion = useCallback((s: string) => {
-    const next = applySuggestion(value, s);
-    setValue(next);
-    setSuggestions([]);
-    setActiveSuggestion(-1);
-    inputRef.current?.focus();
-  }, [value]);
+  const pickSuggestion = useCallback(
+    (s: string) => {
+      const next = applySuggestion(value, s);
+      setValue(next);
+      setSuggestions([]);
+      setActiveSuggestion(-1);
+      inputRef.current?.focus();
+    },
+    [value],
+  );
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (suggestions.length > 0) {
@@ -192,7 +260,9 @@ export default function Hero({ onSearch, onOpenAI }: Props) {
       }
       if (e.key === "Tab" || (e.key === "Enter" && activeSuggestion >= 0)) {
         e.preventDefault();
-        pickSuggestion(suggestions[activeSuggestion >= 0 ? activeSuggestion : 0]);
+        pickSuggestion(
+          suggestions[activeSuggestion >= 0 ? activeSuggestion : 0],
+        );
         return;
       }
       if (e.key === "Escape") {
@@ -210,7 +280,10 @@ export default function Hero({ onSearch, onOpenAI }: Props) {
       () => {
         setGeoLoading(false);
         // Placeholder — reverse geocode can be wired later
-        if (!value.toLowerCase().includes("novi sad") && !value.toLowerCase().includes("beograd")) {
+        if (
+          !value.toLowerCase().includes("novi sad") &&
+          !value.toLowerCase().includes("beograd")
+        ) {
           setValue((v) => (v ? v + " " : "") + "Novi Sad");
         }
         inputRef.current?.focus();
@@ -379,8 +452,8 @@ export default function Hero({ onSearch, onOpenAI }: Props) {
               color: "var(--fg-1)",
             }}
           >
-            Slobodni termini<br />
-            u salonima{" "}
+            Slobodni termini
+            <br />u salonima{" "}
             <span
               style={{
                 fontFamily: "var(--heading-font)",
@@ -404,14 +477,21 @@ export default function Hero({ onSearch, onOpenAI }: Props) {
               maxWidth: 580,
             }}
           >
-            Pronađi masažu, tretman ili šišanje u svom gradu i rezerviši odmah — bez poziva, bez čekanja.
+            Pronađi masažu, tretman ili šišanje u svom gradu i rezerviši odmah —
+            bez poziva, bez čekanja.
           </p>
 
           {/* Unified smart input */}
           <div ref={containerRef} className="hero-smart-wrap">
-            <div className={`hero-smart-pill${focused ? " focused" : ""}`} role="search">
+            <div
+              className={`hero-smart-pill${focused ? " focused" : ""}`}
+              role="search"
+            >
               <span className="hero-smart-icon-left" aria-hidden="true">
-                <MagnifyingGlassIcon style={{ width: 18, height: 18 }} strokeWidth={2} />
+                <MagnifyingGlassIcon
+                  style={{ width: 18, height: 18 }}
+                  strokeWidth={2}
+                />
               </span>
 
               <input
@@ -450,7 +530,10 @@ export default function Hero({ onSearch, onOpenAI }: Props) {
               </button>
 
               <button className="hero-smart-btn" onClick={submit}>
-                <MagnifyingGlassIcon style={{ width: 15, height: 15 }} strokeWidth={2.5} />
+                <MagnifyingGlassIcon
+                  style={{ width: 15, height: 15 }}
+                  strokeWidth={2.5}
+                />
                 Pretraži
               </button>
             </div>
@@ -464,10 +547,18 @@ export default function Hero({ onSearch, onOpenAI }: Props) {
                     className={`hero-suggestion-item${i === activeSuggestion ? " active" : ""}`}
                     role="option"
                     aria-selected={i === activeSuggestion}
-                    onMouseDown={(e) => { e.preventDefault(); pickSuggestion(s); }}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      pickSuggestion(s);
+                    }}
                   >
                     <MagnifyingGlassIcon
-                      style={{ width: 14, height: 14, color: "var(--fg-3)", flexShrink: 0 }}
+                      style={{
+                        width: 14,
+                        height: 14,
+                        color: "var(--fg-3)",
+                        flexShrink: 0,
+                      }}
                       strokeWidth={2}
                     />
                     {s}
@@ -494,18 +585,26 @@ export default function Hero({ onSearch, onOpenAI }: Props) {
                 padding: "14px 20px",
                 borderRadius: 14,
                 color: "var(--secondary-color)",
-                transition: "color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out)",
+                transition:
+                  "color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out)",
               }}
               onMouseEnter={(e) => {
-                (e.currentTarget as HTMLButtonElement).style.color = "var(--secondary-hover)";
-                (e.currentTarget as HTMLButtonElement).style.background = "var(--brand-50)";
+                (e.currentTarget as HTMLButtonElement).style.color =
+                  "var(--secondary-hover)";
+                (e.currentTarget as HTMLButtonElement).style.background =
+                  "var(--brand-50)";
               }}
               onMouseLeave={(e) => {
-                (e.currentTarget as HTMLButtonElement).style.color = "var(--secondary-color)";
-                (e.currentTarget as HTMLButtonElement).style.background = "transparent";
+                (e.currentTarget as HTMLButtonElement).style.color =
+                  "var(--secondary-color)";
+                (e.currentTarget as HTMLButtonElement).style.background =
+                  "transparent";
               }}
             >
-              <SparklesIcon style={{ width: 18, height: 18 }} strokeWidth={1.5} />
+              <SparklesIcon
+                style={{ width: 18, height: 18 }}
+                strokeWidth={1.5}
+              />
               Pitaj asistenta
             </button>
             <span

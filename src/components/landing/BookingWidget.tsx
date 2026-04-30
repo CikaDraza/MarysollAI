@@ -1,7 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { CheckBadgeIcon, MapPinIcon, ClockIcon } from "@heroicons/react/24/solid";
+import {
+  CheckBadgeIcon,
+  MapPinIcon,
+  ClockIcon,
+} from "@heroicons/react/24/solid";
 import type { FlatSlot, SearchResult } from "@/types/slots";
 import type { CitySlots } from "@/hooks/useSearch";
 
@@ -47,7 +51,9 @@ export default function BookingWidget({ slotsByCity, loading, onBook }: Props) {
 
       {loading && (
         <div style={gridStyle}>
-          {[0, 1, 2, 3, 4, 5].map((i) => <SlotSkeleton key={i} />)}
+          {[0, 1, 2, 3, 4].map((i) => (
+            <SlotSkeleton key={i} />
+          ))}
         </div>
       )}
 
@@ -129,11 +135,17 @@ export default function BookingWidget({ slotsByCity, loading, onBook }: Props) {
 
 /* ── Slot card ─────────────────────────────────────────────────────────────── */
 
-function SlotCard({ slot, onBook }: { slot: SearchResult; onBook: () => void }) {
+function SlotCard({
+  slot,
+  onBook,
+}: {
+  slot: SearchResult;
+  onBook: () => void;
+}) {
   const [hovered, setHovered] = useState(false);
 
-  const timeLabel  = slot.timeLabel  ?? formatTimeFallback(slot.startTime);
-  const dateLabel  = slot.dateLabel  ?? formatDateFallback(slot.startTime);
+  const timeLabel = slot.timeLabel ?? formatTimeFallback(slot.startTime);
+  const dateLabel = slot.dateLabel ?? formatDateFallback(slot.startTime);
   const isSynthetic = slot.isSynthetic;
 
   return (
@@ -239,7 +251,12 @@ function SlotCard({ slot, onBook }: { slot: SearchResult; onBook: () => void }) 
         {slot.verified && (
           <CheckBadgeIcon
             title="Verifikovani salon"
-            style={{ width: 15, height: 15, color: "var(--secondary-color)", flexShrink: 0 }}
+            style={{
+              width: 15,
+              height: 15,
+              color: "var(--secondary-color)",
+              flexShrink: 0,
+            }}
           />
         )}
       </div>
@@ -333,7 +350,9 @@ function SlotCard({ slot, onBook }: { slot: SearchResult; onBook: () => void }) 
           fontSize: 13,
           padding: "10px 0",
           borderRadius: 12,
-          background: hovered ? "var(--secondary-color)" : "var(--brand-100, #f3e8ff)",
+          background: hovered
+            ? "var(--secondary-color)"
+            : "var(--brand-100, #f3e8ff)",
           color: hovered ? "#fff" : "var(--secondary-color)",
           transition:
             "background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out)",
@@ -362,7 +381,13 @@ function SlotSkeleton() {
         boxShadow: "var(--shadow-sm)",
       }}
     >
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "baseline",
+        }}
+      >
         <div style={skel(72, 30)} />
         <div style={skel(56, 20, 8)} />
       </div>
@@ -413,16 +438,29 @@ function formatTimeFallback(iso: string): string {
   }
 }
 
-const MONTHS = ["jan","feb","mar","apr","maj","jun","jul","avg","sep","okt","nov","dec"];
-const DAYS   = ["Ned","Pon","Uto","Sre","Čet","Pet","Sub"];
+const MONTHS = [
+  "jan",
+  "feb",
+  "mar",
+  "apr",
+  "maj",
+  "jun",
+  "jul",
+  "avg",
+  "sep",
+  "okt",
+  "nov",
+  "dec",
+];
+const DAYS = ["Ned", "Pon", "Uto", "Sre", "Čet", "Pet", "Sub"];
 
 function formatDateFallback(iso: string): string {
   const d = new Date(iso);
-  const today    = new Date();
+  const today = new Date();
   const tomorrow = new Date(today);
   tomorrow.setDate(today.getDate() + 1);
   const ds = iso.slice(0, 10);
-  if (ds === today.toISOString().slice(0, 10))    return "Danas";
+  if (ds === today.toISOString().slice(0, 10)) return "Danas";
   if (ds === tomorrow.toISOString().slice(0, 10)) return "Sutra";
   return `${DAYS[d.getDay()]}, ${d.getDate()}. ${MONTHS[d.getMonth()]}`;
 }

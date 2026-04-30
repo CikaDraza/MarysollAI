@@ -1,4 +1,5 @@
 // src/lib/api/platformClient.ts
+import { PlatformCategory } from "@/types/category-types";
 import crypto from "crypto";
 
 const BASE = (process.env.PLATFORM_API_URL ?? "").replace(/\/$/, "");
@@ -21,7 +22,10 @@ function signedHeaders(method: string, body?: object): Record<string, string> {
   };
 }
 
-async function request<T>(path: string, init?: RequestInit & { _body?: object }): Promise<T> {
+async function request<T>(
+  path: string,
+  init?: RequestInit & { _body?: object },
+): Promise<T> {
   const method = (init?.method ?? "GET").toUpperCase();
   const body = init?._body;
 
@@ -149,6 +153,12 @@ export interface RegisterPayload {
 // ─── Client ──────────────────────────────────────────────────────────────────
 
 export const platformClient = {
+  getCategories() {
+    return request<PlatformCategory[]>("/marketplace/categories", {
+      next: { revalidate: 3600 },
+    } as RequestInit);
+  },
+
   getSalonProfiles(params?: { city?: string; lat?: number; lng?: number }) {
     const qs = new URLSearchParams();
     if (params?.city) qs.set("city", params.city);
@@ -161,18 +171,28 @@ export const platformClient = {
   },
 
   getSalonServices(salonId: string) {
-    return request<PlatformService[]>(`/marketplace/services?salonId=${salonId}`, {
-      next: { revalidate: 60 },
-    } as RequestInit);
+    return request<PlatformService[]>(
+      `/marketplace/services?salonId=${salonId}`,
+      {
+        next: { revalidate: 60 },
+      } as RequestInit,
+    );
   },
 
   getSalonWorkingHours(salonId: string) {
-    return request<Record<string, string>>(`/marketplace/working-hours?salonId=${salonId}`, {
-      next: { revalidate: 3600 },
-    } as RequestInit);
+    return request<Record<string, string>>(
+      `/marketplace/working-hours?salonId=${salonId}`,
+      {
+        next: { revalidate: 3600 },
+      } as RequestInit,
+    );
   },
 
-  getAvailableSlots(params: { salonId: string; serviceId?: string; date?: string }) {
+  getAvailableSlots(params: {
+    salonId: string;
+    serviceId?: string;
+    date?: string;
+  }) {
     const qs = new URLSearchParams({ salonId: params.salonId });
     if (params.serviceId) qs.set("serviceId", params.serviceId);
     if (params.date) qs.set("date", params.date);
@@ -192,12 +212,12 @@ export const platformClient = {
   }) {
     const qs = new URLSearchParams();
     if (params.category) qs.set("category", params.category);
-    if (params.city)     qs.set("city",     params.city);
-    if (params.date)     qs.set("date",     params.date);
-    if (params.time)     qs.set("time",     params.time);
-    if (params.lat != null) qs.set("lat",   String(params.lat));
-    if (params.lng != null) qs.set("lng",   String(params.lng));
-    if (params.limit)    qs.set("limit",    String(params.limit));
+    if (params.city) qs.set("city", params.city);
+    if (params.date) qs.set("date", params.date);
+    if (params.time) qs.set("time", params.time);
+    if (params.lat != null) qs.set("lat", String(params.lat));
+    if (params.lng != null) qs.set("lng", String(params.lng));
+    if (params.limit) qs.set("limit", String(params.limit));
     return request<PlatformSearchResponse>(
       `/marketplace/search?${qs.toString()}`,
       { next: { revalidate: 0 } } as RequestInit,

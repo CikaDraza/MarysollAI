@@ -1,3 +1,4 @@
+// src/lib/search/findBestSlots
 /**
  * 5-level fallback search engine.
  * NEVER returns empty if there are any salons with working hours.
@@ -11,7 +12,11 @@
 
 import type { PlatformSalon, PlatformService } from "@/lib/api/platformClient";
 import { normalizeCategory } from "@/lib/slots/normalize";
-import { CANONICAL_TO_SLUG, SLUG_TO_CANONICAL, type CategorySlug } from "@/lib/intent/categoryMap";
+import {
+  CANONICAL_TO_SLUG,
+  SLUG_TO_CANONICAL,
+  type CategorySlug,
+} from "@/lib/intent/categoryMap";
 import { stripDiacritics } from "@/lib/intent/parseIntent";
 import { haversineKm } from "@/lib/cities";
 import { generateSlotsFromWorkingHours } from "@/lib/slots/generateSlots";
@@ -23,14 +28,14 @@ import { todayInBelgrade, tomorrowInBelgrade } from "./normalizeSearch";
 // ── Related category map ──────────────────────────────────────────────────────
 
 const RELATED: Partial<Record<CategorySlug, CategorySlug[]>> = {
-  massage:  ["facial", "waxing"],
-  facial:   ["massage", "eyebrows", "waxing"],
+  massage: ["facial", "waxing"],
+  facial: ["massage", "eyebrows", "waxing"],
   eyebrows: ["facial", "makeup"],
-  makeup:   ["hair", "eyebrows"],
-  waxing:   ["facial", "massage"],
-  hair:     [],
-  nails:    [],
-  other:    ["massage", "facial"],
+  makeup: ["hair", "eyebrows"],
+  waxing: ["facial", "massage"],
+  hair: [],
+  nails: [],
+  other: ["massage", "facial"],
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -47,8 +52,21 @@ function formatTimeLabel(iso: string): string {
   }
 }
 
-const MONTHS_SR = ["jan", "feb", "mar", "apr", "maj", "jun", "jul", "avg", "sep", "okt", "nov", "dec"];
-const DAYS_SR   = ["Ned", "Pon", "Uto", "Sre", "Čet", "Pet", "Sub"];
+const MONTHS_SR = [
+  "jan",
+  "feb",
+  "mar",
+  "apr",
+  "maj",
+  "jun",
+  "jul",
+  "avg",
+  "sep",
+  "okt",
+  "nov",
+  "dec",
+];
+const DAYS_SR = ["Ned", "Pon", "Uto", "Sre", "Čet", "Pet", "Sub"];
 
 function formatDateLabel(iso: string, today: string, tomorrow: string): string {
   const dateStr = iso.slice(0, 10);
@@ -58,7 +76,9 @@ function formatDateLabel(iso: string, today: string, tomorrow: string): string {
   return `${DAYS_SR[d.getDay()]}, ${d.getDate()}. ${MONTHS_SR[d.getMonth()]}`;
 }
 
-function resolveServiceCategory(svc: PlatformService | undefined): CategorySlug {
+function resolveServiceCategory(
+  svc: PlatformService | undefined,
+): CategorySlug {
   if (!svc) return "other";
   const rawCat = svc.category ?? "";
   if (rawCat) {
@@ -107,7 +127,8 @@ function computeRelevance(
   if (typeof salon.rating === "number") score += salon.rating * 5;
 
   // Prefer earlier slots
-  const daysOut = (new Date(slot.startTime).getTime() - Date.now()) / (1000 * 60 * 60 * 24);
+  const daysOut =
+    (new Date(slot.startTime).getTime() - Date.now()) / (1000 * 60 * 60 * 24);
   score -= Math.max(0, daysOut) * 3;
 
   return Math.round(score);
@@ -126,7 +147,10 @@ interface SlotCandidate {
   isSynthetic: boolean;
 }
 
-function makeCandidates(salons: PlatformSalon[], useSynthetic = false): SlotCandidate[] {
+function makeCandidates(
+  salons: PlatformSalon[],
+  useSynthetic = false,
+): SlotCandidate[] {
   const candidates: SlotCandidate[] = [];
 
   for (const salon of salons) {
@@ -154,7 +178,11 @@ function makeCandidates(salons: PlatformSalon[], useSynthetic = false): SlotCand
     }
 
     // Synthetic slots generated from working hours (last resort)
-    if (useSynthetic && (salon.nextSlots ?? []).length === 0 && salon.workingHours) {
+    if (
+      useSynthetic &&
+      (salon.nextSlots ?? []).length === 0 &&
+      salon.workingHours
+    ) {
       const mapped: MappedSalon = {
         id: salonId,
         name: salon.name,
@@ -182,7 +210,9 @@ function makeCandidates(salons: PlatformSalon[], useSynthetic = false): SlotCand
           salon,
           startTime: g.startTime,
           endTime: g.endTime,
-          serviceId: matchingSvc ? (matchingSvc.id ?? matchingSvc._id ?? null) : null,
+          serviceId: matchingSvc
+            ? (matchingSvc.id ?? matchingSvc._id ?? null)
+            : null,
           service: matchingSvc,
           category,
           serviceName: matchingSvc?.name ?? "Slobodan termin",
@@ -205,10 +235,20 @@ function toSearchResult(
   const salonId = c.salon.id ?? c.salon._id ?? "";
 
   let distanceKm: number | undefined;
-  if (params.lat != null && params.lng != null && c.salon.lat != null && c.salon.lng != null) {
+  if (
+    params.lat != null &&
+    params.lng != null &&
+    c.salon.lat != null &&
+    c.salon.lng != null
+  ) {
     distanceKm = haversineKm(params.lat, params.lng, c.salon.lat, c.salon.lng);
   } else if (params.cityRef && c.salon.lat != null && c.salon.lng != null) {
-    distanceKm = haversineKm(params.cityRef.lat, params.cityRef.lng, c.salon.lat, c.salon.lng);
+    distanceKm = haversineKm(
+      params.cityRef.lat,
+      params.cityRef.lng,
+      c.salon.lat,
+      c.salon.lng,
+    );
   } else if (typeof c.salon.distance === "number") {
     distanceKm = c.salon.distance ?? undefined;
   }
@@ -231,7 +271,8 @@ function toSearchResult(
     category: c.category,
     startTime: c.startTime,
     city: c.salon.city ?? "",
-    distanceKm: distanceKm != null ? Math.round(distanceKm * 10) / 10 : undefined,
+    distanceKm:
+      distanceKm != null ? Math.round(distanceKm * 10) / 10 : undefined,
     price: c.service?.basePrice ?? c.service?.price ?? undefined,
     // SearchResult extras
     salonSlug: c.salon.slug,
@@ -271,9 +312,15 @@ function filterCandidates(
       const targetNorm = stripDiacritics(params.cityDisplay);
       if (salonCityNorm !== targetNorm) return false;
     } else if (opts.maxDistanceKm != null && params.cityRef) {
-      const d = c.salon.lat != null && c.salon.lng != null
-        ? haversineKm(params.cityRef.lat, params.cityRef.lng, c.salon.lat, c.salon.lng)
-        : Infinity;
+      const d =
+        c.salon.lat != null && c.salon.lng != null
+          ? haversineKm(
+              params.cityRef.lat,
+              params.cityRef.lng,
+              c.salon.lat,
+              c.salon.lng,
+            )
+          : Infinity;
       if (d > opts.maxDistanceKm) return false;
     }
 
@@ -294,14 +341,26 @@ function filterCandidates(
     }
 
     // Time window filter
-    if (opts.requireTimeWindow && params.timeWindowStart != null && params.timeWindowEnd != null) {
+    if (
+      opts.requireTimeWindow &&
+      params.timeWindowStart != null &&
+      params.timeWindowEnd != null
+    ) {
       const slotHour = new Date(c.startTime).getHours();
-      if (slotHour < params.timeWindowStart || slotHour > params.timeWindowEnd) return false;
+      if (slotHour < params.timeWindowStart || slotHour > params.timeWindowEnd)
+        return false;
     }
 
     // Subcategory filter
     if (params.subcategoryNorm) {
-      if (!matchesSubcategory(c.serviceName, c.salon, params.subcategoryNorm, c.serviceId)) {
+      if (
+        !matchesSubcategory(
+          c.serviceName,
+          c.salon,
+          params.subcategoryNorm,
+          c.serviceId,
+        )
+      ) {
         return false;
       }
     }
@@ -346,7 +405,12 @@ export function findBestSlots(
       requireDate: true,
       requireTimeWindow: true,
     });
-    if (l1.length > 0) return { results: toResults(l1, 1), fallbackLevel: 1, fallbackLabel: "exact" };
+    if (l1.length > 0)
+      return {
+        results: toResults(l1, 1),
+        fallbackLevel: 1,
+        fallbackLabel: "exact",
+      };
   }
 
   // ── Level 2: city + category + date (any time) ────────────────────────────
@@ -363,12 +427,20 @@ export function findBestSlots(
       let sorted = l2;
       if (params.requestedHour != null) {
         sorted = [...l2].sort((a, b) => {
-          const da = Math.abs(new Date(a.startTime).getHours() - params.requestedHour!);
-          const db = Math.abs(new Date(b.startTime).getHours() - params.requestedHour!);
+          const da = Math.abs(
+            new Date(a.startTime).getHours() - params.requestedHour!,
+          );
+          const db = Math.abs(
+            new Date(b.startTime).getHours() - params.requestedHour!,
+          );
           return da - db;
         });
       }
-      return { results: toResults(sorted, 2), fallbackLevel: 2, fallbackLabel: "relaxed-time" };
+      return {
+        results: toResults(sorted, 2),
+        fallbackLevel: 2,
+        fallbackLabel: "relaxed-time",
+      };
     }
   }
 
@@ -381,7 +453,12 @@ export function findBestSlots(
       requireTimeWindow: false,
       allowRelatedCategories: true,
     });
-    if (l3.length > 0) return { results: toResults(l3, 3), fallbackLevel: 3, fallbackLabel: "related-categories" };
+    if (l3.length > 0)
+      return {
+        results: toResults(l3, 3),
+        fallbackLevel: 3,
+        fallbackLabel: "related-categories",
+      };
   }
 
   // ── Level 4: city + any category + nearest future slots ───────────────────
@@ -391,7 +468,12 @@ export function findBestSlots(
     requireDate: false,
     requireTimeWindow: false,
   });
-  if (l4.length > 0) return { results: toResults(l4, 4), fallbackLevel: 4, fallbackLabel: "nearest-future" };
+  if (l4.length > 0)
+    return {
+      results: toResults(l4, 4),
+      fallbackLevel: 4,
+      fallbackLabel: "nearest-future",
+    };
 
   // ── Level 5: nearby cities (within 200 km) ────────────────────────────────
   const l5 = filterCandidates(allCandidates, params, {
@@ -401,7 +483,12 @@ export function findBestSlots(
     requireTimeWindow: false,
     maxDistanceKm: 200,
   });
-  if (l5.length > 0) return { results: toResults(l5, 5), fallbackLevel: 5, fallbackLabel: "nearby-cities" };
+  if (l5.length > 0)
+    return {
+      results: toResults(l5, 5),
+      fallbackLevel: 5,
+      fallbackLabel: "nearby-cities",
+    };
 
   // ── Level 6: last resort — generate synthetic slots from working hours ─────
   const withSynthetic = makeCandidates(salons, true);
@@ -412,7 +499,12 @@ export function findBestSlots(
       requireDate: false,
       requireTimeWindow: false,
     });
-    if (l6.length > 0) return { results: toResults(l6, 6), fallbackLevel: 6, fallbackLabel: "synthetic" };
+    if (l6.length > 0)
+      return {
+        results: toResults(l6, 6),
+        fallbackLevel: 6,
+        fallbackLabel: "synthetic",
+      };
   }
 
   return { results: [], fallbackLevel: 0, fallbackLabel: "no-salons" };
