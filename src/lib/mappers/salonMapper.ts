@@ -15,10 +15,12 @@ export interface MappedSalon {
 
 export interface MappedService {
   id: string;
+  rawId: string; // MongoDB _id — used for slot.serviceId matching (may differ from id)
   name: string;
   category: string;
   duration: number;
   price: number;
+  hasVariants: boolean;
 }
 
 export interface MappedSlot {
@@ -43,13 +45,51 @@ export function mapSalon(raw: PlatformSalon): MappedSalon {
   };
 }
 
+interface RawVariant {
+  name?: string;
+  price?: number;
+  duration?: number;
+}
+
+function parseVariants(raw: unknown): RawVariant[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((v): v is RawVariant => v != null && typeof v === "object");
+}
+
 export function mapService(raw: PlatformService): MappedService {
+  const r = raw as Record<string, unknown>;
+  const isVariantType = r.type === "variant";
+  const isGroupType = r.type === "group";
+  const variants = parseVariants(r.variants);
+  const groupServices = parseVariants(r.services as unknown);
+
+  let price = 0;
+  let hasVariants = false;
+  let duration = (raw.duration as number | undefined) ?? 60;
+
+  if (isVariantType && variants.length > 0) {
+    const prices = variants.map((v) => v.price ?? 0).filter((p) => p > 0);
+    price = prices.length > 0 ? Math.min(...prices) : 0;
+    hasVariants = true;
+    const durations = variants.map((v) => v.duration ?? 60).filter((d) => d > 0);
+    if (durations.length > 0) duration = Math.min(...durations);
+  } else if (isGroupType && groupServices.length > 0) {
+    const prices = groupServices.map((v) => v.price ?? 0).filter((p) => p > 0);
+    price = prices.length > 0 ? Math.min(...prices) : 0;
+    hasVariants = true;
+  } else {
+    price = (raw.basePrice ?? raw.price ?? 0) as number;
+    hasVariants = false;
+  }
+
   return {
-    id: raw.id ?? raw._id ?? "",
+    id: (raw.id ?? raw._id ?? "") as string,
+    rawId: (raw._id ?? raw.id ?? "") as string,
     name: raw.name,
-    category: raw.category ?? "",
-    duration: raw.duration ?? 60,
-    price: raw.basePrice ?? raw.price ?? 0,
+    category: (r.categorySlug ?? raw.category ?? "") as string,
+    duration,
+    price,
+    hasVariants,
   };
 }
 

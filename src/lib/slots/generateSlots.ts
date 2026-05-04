@@ -1,6 +1,5 @@
 import type { MappedSalon } from "@/lib/mappers/salonMapper";
 
-// Serbian day-of-week index (0=Sun) → working hours key
 const DOW_TO_DAY: Record<number, string> = {
   0: "Nedelja",
   1: "Ponedeljak",
@@ -38,7 +37,7 @@ function belgradeDow(date: Date): number {
   return map[short] ?? date.getDay();
 }
 
-/** Current hour + minute in Europe/Belgrade as total minutes */
+/** Current time in Europe/Belgrade as total minutes since midnight */
 function belgradeNowMinutes(): number {
   const timeStr = new Intl.DateTimeFormat("en-US", {
     timeZone: "Europe/Belgrade",
@@ -46,7 +45,6 @@ function belgradeNowMinutes(): number {
     minute: "2-digit",
     hour12: false,
   }).format(new Date());
-  // Format: "14:30" or "24:00" (midnight edge case)
   const parts = timeStr.replace("24:", "00:").split(":");
   return parseInt(parts[0], 10) * 60 + parseInt(parts[1], 10);
 }
@@ -59,17 +57,33 @@ export interface GeneratedSlot {
 
 /**
  * Generates available time slots from a salon's working hours.
- * Used as a last-resort fallback when the platform returns no real slots.
- * Slots are 30-minute intervals; default service duration is 60 min.
- * Covers today through today + daysAhead.
+ *
+ * Slot step equals serviceDuration — no overlapping slots for single-staff salons.
+ * If serviceDuration is not provided, falls back to the first service on the salon
+ * or 30 minutes as a last resort.
+ *
+ * For today: first slot must start at least bufferMin (default 30) after now.
+ * For future days: first slot starts at opening time.
  */
 export function generateSlotsFromWorkingHours(
   salon: MappedSalon,
-  options: { daysAhead?: number; slotIntervalMin?: number; defaultDurationMin?: number } = {},
+  options: {
+    daysAhead?: number;
+    serviceDuration?: number; // minutes; step and duration for each slot
+    bufferMin?: number;        // minimum gap from now for today's first slot
+  } = {},
 ): GeneratedSlot[] {
-  const { daysAhead = 14, slotIntervalMin = 30, defaultDurationMin = 60 } = options;
-  const result: GeneratedSlot[] = [];
+  const { daysAhead = 14, bufferMin = 30 } = options;
 
+  // Resolve duration: explicit > first salon service > 30 min fallback
+  const serviceDuration =
+    options.serviceDuration ??
+    salon.services?.[0]?.duration ??
+    30;
+
+  const step = Math.max(serviceDuration, 15); // never step less than 15 min
+
+  const result: GeneratedSlot[] = [];
   const nowBelgradeMin = belgradeNowMinutes();
   const todayBelgrade = belgradeDateStr(new Date());
 
@@ -88,15 +102,15 @@ export function generateSlotsFromWorkingHours(
     const dateStr = belgradeDateStr(date);
     const isToday = dateStr === todayBelgrade;
 
-    for (let m = range.openMin; m + defaultDurationMin <= range.closeMin; m += slotIntervalMin) {
-      // Skip past slots (with a 30-min buffer for today)
-      if (isToday && m <= nowBelgradeMin + 30) continue;
+    for (let m = range.openMin; m + serviceDuration <= range.closeMin; m += step) {
+      // For today: skip slots that can't be reached in time
+      if (isToday && m < nowBelgradeMin + bufferMin) continue;
 
       const hh = Math.floor(m / 60).toString().padStart(2, "0");
       const mm = (m % 60).toString().padStart(2, "0");
       const startTime = `${dateStr}T${hh}:${mm}:00`;
 
-      const endM = m + defaultDurationMin;
+      const endM = m + serviceDuration;
       const eh = Math.floor(endM / 60).toString().padStart(2, "0");
       const em = (endM % 60).toString().padStart(2, "0");
       const endTime = `${dateStr}T${eh}:${em}:00`;

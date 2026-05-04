@@ -29,9 +29,22 @@ async function fetchSearch(params: SearchParams): Promise<SearchApiResponse> {
   if (params.lng != null) qs.set("lng",         String(params.lng));
   if (params.limit)       qs.set("limit",       String(params.limit));
 
-  const res = await fetch(`/api/search?${qs.toString()}`);
+  const url = `/api/search?${qs.toString()}`;
+  console.log("[useSearch] fetch →", url);
+  console.log("[useSearch] params:", params);
+
+  const res = await fetch(url);
   if (!res.ok) throw new Error(`Search failed: ${res.status}`);
-  return res.json() as Promise<SearchApiResponse>;
+  const data = res.json() as Promise<SearchApiResponse>;
+  void data.then((d) => {
+    console.log("[useSearch] response ←", {
+      totalResults: d.results.length,
+      slotsByCity: d.slotsByCity.map((g) => `${g.city}(${g.slots.length})`),
+      fallbackLevel: d.fallbackLevel,
+      debug: d.debug,
+    });
+  });
+  return data;
 }
 
 function buildQueryKey(p: SearchParams) {

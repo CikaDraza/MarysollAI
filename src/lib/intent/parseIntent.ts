@@ -15,8 +15,10 @@ export interface BookingIntent {
   subcategory: string | null;
   datetime: {
     type: "today" | "tomorrow" | "date" | "any";
-    value?: string; // ISO date "YYYY-MM-DD", only when type === "date"
-    time?: string;  // "HH:MM"
+    value?: string;  // ISO date "YYYY-MM-DD", only when type === "date"
+    time?: string;   // "HH:MM" — specific time or representative time-of-day
+    timeWindowStart?: number; // hour (inclusive), set for time-of-day phrases
+    timeWindowEnd?: number;   // hour (inclusive)
   };
 }
 
@@ -82,35 +84,86 @@ function detectSubcategory(norm: string): string | null {
   return null;
 }
 
-// ── Time ──────────────────────────────────────────────────────────────────────
+// ── Time-of-day phrases ───────────────────────────────────────────────────────
 
-function detectTime(raw: string): string | undefined {
-  // "15:30" or "15.30" (HH.MM)
+interface TimeOfDayRule {
+  patterns: string[];
+  time: string;          // representative HH:MM for search centering
+  windowStart: number;   // hour (inclusive)
+  windowEnd: number;     // hour (inclusive)
+}
+
+const TIME_OF_DAY_RULES: TimeOfDayRule[] = [
+  {
+    patterns: ["ujutru", "jutros", "jutro", "morning", "prepodne", "pre podne"],
+    time: "09:00",
+    windowStart: 8,
+    windowEnd: 12,
+  },
+  {
+    patterns: ["popodne", "poslepodne", "posle podne", "afternoon"],
+    time: "14:00",
+    windowStart: 12,
+    windowEnd: 17,
+  },
+  {
+    patterns: ["uvece", "vecer", "veceras", "tonight", "evening"],
+    time: "19:00",
+    windowStart: 18,
+    windowEnd: 22,
+  },
+  {
+    patterns: ["nocu", "kasno", "late night"],
+    time: "21:00",
+    windowStart: 20,
+    windowEnd: 23,
+  },
+];
+
+interface TimeResult {
+  time?: string;
+  timeWindowStart?: number;
+  timeWindowEnd?: number;
+}
+
+function detectTime(norm: string, raw: string): TimeResult {
+  // 1. Check time-of-day phrases first (highest priority)
+  for (const rule of TIME_OF_DAY_RULES) {
+    if (rule.patterns.some((p) => norm.includes(p))) {
+      return {
+        time: rule.time,
+        timeWindowStart: rule.windowStart,
+        timeWindowEnd: rule.windowEnd,
+      };
+    }
+  }
+
+  // 2. Explicit "15:30" or "15.30"
   const hhmm = raw.match(/\b(\d{1,2})[:.h](\d{2})\b/);
   if (hhmm) {
     const h = parseInt(hhmm[1], 10);
     if (h >= 0 && h <= 23) {
-      return `${hhmm[1].padStart(2, "0")}:${hhmm[2]}`;
+      return { time: `${hhmm[1].padStart(2, "0")}:${hhmm[2]}` };
     }
   }
 
-  // "u 15", "at 15", "oko 15", "posle 14", "around 9"
+  // 3. "u 15", "at 15", "oko 15", "posle 14", "around 9"
   const triggered = raw.match(
     /\b(?:u|at|oko|around|posle|after|od)\s+(\d{1,2})(?:\s*h)?\b/i,
   );
   if (triggered) {
     const h = parseInt(triggered[1], 10);
-    if (h >= 0 && h <= 23) return `${triggered[1].padStart(2, "0")}:00`;
+    if (h >= 0 && h <= 23) return { time: `${triggered[1].padStart(2, "0")}:00` };
   }
 
-  // Standalone "15h" or "9h"
+  // 4. Standalone "15h" or "9h"
   const hourSuffix = raw.match(/\b(\d{1,2})h\b/i);
   if (hourSuffix) {
     const h = parseInt(hourSuffix[1], 10);
-    if (h >= 0 && h <= 23) return `${hourSuffix[1].padStart(2, "0")}:00`;
+    if (h >= 0 && h <= 23) return { time: `${hourSuffix[1].padStart(2, "0")}:00` };
   }
 
-  return undefined;
+  return {};
 }
 
 // ── Weekday resolution ────────────────────────────────────────────────────────
@@ -139,10 +192,10 @@ function nextWeekday(target: number): string {
 // ── Datetime ──────────────────────────────────────────────────────────────────
 
 function detectDatetime(norm: string, raw: string): BookingIntent["datetime"] {
-  const time = detectTime(raw);
+  const timeResult = detectTime(norm, raw);
 
   if (norm.includes("danas") || norm.includes("today")) {
-    return { type: "today", time };
+    return { type: "today", ...timeResult };
   }
 
   if (
@@ -150,12 +203,12 @@ function detectDatetime(norm: string, raw: string): BookingIntent["datetime"] {
     norm.includes("sjutra") ||
     norm.includes("tomorrow")
   ) {
-    return { type: "tomorrow", time };
+    return { type: "tomorrow", ...timeResult };
   }
 
   for (const [word, dayNum] of WEEKDAYS) {
     if (norm.includes(word)) {
-      return { type: "date", value: nextWeekday(dayNum), time };
+      return { type: "date", value: nextWeekday(dayNum), ...timeResult };
     }
   }
 
@@ -165,10 +218,10 @@ function detectDatetime(norm: string, raw: string): BookingIntent["datetime"] {
     const day = dateMatch[1].padStart(2, "0");
     const month = dateMatch[2].padStart(2, "0");
     const year = dateMatch[3] ?? new Date().getFullYear().toString();
-    return { type: "date", value: `${year}-${month}-${day}`, time };
+    return { type: "date", value: `${year}-${month}-${day}`, ...timeResult };
   }
 
-  return { type: "any", time };
+  return { type: "any", ...timeResult };
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────

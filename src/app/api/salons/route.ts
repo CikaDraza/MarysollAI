@@ -1,6 +1,6 @@
 // src/app/api/salons/route.ts
 import { NextResponse } from "next/server";
-import { platformClient } from "@/lib/api/platformClient";
+import { platformClient, convertWorkingHours } from "@/lib/api/platformClient";
 import { mapSalon } from "@/lib/mappers/salonMapper";
 import { getDistanceKm } from "@/lib/utils/distance";
 
@@ -11,7 +11,44 @@ export async function GET(req: Request) {
   const lng = searchParams.get("lng") ? Number(searchParams.get("lng")) : undefined;
 
   try {
-    const raw = await platformClient.getSalonProfiles({ city, lat, lng });
+    const rawProfiles = await platformClient.getSalonProfiles({ city, lat, lng });
+
+    // Fetch working hours + full service data (with type/variants) per salon in parallel
+    const raw = await Promise.all(
+      rawProfiles.map(async (s) => {
+        const id = s.id ?? s._id ?? "";
+        if (!id) return s;
+        const [wh, fullServices] = await Promise.allSettled([
+          platformClient.getSalonWorkingHours(id),
+          platformClient.getSalonServices(id),
+        ]);
+        return {
+          ...s,
+          ...(wh.status === "fulfilled" ? { workingHours: convertWorkingHours(wh.value) } : {}),
+          ...(fullServices.status === "fulfilled" && fullServices.value.length > 0
+            ? { services: fullServices.value }
+            : {}),
+        };
+      }),
+    );
+
+    console.log(`\n[/api/salons] ══ SalonProfile DB (city="${city ?? "ALL"}", total=${raw.length}) ══`);
+    for (const s of raw) {
+      const id = s.id ?? s._id ?? "?";
+      const svcs = (s.services ?? []).map((sv) => {
+        const cat = sv.category ?? "?";
+        const dur = sv.duration ?? "?";
+        return `"${sv.name}"[${cat},${dur}min]`;
+      }).join(" | ") || "—";
+      const slots = (s.nextSlots ?? []).map((ns) => ns.startTime.slice(11, 16)).join(", ") || "—";
+      const wh = s.workingHours ? JSON.stringify(s.workingHours) : "—";
+      console.log(`  [${id}] "${s.name}" | city:${s.city ?? "?"} | services:${(s.services ?? []).length} | nextSlots:${(s.nextSlots ?? []).length}`);
+      console.log(`    svcs: ${svcs}`);
+      console.log(`    nextSlots: ${slots}`);
+      console.log(`    workingHours: ${wh}`);
+    }
+    console.log(`[/api/salons] ══ end dump ══\n`);
+
     const salons = raw.map((r) => {
       const s = mapSalon(r);
       if (lat != null && lng != null && r.lat != null && r.lng != null) {

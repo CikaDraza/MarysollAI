@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   CheckBadgeIcon,
   MapPinIcon,
@@ -13,10 +13,44 @@ interface Props {
   slotsByCity: CitySlots[];
   loading?: boolean;
   onBook: (slot: FlatSlot) => void;
+  userCity?: string;      // user's selected/geo city for context labels
+  fallbackLevel?: number; // from useSearch — determines label tone
 }
 
-export default function BookingWidget({ slotsByCity, loading, onBook }: Props) {
+/** Returns a human-readable section label for a city group. */
+function cityGroupLabel(
+  city: string,
+  userCity: string | undefined,
+  fallbackLevel: number,
+): string {
+  const isUserCity =
+    userCity && city.toLowerCase() === userCity.toLowerCase();
+
+  if (isUserCity) return `Slobodni termini — ${city}`;
+  if (fallbackLevel <= 4) return `Bliski gradovi — ${city}`;
+  return `Popularno u Srbiji — ${city}`;
+}
+
+export default function BookingWidget({
+  slotsByCity,
+  loading,
+  onBook,
+  userCity,
+  fallbackLevel = 0,
+}: Props) {
   const hasAny = slotsByCity.some((g) => g.slots.length > 0);
+
+  // Compute a friendly subtitle once
+  const subtitle = useMemo(() => {
+    if (!hasAny || loading) return null;
+    const cities = slotsByCity.filter((g) => g.slots.length > 0).map((g) => g.city);
+    if (cities.length === 0) return null;
+    const hasUserCity = userCity && cities[0]?.toLowerCase() === userCity.toLowerCase();
+    if (hasUserCity) return null; // no extra explanation needed
+    if (fallbackLevel >= 5) return "Prikazujemo termine iz popularnih gradova.";
+    if (fallbackLevel >= 4) return "Prikazujemo termine iz gradova u blizini.";
+    return null;
+  }, [hasAny, loading, slotsByCity, userCity, fallbackLevel]);
 
   return (
     <section id="booking-widget" style={{ marginTop: 56 }}>
@@ -47,6 +81,18 @@ export default function BookingWidget({ slotsByCity, loading, onBook }: Props) {
         >
           Zakaži odmah
         </h2>
+        {subtitle && (
+          <p
+            style={{
+              fontFamily: "var(--main-font)",
+              fontSize: 13,
+              color: "var(--fg-3)",
+              marginTop: 8,
+            }}
+          >
+            {subtitle}
+          </p>
+        )}
       </div>
 
       {loading && (
@@ -58,12 +104,7 @@ export default function BookingWidget({ slotsByCity, loading, onBook }: Props) {
       )}
 
       {!loading && !hasAny && (
-        <div
-          style={{
-            textAlign: "center",
-            padding: "40px 24px",
-          }}
-        >
+        <div style={{ textAlign: "center", padding: "40px 24px" }}>
           <p
             style={{
               fontFamily: "var(--main-font)",
@@ -115,7 +156,7 @@ export default function BookingWidget({ slotsByCity, loading, onBook }: Props) {
                     flexShrink: 0,
                   }}
                 />
-                Slobodni termini — {group.city}
+                {cityGroupLabel(group.city, userCity, fallbackLevel)}
               </h3>
 
               <div style={gridStyle}>
@@ -317,6 +358,7 @@ function SlotCard({
               whiteSpace: "nowrap",
             }}
           >
+            {slot.hasVariants ? "od " : ""}
             {new Intl.NumberFormat("sr-Latn").format(slot.price)} RSD
           </span>
         ) : (
@@ -339,7 +381,7 @@ function SlotCard({
         )}
       </div>
 
-      {/* Single CTA — opens booking modal, no redirect */}
+      {/* CTA */}
       <button
         onClick={onBook}
         style={{
@@ -381,13 +423,7 @@ function SlotSkeleton() {
         boxShadow: "var(--shadow-sm)",
       }}
     >
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "baseline",
-        }}
-      >
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
         <div style={skel(72, 30)} />
         <div style={skel(56, 20, 8)} />
       </div>
@@ -439,18 +475,8 @@ function formatTimeFallback(iso: string): string {
 }
 
 const MONTHS = [
-  "jan",
-  "feb",
-  "mar",
-  "apr",
-  "maj",
-  "jun",
-  "jul",
-  "avg",
-  "sep",
-  "okt",
-  "nov",
-  "dec",
+  "jan", "feb", "mar", "apr", "maj", "jun",
+  "jul", "avg", "sep", "okt", "nov", "dec",
 ];
 const DAYS = ["Ned", "Pon", "Uto", "Sre", "Čet", "Pet", "Sub"];
 

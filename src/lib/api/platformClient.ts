@@ -150,6 +150,22 @@ export interface RegisterPayload {
   password: string;
 }
 
+// ─── Working hours ────────────────────────────────────────────────────────────
+
+export type PlatformWorkingHours = Record<string, Array<{ from: string; to: string }>>;
+
+/** Converts platform working hours format to "HH:MM-HH:MM" strings per day. */
+export function convertWorkingHours(raw: PlatformWorkingHours): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const [day, ranges] of Object.entries(raw)) {
+    if (Array.isArray(ranges) && ranges.length > 0) {
+      const { from, to } = ranges[0];
+      if (from && to) result[day] = `${from}-${to}`;
+    }
+  }
+  return result;
+}
+
 // ─── Client ──────────────────────────────────────────────────────────────────
 
 export const platformClient = {
@@ -180,7 +196,7 @@ export const platformClient = {
   },
 
   getSalonWorkingHours(salonId: string) {
-    return request<Record<string, string>>(
+    return request<PlatformWorkingHours>(
       `/marketplace/working-hours?salonId=${salonId}`,
       {
         next: { revalidate: 3600 },

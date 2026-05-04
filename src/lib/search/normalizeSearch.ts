@@ -139,6 +139,8 @@ export function normalizeSearch(params: {
   subcategory?: string;
   date?: string;
   time?: string;
+  timeWindowStart?: string | number; // explicit override from intent parser
+  timeWindowEnd?: string | number;
   lat?: string | number;
   lng?: string | number;
   limit?: string | number;
@@ -154,7 +156,23 @@ export function normalizeSearch(params: {
   let timeWindowStart: number | undefined;
   let timeWindowEnd: number | undefined;
 
-  if (params.time) {
+  // Explicit window from intent parser takes precedence over derived window
+  const explicitStart =
+    params.timeWindowStart !== undefined && params.timeWindowStart !== ""
+      ? Number(params.timeWindowStart)
+      : undefined;
+  const explicitEnd =
+    params.timeWindowEnd !== undefined && params.timeWindowEnd !== ""
+      ? Number(params.timeWindowEnd)
+      : undefined;
+
+  if (explicitStart != null && !isNaN(explicitStart)) {
+    timeWindowStart = Math.max(0, explicitStart);
+    timeWindowEnd = explicitEnd != null && !isNaN(explicitEnd)
+      ? Math.min(23, explicitEnd)
+      : Math.min(23, explicitStart + 3);
+    requestedHour = Math.round((timeWindowStart + (timeWindowEnd ?? timeWindowStart)) / 2);
+  } else if (params.time) {
     const parts = params.time.split(":");
     const h = parseInt(parts[0], 10);
     if (!isNaN(h) && h >= 0 && h <= 23) {

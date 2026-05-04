@@ -217,21 +217,26 @@ export default function Hero({ onSearch, onOpenAI }: Props) {
     return () => document.removeEventListener("mousedown", onDown);
   }, []);
 
-  // Izmeni submit funkciju
   const submit = useCallback(() => {
-    if (!categories.length) return; // ili sačekaj da se učitaju
-    const { categoryKey, subcategoryKey } = resolveCategoryFromText(
-      value,
-      categories,
-    );
-    const parsed = parseInput(value); // ovo i dalje parsira grad, datum, vreme
-    onSearch({
+    const parsed = parseInput(value);
+    let categoryKey = parsed.category;
+    let subcategoryKey = parsed.subcategory;
+
+    if (categories.length > 0) {
+      const resolved = resolveCategoryFromText(value, categories);
+      if (resolved.categoryKey) categoryKey = resolved.categoryKey;
+      if (resolved.subcategoryKey) subcategoryKey = resolved.subcategoryKey;
+    }
+
+    const params = {
       city: parsed.city,
-      category: categoryKey || parsed.category, // ako resolver ne nađe, padni na stari
+      category: categoryKey,
       date: parsed.date,
       time: parsed.time,
-      subcategory: subcategoryKey || parsed.subcategory,
-    });
+      subcategory: subcategoryKey,
+    };
+    console.log("[Hero] submit →", params);
+    onSearch(params);
     setSuggestions([]);
   }, [value, onSearch, categories]);
 

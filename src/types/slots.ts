@@ -26,6 +26,7 @@ export interface SearchResult extends FlatSlot {
   timeLabel: string;  // "14:30"
   relevanceScore: number;
   fallbackLevel: number;
+  hasVariants?: boolean; // true when service price differs by variant (min price shown)
   isSynthetic?: boolean; // true when slot was generated from working hours
 }
 

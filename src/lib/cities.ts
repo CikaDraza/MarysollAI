@@ -40,3 +40,16 @@ export function findCity(name: string): SerbianCity | undefined {
   const lower = name.toLowerCase().trim();
   return SERBIAN_CITIES.find((c) => c.name.toLowerCase() === lower);
 }
+
+/** Hardcoded popularity scores for national fallback sorting. Higher = more popular. */
+export const CITY_POPULARITY: Record<string, number> = {
+  "Beograd": 10,
+  "Novi Sad": 9,
+  "Niš": 9,
+  "Subotica": 8,
+  "Zrenjanin": 7,
+  "Kraljevo": 7,
+  "Sremska Mitrovica": 6,
+  "Bor": 6,
+  "Loznica": 6,
+};

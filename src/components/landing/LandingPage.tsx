@@ -56,22 +56,24 @@ export default function LandingPage({
   >(undefined);
 
   // Salons — for QuickAccess category grid (city-filtered)
-  const { data: salons = [], isLoading: salonsLoading } = useSalons(
-    cityName.toLowerCase(),
-  );
+  const { data: salons = [], isLoading: salonsLoading } = useSalons(cityName);
 
-  // Central search — single API call, 5-level fallback engine
-  const {
-    slotsByCity,
-    bestSlot,
-    isLoading: slotsLoading,
-  } = useSearch({
+  const searchParams = {
     city: cityName,
     category: category || undefined,
     date: dateFilter,
     time: timeFilter,
     subcategory: subcategoryFilter,
-  });
+  };
+  console.log("[LandingPage] useSearch params:", searchParams);
+
+  // Central search — single API call, 6-level fallback engine
+  const {
+    slotsByCity,
+    bestSlot,
+    fallbackLevel,
+    isLoading: slotsLoading,
+  } = useSearch(searchParams);
 
   // Maria Deep — frontline conversational agent (DeepSeek)
   const maria = useChatSeek();
@@ -204,14 +206,15 @@ export default function LandingPage({
             onLogin={handleLoginRequest}
             city={cityName}
             onCityChange={(name) => {
+              console.log("[LandingPage] city change →", name);
               const found = SERBIAN_CITIES.find((c) => c.name === name);
               if (found) setCity(found);
+              else console.warn("[LandingPage] city not found:", name);
             }}
           />
         </div>
       </div>
       <div style={{ height: 72 }} aria-hidden="true" />
-
       <Hero
         onSearch={({
           city: c,
@@ -220,6 +223,13 @@ export default function LandingPage({
           time: t,
           subcategory: sub,
         }) => {
+          console.log("[LandingPage] Hero onSearch →", {
+            city: c,
+            category: cat,
+            date: d,
+            time: t,
+            subcategory: sub,
+          });
           const found = SERBIAN_CITIES.find(
             (x) => x.name.toLowerCase() === c.toLowerCase(),
           );
@@ -244,6 +254,8 @@ export default function LandingPage({
           salons={salons}
           loading={salonsLoading}
           category={category}
+          cityName={cityName}
+          slotsByCity={slotsByCity}
           onPick={(slot) =>
             setModalSlot({
               salonId: slot.salonId,
@@ -257,12 +269,14 @@ export default function LandingPage({
           }
           onCategoryPick={handleCategoryPick}
         />
-        <AIPrompt onOpenAI={() => setDrawerOpen(true)} />
         <BookingWidget
           slotsByCity={slotsByCity}
           loading={slotsLoading}
           onBook={setModalSlot}
+          userCity={cityName}
+          fallbackLevel={fallbackLevel}
         />
+        <AIPrompt onOpenAI={() => setDrawerOpen(true)} />
         <NotifyMeWidget
           onOpenAI={() => setDrawerOpen(true)}
           city={cityName}

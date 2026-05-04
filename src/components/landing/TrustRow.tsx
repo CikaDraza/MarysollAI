@@ -12,7 +12,7 @@ export default function TrustRow() {
         .trust-grid {
           list-style: none;
           padding: 0;
-          margin: 22px auto 0;
+          margin: 0px auto 0;
           display: grid;
           grid-template-columns: repeat(2, auto);
           gap: 10px 28px;
