@@ -9,6 +9,10 @@ export type CategorySlug =
   | "body"
   | "other";
 
+export const VALID_CATEGORY_SLUGS = new Set<string>([
+  "massage", "nails", "hair", "makeup", "waxing", "eyebrows", "facial", "body", "other",
+]);
+
 /**
  * Maps slug → primary display label (matches platform Category.label).
  * These values MUST match what the platform DB stores in Category.label

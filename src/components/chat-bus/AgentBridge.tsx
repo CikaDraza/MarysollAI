@@ -8,8 +8,6 @@ import { useAuthActions } from "@/hooks/useAuthActions";
 import { ThreadItem } from "@/types/ai/chat-thread";
 import { Message as DeepSeekMessage } from "@/types/ai/deepseek";
 import { AgentType } from "@/types/ai/deepseek/agent-call";
-import { useDrawerSeek } from "@/hooks/useDrawerSeek";
-
 interface AgentBridgeProps {
   children: ReactNode;
 }
@@ -54,7 +52,6 @@ const getAgentTypeName = (type: AgentType | string): string => {
 export function AgentBridge({ children }: AgentBridgeProps) {
   const { user } = useAuthActions();
   const { askAI } = useAIQuery(user);
-  const { closeDrawer } = useDrawerSeek();
   const isProcessingRef = useRef(false);
   // ✅ Ref za trenutne auth podatke
   const authRef = useRef({
@@ -105,12 +102,11 @@ export function AgentBridge({ children }: AgentBridgeProps) {
           type: "AGENT_RESPONSE",
           payload: {
             agentType,
-            content: `Prebacujem te na specijalizovanog asistenta za ${getAgentTypeName(agentType)}. Pogledaj dole na dnu stranice.`,
+            content: `Specijalizovani asistent za ${getAgentTypeName(agentType)} je preuzeo zahtev.`,
             completed: false,
           },
           timestamp: Date.now(),
         });
-        closeDrawer();
       } catch (error) {
         console.error("Agent bridge error:", error);
       } finally {
@@ -119,7 +115,7 @@ export function AgentBridge({ children }: AgentBridgeProps) {
     });
 
     return unsubscribe;
-  }, [askAI, closeDrawer]);
+  }, [askAI]);
 
   return <>{children}</>;
 }

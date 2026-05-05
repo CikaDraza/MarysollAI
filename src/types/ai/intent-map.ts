@@ -7,6 +7,8 @@ export type UserIntent =
   | "view_prices"
   | "view_testimonials"
   | "subscribe_newsletter"
+  | "city_list"
+  | "salon_list"
   | "general_info";
 
 export const INTENT_BLOCK_MAP: Record<UserIntent, BlockTypes[]> = {
@@ -15,4 +17,6 @@ export const INTENT_BLOCK_MAP: Record<UserIntent, BlockTypes[]> = {
   view_testimonials: ["TestimonialBlock"],
   subscribe_newsletter: ["NewsletterFormBlock"],
   general_info: ["WhyChooseUsBlock"],
+  salon_list: ["SalonListBlock"],
+  city_list: ["CityListBlock"],
 };

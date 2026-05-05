@@ -76,7 +76,7 @@ export default function ForgotPasswordBlockView({
   return (
     <div ref={containerRef} className="scroll-mt-20">
       <Reveal>
-        <div className="isolate reltaive bg-gray-900 rounded-2xl">
+        <div className="isolate reltaive overflow-hidden bg-gray-900 rounded-2xl">
           <Toaster position="top-right" />
           <div
             aria-hidden="true"

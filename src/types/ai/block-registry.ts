@@ -82,4 +82,28 @@ export const BLOCK_REGISTRY: BlockDescriptor[] = [
     action: "action",
     requiresAuth: false,
   },
+  {
+    type: "WhyChooseUsBlock",
+    title: "O Nama",
+    description:
+      "zašto izabrati nas, šta mi to radimo, o nama. Mogu da pogledaju više detalja u ovo bloku. Ako imaju sumnju, ko smo pokazati im ovaj blok.",
+    action: "action",
+    requiresAuth: false,
+  },
+  {
+    type: "CityListBlock",
+    title: "Lista Gradova Gde Radimo",
+    description:
+      "Gradovi u kojima su saloni koji saradjuju sa nama, delimo njihove usluge, preporucujemo slobodne termine za salone u tim gradovima. Prikazati kada korisnik trazi za specifican grad salon ili uslugu.",
+    action: "action",
+    requiresAuth: false,
+  },
+  {
+    type: "SalonListBlock",
+    title: "Lista Gradova Gde Radimo",
+    description:
+      "Saloni u gradu, saloni koji su na nasoj platformi Marysoll. Prikazati kada zele jos neke usluge istog salona, time dobijaju sve slobodne termine sada, sutra, sve njihove usluge, cene i link ka sajtu.",
+    action: "action",
+    requiresAuth: false,
+  },
 ];

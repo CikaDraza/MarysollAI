@@ -2,13 +2,9 @@
 
 import { useState } from "react";
 import { BoltIcon, ChevronUpIcon, ChevronDownIcon } from "@heroicons/react/24/outline";
-import type { FlatSlot } from "@/types/slots";
-
-interface Props {
-  visible: boolean;
-  slot: FlatSlot | null;
-  onBook: (slot: FlatSlot) => void;
-}
+import { useLandingUI } from "@/context/landing/LandingUIContext";
+import { useBookingModal } from "@/context/landing/BookingModalContext";
+import { useSearchContext } from "@/context/landing/SearchContext";
 
 function formatTime(iso: string): string {
   try {
@@ -21,7 +17,12 @@ function formatTime(iso: string): string {
   }
 }
 
-export default function StickyOffer({ visible, slot, onBook }: Props) {
+export default function StickyOffer() {
+  const { drawerOpen } = useLandingUI();
+  const { modalSlot, openModal: onBook } = useBookingModal();
+  const { bestSlot: slot } = useSearchContext();
+
+  const visible = !drawerOpen && !modalSlot;
   const [minimized, setMinimized] = useState(false);
 
   if (!visible || !slot) return null;

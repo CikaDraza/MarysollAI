@@ -13,6 +13,8 @@ export type BlockTypes =
   | "ResetPasswordBlock"
   | "TestimonialBlock"
   | "WhyChooseUsBlock"
+  | "CityListBlock"
+  | "SalonListBlock"
   | "none";
 
 export type AuthMode = "login" | "register" | "forgot" | "reset" | "logout";
@@ -103,6 +105,37 @@ export interface AppointmentCalendarBlockType extends BaseBlock {
     time?: string;
   };
   query?: string;
-  selectedServiceId?: string; // Može doći iz AI agenta
+  selectedServiceId?: string;
   selectedServiceName?: string;
+}
+
+export interface CityItem {
+  name: string;
+  salonCount?: number;
+}
+
+export interface CityListBlockType extends BaseBlock {
+  type: "CityListBlock";
+  metadata: BaseBlock["metadata"] & {
+    service?: string;
+    cities: CityItem[];
+  };
+}
+
+export interface SalonItem {
+  id: string;
+  name: string;
+  address?: string;
+  rating?: number;
+  reviewCount?: number;
+  verified?: boolean;
+}
+
+export interface SalonListBlockType extends BaseBlock {
+  type: "SalonListBlock";
+  metadata: BaseBlock["metadata"] & {
+    city: string;
+    service?: string;
+    salons: SalonItem[];
+  };
 }

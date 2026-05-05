@@ -173,6 +173,16 @@ body {
   text-rendering: optimizeLegibility;
 }
 
+/* ---------- PAGE GRADIENT ---------- */
+.page-gradient {
+  background:
+    radial-gradient(ellipse 60% 55% at 8% 38%, rgba(255,128,181,0.26) 0%, transparent 60%),
+    radial-gradient(ellipse 55% 50% at 92% 28%, rgba(93,1,86,0.22) 0%, transparent 58%),
+    radial-gradient(ellipse 40% 35% at 50% 55%, rgba(186,52,183,0.10) 0%, transparent 65%);
+  mask-image: linear-gradient(to bottom, black 0%, black 60%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to bottom, black 0%, black 60%, transparent 100%);
+}
+
 /* ---------- SCROLLBAR ---------- */
 @layer utilities {
   .scrollbar-custom::-webkit-scrollbar { height: 4px; width: 4px; }

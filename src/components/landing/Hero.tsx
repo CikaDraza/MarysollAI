@@ -1,4 +1,3 @@
-// src/components/landing/Hero
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
@@ -7,8 +6,12 @@ import {
   MapPinIcon,
   SparklesIcon,
 } from "@heroicons/react/24/outline";
-import { resolveCategoryFromText } from "@/lib/search/categoryResolver";
-import { useCategories } from "@/hooks/useCategories";
+import type { ParsedIntent } from "@/types/intent";
+import { useLandingUI } from "@/context/landing/LandingUIContext";
+import { useCityContext } from "@/context/landing/CityContext";
+import { useFilters } from "@/context/landing/FiltersContext";
+import { useWorkspace } from "@/context/landing/WorkspaceContext";
+import { SERBIAN_CITIES } from "@/lib/cities";
 
 export interface SearchParams {
   city: string;
@@ -16,266 +19,183 @@ export interface SearchParams {
   date: string;
   time?: string;
   subcategory?: string;
+  timeWindowStart?: number;
+  timeWindowEnd?: number;
 }
-
-interface Props {
-  onSearch: (params: SearchParams) => void;
-  onOpenAI: () => void;
-}
-
-/* ── Constants ──────────────────────────────────────────────────────────── */
 
 const PLACEHOLDERS = [
-  "Novi Sad masaža danas",
-  "Manikir sutra u 15h",
-  "Šišanje Beograd večeras",
-  "Treba mi masaža",
-  "Tretman lica Niš",
+  "Treba mi masaža večeras",
+  "Manikir sutra poslepodne",
+  "Šišanje Beograd danas",
+  "Hitno trebaju mi obrve",
+  "Tretman lica oko 14h",
+  "Nokti posle 15h u Novom Sadu",
 ];
 
-const CITIES = [
-  "Novi Sad",
-  "Beograd",
-  "Niš",
-  "Bor",
-  "Kragujevac",
-  "Subotica",
-  "Zrenjanin",
-  "Pančevo",
-  "Čačak",
-  "Leskovac",
-];
-const CITY_LOWER = CITIES.map((c) => c.toLowerCase());
+const CAT_LABELS: Record<string, string> = {
+  massage: "masaža",
+  nails: "nokti",
+  hair: "šišanje / kosa",
+  makeup: "šminka",
+  waxing: "depilacija",
+  eyebrows: "obrve",
+  facial: "tretman lica",
+  body: "oblikovanje tela",
+};
 
-const SERVICE_MAP: [string, string][] = [
-  ["masaž", "massage"],
-  ["manikir", "nails"],
-  ["nokt", "nails"],
-  ["pedikir", "nails"],
-  ["gel nokt", "nails"],
-  ["akril", "nails"],
-  ["šišanj", "hair"],
-  ["frizur", "hair"],
-  ["šmink", "makeup"],
-  ["depilacij", "waxing"],
-  ["obrv", "eyebrows"],
-  ["trepavic", "eyebrows"],
-  ["tretman", "facial"],
-];
+const INTENT_BADGE: Record<string, string> = {
+  urgent_booking: "Hitno",
+  inspiration: "Istraživanje",
+  price_check: "Cene",
+  salon_discovery: "Saloni",
+  availability_search: "",
+};
 
-const ALL_SUGGESTIONS = [
-  ...CITIES,
-  "Masaža",
-  "Manikir",
-  "Nokti",
-  "Frizure",
-  "Šminka",
-  "Šišanje",
-  "Depilacija",
-  "Tretman lica",
-  "Danas",
-  "Sutra",
-  "Večeras",
-  "Jutros",
-];
+function buildInterpretation(
+  intent: ParsedIntent,
+  defaultCity: string,
+): string {
+  const parts: string[] = [];
 
-/* ── Helpers ────────────────────────────────────────────────────────────── */
-
-function todayStr() {
-  return new Date().toISOString().slice(0, 10);
-}
-
-function offsetDateStr(days: number) {
-  const d = new Date();
-  d.setDate(d.getDate() + days);
-  return d.toISOString().slice(0, 10);
-}
-
-// src/components/landing/Hero.tsx – zameni postojeću parseInput
-
-function parseInput(raw: string): SearchParams {
-  const lower = raw.toLowerCase();
-
-  // 1. Datum
-  let date = todayStr();
-  if (lower.includes("prekosutra")) date = offsetDateStr(2);
-  else if (lower.includes("sutra")) date = offsetDateStr(1);
-
-  // 2. Vreme
-  let time: string | undefined;
-  const timeMatch =
-    lower.match(/u\s*(\d{1,2})(?::(\d{2}))?h?/) ??
-    lower.match(/(\d{1,2}):(\d{2})/) ??
-    lower.match(/\b(\d{1,2})h\b/);
-  if (timeMatch) {
-    const h = timeMatch[1].padStart(2, "0");
-    const m = timeMatch[2] ?? "00";
-    time = `${h}:${m}`;
+  if (intent.categoryKey) {
+    parts.push(CAT_LABELS[intent.categoryKey] ?? intent.categoryKey);
   }
 
-  // 3. Grad (iz liste poznatih gradova)
-  let city = "";
-  const cityIndex = CITY_LOWER.findIndex((c) => lower.includes(c));
-  if (cityIndex !== -1) city = CITIES[cityIndex];
+  const city = intent.city ?? defaultCity;
+  if (city) parts.push(`u ${city}`);
 
-  // 4. Kategorija (ključ, npr. "massage")
-  let category = "";
-  let matchedCategoryWord = ""; // pamtimo koju reč smo mapirali (npr. "masaža")
-  for (const [key, cat] of SERVICE_MAP) {
-    if (lower.includes(key)) {
-      category = cat;
-      matchedCategoryWord = key; // "masaž", "manikir", itd.
-      break;
+  if (intent.date) {
+    const today = new Date().toISOString().slice(0, 10);
+    const tomorrow = new Date(Date.now() + 86_400_000)
+      .toISOString()
+      .slice(0, 10);
+    if (intent.date === today) parts.push("danas");
+    else if (intent.date === tomorrow) parts.push("sutra");
+    else {
+      const [, mo, dd] = intent.date.split("-");
+      parts.push(`${dd}.${mo}.`);
     }
   }
 
-  // 5. Subkategorija – ostatak teksta BEZ grada, datuma, vremena i reči kategorije
-  let remainder = lower;
-  // ukloni grad
-  if (city) remainder = remainder.replace(CITY_LOWER[cityIndex], "");
-  // ukloni oznake datuma
-  remainder = remainder
-    .replace(/\b(danas|sutra|prekosutra|today|tomorrow)\b/g, "")
-    .replace(/u\s*\d{1,2}(?::\d{2})?h?|\d{1,2}:\d{2}|\d{1,2}h\b/g, "");
-
-  // ukloni reč koja je korišćena za kategoriju (ali samo ako stoji kao zasebna reč)
-  if (matchedCategoryWord) {
-    const regex = new RegExp(`\\b${matchedCategoryWord}\\w*\\b`, "gi");
-    remainder = remainder.replace(regex, "");
+  if (intent.timeRange.from) {
+    const to = intent.timeRange.to;
+    parts.push(
+      to ? `${intent.timeRange.from}–${to}` : `posle ${intent.timeRange.from}`,
+    );
   }
 
-  // preostali deo očisti i uzmi ako ima bar 3 karaktera
-  remainder = remainder.trim().replace(/\s+/g, " ");
-  const subcategory = remainder.length >= 3 ? remainder : undefined;
-
-  // Ako nema grada, neka bude undefined – kasnije će se koristiti geolokacija ili fallback
-  if (!city) {
-    // Grad će biti određen u LandingPage preko useCitySelector (koji već radi geo)
-    // Zato ostavljamo prazan string, LandingPage će iskoristiti svoj selectedCity
-  }
-
-  return { city, category, date, time, subcategory };
+  return parts.length > 0 ? parts.join(" · ") : "slobodni termini";
 }
 
-function getSuggestions(input: string): string[] {
-  const trimmed = input.trim();
-  if (trimmed.length < 2) return [];
-  const words = trimmed.split(/\s+/);
-  const last = words[words.length - 1].toLowerCase();
-  if (last.length < 2) return [];
-  return ALL_SUGGESTIONS.filter(
-    (s) => s.toLowerCase().startsWith(last) || s.toLowerCase().includes(last),
-  ).slice(0, 5);
+function todayStr(): string {
+  return new Date().toISOString().slice(0, 10);
 }
 
-function applySuggestion(current: string, suggestion: string): string {
-  const words = current.split(/\s+/);
-  words[words.length - 1] = suggestion;
-  return words.join(" ");
-}
+export default function Hero() {
+  const { setDrawerOpen } = useLandingUI();
+  const { cityName, setCity } = useCityContext();
+  const {
+    setCategory,
+    setDateFilter,
+    setTimeFilter,
+    setSubcategoryFilter,
+    setTimeWindowStart,
+    setTimeWindowEnd,
+  } = useFilters();
+  const { dismissWorkspace } = useWorkspace();
 
-/* ── Component ──────────────────────────────────────────────────────────── */
-
-export default function Hero({ onSearch, onOpenAI }: Props) {
+  const defaultCity = cityName;
+  const onOpenAI = () => setDrawerOpen(true);
+  const onSearch = useCallback(
+    (params: SearchParams) => {
+      dismissWorkspace();
+      if (params.city) {
+        const found = SERBIAN_CITIES.find(
+          (x) => x.name.toLowerCase() === params.city.toLowerCase(),
+        );
+        if (found) setCity(found);
+      }
+      setCategory(params.category);
+      setDateFilter(params.date || undefined);
+      setTimeFilter(params.time);
+      setSubcategoryFilter(params.subcategory);
+      setTimeWindowStart(params.timeWindowStart ?? undefined);
+      setTimeWindowEnd(params.timeWindowEnd ?? undefined);
+    },
+    [dismissWorkspace, setCity, setCategory, setDateFilter, setTimeFilter, setSubcategoryFilter, setTimeWindowStart, setTimeWindowEnd],
+  );
   const [value, setValue] = useState("");
   const [focused, setFocused] = useState(false);
-  const [placeholderIdx, setPlaceholderIdx] = useState(0);
-  const [suggestions, setSuggestions] = useState<string[]>([]);
-  const [activeSuggestion, setActiveSuggestion] = useState(-1);
+  const [placeholderIdx, setIdx] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [interpretation, setInterp] = useState<string | null>(null);
+  const [intentBadge, setIntentBadge] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [geoLoading, setGeoLoading] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
 
-  const { data: categories = [] } = useCategories(); // dohvati kategorije sa platforme
-
-  // Rotate placeholder
+  // Rotate placeholder every ~3 s
   useEffect(() => {
     const id = setInterval(
-      () => setPlaceholderIdx((i) => (i + 1) % PLACEHOLDERS.length),
+      () => setIdx((i) => (i + 1) % PLACEHOLDERS.length),
       3200,
     );
     return () => clearInterval(id);
   }, []);
 
-  // Update suggestions on value change
-  useEffect(() => {
-    setSuggestions(value.length >= 2 ? getSuggestions(value) : []);
-    setActiveSuggestion(-1);
-  }, [value]);
+  const submit = useCallback(async () => {
+    const q = value.trim();
+    if (!q || loading) return;
 
-  // Close suggestions on outside click
-  useEffect(() => {
-    function onDown(e: MouseEvent) {
-      if (
-        containerRef.current &&
-        !containerRef.current.contains(e.target as Node)
-      ) {
-        setSuggestions([]);
+    setLoading(true);
+    setError(null);
+    setInterp(null);
+    setIntentBadge(null);
+
+    try {
+      const res = await fetch(`/api/search/intent?q=${encodeURIComponent(q)}`);
+      if (!res.ok) throw new Error(`intent ${res.status}`);
+      const intent = (await res.json()) as ParsedIntent;
+
+      console.log("[🤖 AI Intent]", JSON.stringify(intent, null, 2));
+      setInterp(buildInterpretation(intent, defaultCity));
+      const badge = INTENT_BADGE[intent.intentType];
+      if (badge) setIntentBadge(badge);
+
+      let time: string | undefined;
+      let timeWindowStart: number | undefined;
+      let timeWindowEnd: number | undefined;
+
+      if (intent.timeRange.from) {
+        time = intent.timeRange.from;
+        timeWindowStart = parseInt(intent.timeRange.from.split(":")[0], 10);
+        if (intent.timeRange.to) {
+          timeWindowEnd = parseInt(intent.timeRange.to.split(":")[0], 10);
+        }
       }
+
+      onSearch({
+        city: intent.city ?? "",
+        category: intent.categoryKey ?? "",
+        date: intent.date ?? todayStr(),
+        time,
+        subcategory: intent.subcategoryKey ?? undefined,
+        timeWindowStart,
+        timeWindowEnd,
+      });
+
+      document
+        .getElementById("quick-access")
+        ?.scrollIntoView({ behavior: "smooth" });
+    } catch {
+      setError("Nešto nije u redu. Pokušaj ponovo.");
+    } finally {
+      setLoading(false);
     }
-    document.addEventListener("mousedown", onDown);
-    return () => document.removeEventListener("mousedown", onDown);
-  }, []);
-
-  const submit = useCallback(() => {
-    const parsed = parseInput(value);
-    let categoryKey = parsed.category;
-    let subcategoryKey = parsed.subcategory;
-
-    if (categories.length > 0) {
-      const resolved = resolveCategoryFromText(value, categories);
-      if (resolved.categoryKey) categoryKey = resolved.categoryKey;
-      if (resolved.subcategoryKey) subcategoryKey = resolved.subcategoryKey;
-    }
-
-    const params = {
-      city: parsed.city,
-      category: categoryKey,
-      date: parsed.date,
-      time: parsed.time,
-      subcategory: subcategoryKey,
-    };
-    console.log("[Hero] submit →", params);
-    onSearch(params);
-    setSuggestions([]);
-  }, [value, onSearch, categories]);
-
-  const pickSuggestion = useCallback(
-    (s: string) => {
-      const next = applySuggestion(value, s);
-      setValue(next);
-      setSuggestions([]);
-      setActiveSuggestion(-1);
-      inputRef.current?.focus();
-    },
-    [value],
-  );
+  }, [value, loading, defaultCity, onSearch]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (suggestions.length > 0) {
-      if (e.key === "ArrowDown") {
-        e.preventDefault();
-        setActiveSuggestion((i) => Math.min(i + 1, suggestions.length - 1));
-        return;
-      }
-      if (e.key === "ArrowUp") {
-        e.preventDefault();
-        setActiveSuggestion((i) => Math.max(i - 1, -1));
-        return;
-      }
-      if (e.key === "Tab" || (e.key === "Enter" && activeSuggestion >= 0)) {
-        e.preventDefault();
-        pickSuggestion(
-          suggestions[activeSuggestion >= 0 ? activeSuggestion : 0],
-        );
-        return;
-      }
-      if (e.key === "Escape") {
-        setSuggestions([]);
-        return;
-      }
-    }
-    if (e.key === "Enter") submit();
+    if (e.key === "Enter") void submit();
   };
 
   const handleGeo = () => {
@@ -284,13 +204,6 @@ export default function Hero({ onSearch, onOpenAI }: Props) {
     navigator.geolocation.getCurrentPosition(
       () => {
         setGeoLoading(false);
-        // Placeholder — reverse geocode can be wired later
-        if (
-          !value.toLowerCase().includes("novi sad") &&
-          !value.toLowerCase().includes("beograd")
-        ) {
-          setValue((v) => (v ? v + " " : "") + "Novi Sad");
-        }
         inputRef.current?.focus();
       },
       () => setGeoLoading(false),
@@ -298,127 +211,62 @@ export default function Hero({ onSearch, onOpenAI }: Props) {
     );
   };
 
-  const showSuggestions = focused && suggestions.length > 0;
+  const canSubmit = !!value.trim() && !loading;
 
   return (
     <>
       <style>{`
         .hero-smart-wrap {
-          position: relative;
-          width: 100%;
-          max-width: 680px;
-          margin: 0 auto;
+          position: relative; width: 100%; max-width: 680px; margin: 0 auto;
         }
         .hero-smart-pill {
-          display: flex;
-          align-items: center;
-          gap: 0;
-          background: var(--surface);
-          border-radius: 999px;
+          display: flex; align-items: center; gap: 0;
+          background: var(--surface); border-radius: 999px;
           box-shadow: var(--shadow-md);
           transition: box-shadow var(--dur-fast) var(--ease-out);
-          overflow: visible;
-          padding: 6px 6px 6px 20px;
+          overflow: visible; padding: 6px 6px 6px 20px;
         }
-        .hero-smart-pill.focused {
-          box-shadow: 0 0 0 3px var(--brand-200), var(--shadow-md);
-        }
+        .hero-smart-pill.focused { box-shadow: 0 0 0 3px var(--brand-200), var(--shadow-md); }
         .hero-smart-input {
-          flex: 1;
-          border: none;
-          outline: none;
-          background: transparent;
-          font-family: var(--main-font);
-          font-weight: 500;
-          font-size: 15px;
-          color: var(--fg-1);
-          padding: 10px 0;
-          min-width: 0;
+          flex: 1; border: none; outline: none; background: transparent;
+          font-family: var(--main-font); font-weight: 500; font-size: 15px;
+          color: var(--fg-1); padding: 10px 0; min-width: 0;
         }
         .hero-smart-input::placeholder { color: var(--fg-3); }
         .hero-smart-icon-left {
-          flex-shrink: 0;
-          display: flex;
-          align-items: center;
-          color: var(--secondary-color);
-          margin-right: 10px;
+          flex-shrink: 0; display: flex; align-items: center;
+          color: var(--secondary-color); margin-right: 10px;
         }
         .hero-smart-geo {
-          flex-shrink: 0;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          width: 36px;
-          height: 36px;
-          border: none;
-          background: transparent;
-          cursor: pointer;
-          color: var(--fg-3);
-          border-radius: 999px;
-          transition: color var(--dur-fast), background var(--dur-fast);
-          margin-right: 4px;
+          flex-shrink: 0; display: flex; align-items: center; justify-content: center;
+          width: 36px; height: 36px; border: none; background: transparent; cursor: pointer;
+          color: var(--fg-3); border-radius: 999px;
+          transition: color var(--dur-fast), background var(--dur-fast); margin-right: 4px;
         }
         .hero-smart-geo:hover { color: var(--secondary-color); background: var(--brand-50); }
+        .hero-smart-geo:disabled { opacity: 0.4; cursor: not-allowed; }
         .hero-smart-btn {
-          flex-shrink: 0;
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          gap: 6px;
-          border: none;
-          cursor: pointer;
-          font-family: var(--main-font);
-          font-weight: 700;
-          font-size: 14px;
-          padding: 10px 22px;
-          border-radius: 999px;
-          background: var(--secondary-color);
-          color: #fff;
-          transition: background var(--dur-fast) var(--ease-out);
-          white-space: nowrap;
+          flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center;
+          gap: 6px; border: none; cursor: pointer; font-family: var(--main-font);
+          font-weight: 700; font-size: 14px; padding: 10px 22px; border-radius: 999px;
+          background: var(--secondary-color); color: #fff;
+          transition: background var(--dur-fast) var(--ease-out); white-space: nowrap;
         }
-        .hero-smart-btn:hover { background: var(--secondary-hover); }
-        .hero-suggestions {
-          position: absolute;
-          top: calc(100% + 8px);
-          left: 0;
-          right: 0;
-          background: var(--surface);
-          border-radius: 18px;
-          box-shadow: var(--shadow-lg);
-          overflow: hidden;
-          z-index: 20;
+        .hero-smart-btn:hover:not(:disabled) { background: var(--secondary-hover); }
+        .hero-smart-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+        .hero-intent-chips {
+          display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+          justify-content: left; margin-top: 12px; min-height: 28px;
         }
-        .hero-suggestion-item {
-          display: flex;
-          align-items: center;
-          gap: 10px;
-          padding: 11px 18px;
-          font-family: var(--main-font);
-          font-size: 14px;
-          font-weight: 500;
-          color: var(--fg-1);
-          cursor: pointer;
-          transition: background var(--dur-fast);
-          border: none;
-          background: transparent;
-          width: 100%;
-          text-align: left;
-        }
-        .hero-suggestion-item:hover,
-        .hero-suggestion-item.active { background: var(--surface-2); }
         .hero-cta-row {
-          display: flex;
-          gap: 16px;
-          align-items: center;
-          justify-content: center;
-          flex-wrap: wrap;
-          margin-top: 20px;
+          display: flex; gap: 16px; align-items: center; justify-content: center;
+          flex-wrap: wrap; margin-top: 20px;
         }
+        @keyframes _hero_spin { to { transform: rotate(360deg); } }
         @media (max-width: 520px) {
           .hero-smart-pill { padding: 5px 5px 5px 16px; }
-          .hero-smart-btn { padding: 10px 16px; font-size: 13px; }
-          .hero-cta-row { flex-direction: column; gap: 8px; }
+          .hero-smart-btn  { padding: 10px 16px; font-size: 13px; }
+          .hero-cta-row    { flex-direction: column; gap: 8px; }
         }
       `}</style>
 
@@ -486,17 +334,21 @@ export default function Hero({ onSearch, onOpenAI }: Props) {
             bez poziva, bez čekanja.
           </p>
 
-          {/* Unified smart input */}
-          <div ref={containerRef} className="hero-smart-wrap">
+          {/* Booking concierge input */}
+          <div className="hero-smart-wrap">
             <div
               className={`hero-smart-pill${focused ? " focused" : ""}`}
               role="search"
             >
               <span className="hero-smart-icon-left" aria-hidden="true">
-                <MagnifyingGlassIcon
-                  style={{ width: 18, height: 18 }}
-                  strokeWidth={2}
-                />
+                {loading ? (
+                  <span style={spinnerStyle} />
+                ) : (
+                  <MagnifyingGlassIcon
+                    style={{ width: 18, height: 18 }}
+                    strokeWidth={2}
+                  />
+                )}
               </span>
 
               <input
@@ -510,10 +362,9 @@ export default function Hero({ onSearch, onOpenAI }: Props) {
                 onBlur={() => setTimeout(() => setFocused(false), 120)}
                 onKeyDown={handleKeyDown}
                 aria-label="Pretraži termine"
-                aria-autocomplete="list"
-                aria-expanded={showSuggestions}
                 autoComplete="off"
                 spellCheck={false}
+                disabled={loading}
               />
 
               <button
@@ -521,7 +372,7 @@ export default function Hero({ onSearch, onOpenAI }: Props) {
                 onClick={handleGeo}
                 aria-label="Koristi moju lokaciju"
                 title="Koristi moju lokaciju"
-                disabled={geoLoading}
+                disabled={geoLoading || loading}
               >
                 <MapPinIcon
                   style={{
@@ -534,41 +385,82 @@ export default function Hero({ onSearch, onOpenAI }: Props) {
                 />
               </button>
 
-              <button className="hero-smart-btn" onClick={submit}>
-                <MagnifyingGlassIcon
-                  style={{ width: 15, height: 15 }}
-                  strokeWidth={2.5}
-                />
-                Pretraži
+              <button
+                className="hero-smart-btn"
+                onClick={() => void submit()}
+                disabled={!canSubmit}
+                suppressHydrationWarning
+              >
+                {loading ? (
+                  "Tražim..."
+                ) : (
+                  <>
+                    <MagnifyingGlassIcon
+                      style={{ width: 15, height: 15 }}
+                      strokeWidth={2.5}
+                    />
+                    Pretraži
+                  </>
+                )}
               </button>
             </div>
 
-            {/* Suggestions */}
-            {showSuggestions && (
-              <div className="hero-suggestions" role="listbox">
-                {suggestions.map((s, i) => (
-                  <button
-                    key={s}
-                    className={`hero-suggestion-item${i === activeSuggestion ? " active" : ""}`}
-                    role="option"
-                    aria-selected={i === activeSuggestion}
-                    onMouseDown={(e) => {
-                      e.preventDefault();
-                      pickSuggestion(s);
+            {/* Parsed intent chips */}
+            {(interpretation || intentBadge || error) && (
+              <div className="hero-intent-chips">
+                {interpretation && (
+                  <span
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 5,
+                      background: "var(--brand-50, #fdf4ff)",
+                      border: "1px solid var(--brand-100)",
+                      borderRadius: 10,
+                      padding: "4px 12px",
+                      fontFamily: "var(--main-font)",
+                      fontSize: 12,
+                      fontWeight: 500,
+                      color: "var(--secondary-color)",
                     }}
                   >
-                    <MagnifyingGlassIcon
-                      style={{
-                        width: 14,
-                        height: 14,
-                        color: "var(--fg-3)",
-                        flexShrink: 0,
-                      }}
+                    <SparklesIcon
+                      style={{ width: 11, height: 11 }}
                       strokeWidth={2}
                     />
-                    {s}
-                  </button>
-                ))}
+                    {interpretation}
+                  </span>
+                )}
+                {intentBadge && (
+                  <span
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      background: "var(--surface-2)",
+                      borderRadius: 10,
+                      padding: "4px 10px",
+                      fontFamily: "var(--main-font)",
+                      fontSize: 11,
+                      fontWeight: 600,
+                      color: "var(--fg-3)",
+                      textTransform: "uppercase",
+                      letterSpacing: ".06em",
+                    }}
+                  >
+                    {intentBadge}
+                  </span>
+                )}
+                {error && (
+                  <span
+                    style={{
+                      fontSize: 12,
+                      color: "#dc2626",
+                      fontFamily: "var(--main-font)",
+                    }}
+                  >
+                    {error}
+                  </span>
+                )}
               </div>
             )}
           </div>
@@ -628,3 +520,14 @@ export default function Hero({ onSearch, onOpenAI }: Props) {
     </>
   );
 }
+
+const spinnerStyle: React.CSSProperties = {
+  display: "inline-block",
+  width: 18,
+  height: 18,
+  borderRadius: "50%",
+  border: "2.5px solid rgba(93,1,86,0.2)",
+  borderTopColor: "var(--secondary-color)",
+  animation: "_hero_spin 0.7s linear infinite",
+  flexShrink: 0,
+};

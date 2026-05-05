@@ -268,49 +268,50 @@ export function useChatSeek(
         let assistantContent = "";
         let usageData: UsageStats | null = null;
         let agentCallData: AgentCallMetadata | null = null;
+        let buffer = "";
 
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
 
-          const chunk = decoder.decode(value);
-          const lines = chunk.split("\n");
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() ?? "";
 
           for (const line of lines) {
-            if (line.startsWith("data: ")) {
-              const data = line.slice(6);
-              if (data === "[DONE]") continue;
+            if (!line.startsWith("data: ")) continue;
+            const data = line.slice(6).trim();
+            if (data === "[DONE]") continue;
 
-              try {
-                const parsed = JSON.parse(data) as DeepSeekChunk;
+            try {
+              const parsed = JSON.parse(data) as DeepSeekChunk;
 
-                // Ako imamo usage podatke
-                if (parsed.usage) {
-                  usageData = {
-                    inputTokens: parsed.usage.prompt_tokens || 0,
-                    outputTokens: parsed.usage.completion_tokens || 0,
-                    totalTokens: parsed.usage.total_tokens || 0,
-                    modelVersion: parsed.model,
-                    completionTokensDetails: parsed.usage
-                      .completion_tokens_details
-                      ? {
-                          reasoningTokens:
-                            parsed.usage.completion_tokens_details
-                              .reasoning_tokens,
-                        }
-                      : undefined,
-                  };
-                  setUsage(usageData);
-                }
-
-                // Ako imamo content
-                if (parsed.choices?.[0]?.delta?.content) {
-                  assistantContent += parsed.choices[0].delta.content;
-                  setStreamingContent(assistantContent);
-                }
-              } catch (error) {
-                console.error("Failed to parse chunk:", error);
+              // Ako imamo usage podatke
+              if (parsed.usage) {
+                usageData = {
+                  inputTokens: parsed.usage.prompt_tokens || 0,
+                  outputTokens: parsed.usage.completion_tokens || 0,
+                  totalTokens: parsed.usage.total_tokens || 0,
+                  modelVersion: parsed.model,
+                  completionTokensDetails: parsed.usage
+                    .completion_tokens_details
+                    ? {
+                        reasoningTokens:
+                          parsed.usage.completion_tokens_details
+                            .reasoning_tokens,
+                      }
+                    : undefined,
+                };
+                setUsage(usageData);
               }
+
+              // Ako imamo content
+              if (parsed.choices?.[0]?.delta?.content) {
+                assistantContent += parsed.choices[0].delta.content;
+                setStreamingContent(assistantContent);
+              }
+            } catch {
+              // Parcijalni chunk - biće kompletiran u sledećem readu
             }
           }
         }

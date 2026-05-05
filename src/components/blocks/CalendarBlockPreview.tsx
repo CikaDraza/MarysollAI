@@ -101,7 +101,7 @@ export function CalendarBlockPreview({ onSlotClick }: Props) {
           <button
             key={day.toISOString()}
             onClick={() => setSelectedDate(day)}
-            className={`cursor-pointer flex flex-col justify-center items-center shrink-0 w-16 h-20 min-w-15 p-3 mb-4 rounded-2xl border transition-all ${
+            className={`cursor-pointer flex flex-col justify-center items-center shrink-0 w-16 h-20 min-w-15 p-3 mb-4 rounded-lg border transition-all ${
               isSameDay(day, selectedDate)
                 ? "bg-(--secondary-color) border-(--secondary-color) text-white shadow-md scale-105"
                 : "bg-white border-gray-100 text-gray-500 hover:border-gray-300"

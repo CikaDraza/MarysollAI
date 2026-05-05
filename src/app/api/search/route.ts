@@ -22,6 +22,7 @@ import {
 } from "@/lib/search/normalizeSearch";
 import { findBestSlots, pickDiverseSlots } from "@/lib/search/findBestSlots";
 import { SERBIAN_CITIES, haversineKm, CITY_POPULARITY } from "@/lib/cities";
+import { stripDiacritics } from "@/lib/intent/parseIntent";
 import type { SearchApiResponse, SearchResult } from "@/types/slots";
 
 const MONTHS_SR = [
@@ -58,7 +59,7 @@ function toSearchResult(
     startTime,
     city: r.salon.city,
     distanceKm: r.distanceKm ?? undefined,
-    price: r.service?.price ?? undefined,
+    price: (r.service?.price ?? 0) > 0 ? (r.service!.price as number) : undefined,
     salonSlug: r.salon.slug ?? undefined,
     salonLogo: r.salon.logo ?? undefined,
     serviceDuration: r.service?.duration ?? undefined,
@@ -194,9 +195,17 @@ export async function GET(req: Request): Promise<NextResponse> {
       );
     }
 
-    const results: SearchResult[] = platformResponse.results.map((r) =>
+    let results: SearchResult[] = platformResponse.results.map((r) =>
       toSearchResult(r, today, tomorrow),
     );
+
+    // Client-side subcategory filter (platform /marketplace/search has no subcategory param)
+    if (params.subcategoryNorm && results.length > 0) {
+      const filtered = results.filter((r) =>
+        stripDiacritics(r.serviceName).toLowerCase().includes(params.subcategoryNorm!),
+      );
+      if (filtered.length > 0) results = filtered;
+    }
 
     const slotsByCity = groupAndSortByCityPriority(
       results,

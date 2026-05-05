@@ -1,28 +1,37 @@
 // src/components/landing/LandingPage
 "use client";
 
-import { useState, useEffect, useMemo, useCallback } from "react";
-import { useRouter } from "next/navigation";
 import { CheckIcon } from "@heroicons/react/24/outline";
+import { AnimatePresence, motion } from "framer-motion";
+import { useEffect, useState } from "react";
 import LandingHeader from "./LandingHeader";
 import Hero from "./Hero";
 import TrustRow from "./TrustRow";
 import QuickAccess from "./QuickAccess";
-import AIPrompt from "./AIPrompt";
 import BookingWidget from "./BookingWidget";
 import BookingModal from "./BookingModal";
 import NotifyMeWidget from "./NotifyMeWidget";
 import StickyOffer from "./StickyOffer";
 import AIDrawer from "./AIDrawer";
-import { useAIQuery } from "@/hooks/useAIQuery";
-import { useChatSeek } from "@/hooks/useChatSeek";
-import { ThreadItem } from "@/types/ai/chat-thread";
-import { useSalons } from "@/hooks/useSalons";
-import { useSearch } from "@/hooks/useSearch";
-import { useCitySelector } from "@/hooks/useCitySelector";
-import { SERBIAN_CITIES } from "@/lib/cities";
+import AIWorkspace from "./AIWorkspace";
+import {
+  LandingUIProvider,
+  useLandingUI,
+} from "@/context/landing/LandingUIContext";
+import { CityProvider } from "@/context/landing/CityContext";
+import { FiltersProvider } from "@/context/landing/FiltersContext";
+import { BookingModalProvider } from "@/context/landing/BookingModalContext";
+import {
+  SearchProvider,
+  useSearchContext,
+} from "@/context/landing/SearchContext";
+import { AIProvider } from "@/context/landing/AIContext";
+import {
+  WorkspaceProvider,
+  useWorkspace,
+} from "@/context/landing/WorkspaceContext";
 
-const todayStr = () => new Date().toISOString().slice(0, 10);
+const SIDEBAR_W = 500;
 
 interface Props {
   initialCity?: string;
@@ -33,214 +42,72 @@ export default function LandingPage({
   initialCity = "",
   initialCategory = "",
 }: Props) {
-  const router = useRouter();
-
-  const [theme, setTheme] = useState<"light" | "dark">("light");
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const [confirmed, setConfirmed] = useState(false);
-  const [modalSlot, setModalSlot] = useState<
-    import("@/types/slots").FlatSlot | null
-  >(null);
-
-  // City selection — geo + localStorage, falls back to Novi Sad
-  const { city: selectedCity, setCity } = useCitySelector(
-    initialCity || undefined,
+  return (
+    <LandingUIProvider>
+      <CityProvider initialCity={initialCity}>
+        <FiltersProvider initialCategory={initialCategory}>
+          <SearchProvider>
+            <BookingModalProvider>
+              <AIProvider>
+                <WorkspaceProvider>
+                  <LandingPageContent />
+                </WorkspaceProvider>
+              </AIProvider>
+            </BookingModalProvider>
+          </SearchProvider>
+        </FiltersProvider>
+      </CityProvider>
+    </LandingUIProvider>
   );
-  const cityName = selectedCity.name;
+}
 
-  const [category, setCategory] = useState(initialCategory);
-  const [dateFilter, setDateFilter] = useState<string | undefined>(undefined);
-  const [timeFilter, setTimeFilter] = useState<string | undefined>(undefined);
-  const [subcategoryFilter, setSubcategoryFilter] = useState<
-    string | undefined
-  >(undefined);
+function LandingPageContent() {
+  const { drawerOpen } = useLandingUI();
 
-  // Salons — for QuickAccess category grid (city-filtered)
-  const { data: salons = [], isLoading: salonsLoading } = useSalons(cityName);
-
-  const searchParams = {
-    city: cityName,
-    category: category || undefined,
-    date: dateFilter,
-    time: timeFilter,
-    subcategory: subcategoryFilter,
-  };
-  console.log("[LandingPage] useSearch params:", searchParams);
-
-  // Central search — single API call, 6-level fallback engine
-  const {
-    slotsByCity,
-    bestSlot,
-    fallbackLevel,
-    isLoading: slotsLoading,
-  } = useSearch(searchParams);
-
-  // Maria Deep — frontline conversational agent (DeepSeek)
-  const maria = useChatSeek();
-  // Claudia Makelele — specialist for blocks (askAgent → useChatHistory thread)
-  const claudia = useAIQuery(null);
-
-  const unifiedThread = useMemo<ThreadItem[]>(() => {
-    const mariaItems: ThreadItem[] = maria.messages
-      .filter((m) => m.role !== "system")
-      .map((m) => ({
-        id: `maria-${m.id}`,
-        type: "message",
-        data: {
-          id: `maria-${m.id}`,
-          role: m.role === "user" ? "user" : "assistant",
-          content: m.content.replace(/\[CALL_AGENT:\w+\]/g, "").trim(),
-          timestamp: m.createdAt.getTime(),
-        },
-      }));
-
-    let lastTs = Date.now();
-    const claudiaItems: Array<ThreadItem & { _ts: number }> = [];
-    claudia.thread.forEach((item) => {
-      if (item.type === "message") {
-        if (item.data.role === "user") return;
-        lastTs = item.data.timestamp;
-        claudiaItems.push({ ...item, _ts: lastTs });
-      } else {
-        claudiaItems.push({ ...item, _ts: lastTs + 1 });
-      }
-    });
-
-    const all: Array<ThreadItem & { _ts: number }> = [
-      ...mariaItems.map((i) => ({
-        ...i,
-        _ts: i.type === "message" ? i.data.timestamp : Date.now(),
-      })),
-      ...claudiaItems,
-    ];
-    all.sort((a, b) => a._ts - b._ts);
-    return all.map(({ _ts, ...rest }) => rest as ThreadItem);
-  }, [maria.messages, claudia.thread]);
-
-  const handleAsk = useCallback(
-    (q: string) => {
-      void maria.sendMessage(q);
-    },
-    [maria],
-  );
-
-  const handleClear = useCallback(() => {
-    maria.clearChat();
-    claudia.clearChat();
-  }, [maria, claudia]);
-
-  const handleLoginRequest = useCallback(() => {
-    setModalSlot(null);
-    setDrawerOpen(true);
-    void maria.sendMessage("Prijavi se");
-  }, [maria]);
-
+  // On mobile (<= 1024px) the sidebar stays as a fixed overlay — no content shift.
+  // On desktop it pushes the page content to the left.
+  const [isDesktop, setIsDesktop] = useState(false);
   useEffect(() => {
-    document.documentElement.dataset.theme = theme;
-  }, [theme]);
+    const mq = window.matchMedia("(min-width: 1025px)");
+    setIsDesktop(mq.matches);
+    const handler = (e: MediaQueryListEvent) => setIsDesktop(e.matches);
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, []);
 
-  // Category chip click — slug-based routing, no encoding needed
-  const handleCategoryPick = useCallback(
-    (slug: string) => {
-      const next = category === slug ? "" : slug;
-      setCategory(next);
-      if (cityName && next) {
-        router.push(`/${encodeURIComponent(cityName.toLowerCase())}/${next}`, {
-          scroll: false,
-        });
-      }
-    },
-    [category, cityName, router],
-  );
+  const pushContent = isDesktop && drawerOpen;
 
   return (
     <div
+      className="relative min-h-screen"
       style={{
         fontFamily: "var(--main-font)",
-        minHeight: "100vh",
-        position: "relative",
+        marginRight: pushContent ? SIDEBAR_W : 0,
+        transition: `margin-right 280ms var(--ease-out)`,
       }}
     >
       {/* Page gradient */}
       <div
         aria-hidden="true"
-        style={{
-          position: "absolute",
-          top: 0,
-          left: 0,
-          right: 0,
-          height: "110vh",
-          pointerEvents: "none",
-          zIndex: 0,
-          background: [
-            "radial-gradient(ellipse 60% 55% at 8% 38%, rgba(255,128,181,0.26) 0%, transparent 60%)",
-            "radial-gradient(ellipse 55% 50% at 92% 28%, rgba(93,1,86,0.22) 0%, transparent 58%)",
-            "radial-gradient(ellipse 40% 35% at 50% 55%, rgba(186,52,183,0.10) 0%, transparent 65%)",
-          ].join(", "),
-          maskImage:
-            "linear-gradient(to bottom, black 0%, black 60%, transparent 100%)",
-          WebkitMaskImage:
-            "linear-gradient(to bottom, black 0%, black 60%, transparent 100%)",
-        }}
+        className="page-gradient absolute top-0 left-0 right-0 h-[110vh] pointer-events-none z-0"
       />
 
-      {/* Fixed floating header */}
+      {/* Fixed floating header — shrinks with sidebar on desktop only */}
       <div
+        className="fixed top-0 left-0 z-50 px-6 py-3 bg-white/5 backdrop-blur"
         style={{
-          position: "fixed",
-          top: 0,
-          left: 0,
-          right: 0,
-          zIndex: 50,
-          padding: "12px 24px",
+          right: pushContent ? SIDEBAR_W : 0,
+          transition: `right 280ms var(--ease-out)`,
         }}
-        className="bg-white/5 backdrop-blur"
       >
-        <div style={{ maxWidth: 1240, margin: "0 auto" }}>
-          <LandingHeader
-            theme={theme}
-            onToggleTheme={() =>
-              setTheme((t) => (t === "dark" ? "light" : "dark"))
-            }
-            onOpenAI={() => setDrawerOpen(true)}
-            onLogin={handleLoginRequest}
-            city={cityName}
-            onCityChange={(name) => {
-              console.log("[LandingPage] city change →", name);
-              const found = SERBIAN_CITIES.find((c) => c.name === name);
-              if (found) setCity(found);
-              else console.warn("[LandingPage] city not found:", name);
-            }}
-          />
+        <div className="max-w-[1240px] mx-auto">
+          <LandingHeader />
         </div>
       </div>
-      <div style={{ height: 72 }} aria-hidden="true" />
-      <Hero
-        onSearch={({
-          city: c,
-          category: cat,
-          date: d,
-          time: t,
-          subcategory: sub,
-        }) => {
-          console.log("[LandingPage] Hero onSearch →", {
-            city: c,
-            category: cat,
-            date: d,
-            time: t,
-            subcategory: sub,
-          });
-          const found = SERBIAN_CITIES.find(
-            (x) => x.name.toLowerCase() === c.toLowerCase(),
-          );
-          if (found) setCity(found);
-          setCategory(cat);
-          setDateFilter(d || undefined);
-          setTimeFilter(t);
-          setSubcategoryFilter(sub);
-        }}
-        onOpenAI={() => setDrawerOpen(true)}
-      />
+
+      <div className="h-[72px]" aria-hidden="true" />
+
+      <Hero />
 
       <div
         style={{
@@ -250,100 +117,71 @@ export default function LandingPage({
         }}
       >
         <TrustRow />
-        <QuickAccess
-          salons={salons}
-          loading={salonsLoading}
-          category={category}
-          cityName={cityName}
-          slotsByCity={slotsByCity}
-          onPick={(slot) =>
-            setModalSlot({
-              salonId: slot.salonId,
-              salonName: slot.salonName,
-              serviceId: slot.serviceId,
-              serviceName: slot.serviceName,
-              category: slot.serviceCategory,
-              startTime: slot.startTime,
-              city: slot.city,
-            })
-          }
-          onCategoryPick={handleCategoryPick}
-        />
-        <BookingWidget
-          slotsByCity={slotsByCity}
-          loading={slotsLoading}
-          onBook={setModalSlot}
-          userCity={cityName}
-          fallbackLevel={fallbackLevel}
-        />
-        <AIPrompt onOpenAI={() => setDrawerOpen(true)} />
-        <NotifyMeWidget
-          onOpenAI={() => setDrawerOpen(true)}
-          city={cityName}
-          category={category}
-        />
+
+        {/* AI Workspace replaces QuickAccess when a block is active */}
+        <WorkspaceSection />
+
+        <BookingWidget />
+        <NotifyMeWidget />
       </div>
 
-      {confirmed && (
-        <div
-          role="status"
-          aria-live="polite"
-          style={{
-            position: "fixed",
-            left: "50%",
-            top: 22,
-            transform: "translateX(-50%)",
-            background: "#111114",
-            color: "#fff",
-            padding: "12px 18px",
-            borderRadius: 14,
-            boxShadow: "var(--shadow-lg)",
-            zIndex: 80,
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 8,
-            fontFamily: "var(--main-font)",
-            fontWeight: 600,
-            fontSize: 13,
-          }}
-        >
-          <CheckIcon style={{ width: 16, height: 16 }} strokeWidth={2} />
-          Termin potvrđen za{" "}
-          {bestSlot
-            ? new Date(bestSlot.startTime).toLocaleTimeString("sr-Latn", {
-                hour: "2-digit",
-                minute: "2-digit",
-              })
-            : ""}
-        </div>
-      )}
+      <ConfirmedToast />
+      <StickyOffer />
+      <BookingModal />
+      <AIDrawer />
+    </div>
+  );
+}
 
-      <StickyOffer
-        visible={!drawerOpen && !modalSlot}
-        slot={bestSlot}
-        onBook={setModalSlot}
-      />
+/** Shows the AI workspace block when active, QuickAccess when idle. */
+function WorkspaceSection() {
+  const { activeBlock } = useWorkspace();
 
-      <BookingModal
-        slot={modalSlot}
-        onClose={() => setModalSlot(null)}
-        onConfirm={() => {
-          setModalSlot(null);
-          setConfirmed(true);
-        }}
-        onLoginRequest={handleLoginRequest}
-      />
+  return (
+    <>
+      {/* AI Workspace (enters when block arrives) */}
+      <AIWorkspace />
 
-      <AIDrawer
-        open={drawerOpen}
-        onClose={() => setDrawerOpen(false)}
-        onAsk={handleAsk}
-        aiThread={unifiedThread}
-        streamingText={claudia.streamingText}
-        isStreaming={maria.isStreaming || claudia.isStreaming}
-        streamingAgent={claudia.isStreaming ? "claudia" : "maria"}
-        onClearChat={handleClear}
-      />
+      {/* QuickAccess (exits when block arrives) */}
+      <AnimatePresence>
+        {!activeBlock && (
+          <motion.div
+            key="quickaccess"
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.38, ease: [0.04, 0.62, 0.23, 0.98] }}
+            style={{ overflow: "hidden" }}
+          >
+            <QuickAccess />
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </>
+  );
+}
+
+function ConfirmedToast() {
+  const { confirmed } = useLandingUI();
+  const { bestSlot } = useSearchContext();
+
+  if (!confirmed) return null;
+
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      className="fixed left-1/2 top-[22px] -translate-x-1/2 z-80 inline-flex items-center gap-2 rounded-[14px] bg-[#111114] px-[18px] py-3 text-[13px] font-semibold text-white shadow-[var(--shadow-lg)]"
+      style={{ fontFamily: "var(--main-font)" }}
+    >
+      <CheckIcon style={{ width: 16, height: 16 }} strokeWidth={2} />
+      Termin potvrđen za{" "}
+      {bestSlot
+        ? new Date(bestSlot.startTime).toLocaleTimeString("sr-Latn", {
+            hour: "2-digit",
+            minute: "2-digit",
+          })
+        : ""}
     </div>
   );
 }

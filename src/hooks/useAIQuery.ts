@@ -4,7 +4,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AuthUser } from "@/types/auth-types";
 import { createThreadItems } from "@/lib/ai/createThreadItems";
-import { useChatHistory } from "./useChatHistory";
+import { useChatHistory, setGlobalStreaming } from "./useChatHistory";
 import partialParse from "partial-json-parser";
 import { TextMessage } from "@/types/ai/ai.text-engine";
 import { BaseBlock } from "@/types/landing-block";
@@ -41,6 +41,7 @@ export function useAIQuery(user?: AuthUser | null) {
     saveToHistory,
     updateThread: setThread,
     clearHistory,
+    claudiaStreaming,
   } = useChatHistory();
 
   // ✅ Ref za user sa trenutnim podacima
@@ -78,6 +79,7 @@ export function useAIQuery(user?: AuthUser | null) {
     setPendingResponse(null);
     setStreamingText("");
     activeTempIdRef.current = null;
+    setGlobalStreaming({ isStreaming: false, text: "" });
   }, [pendingResponse, saveToHistory, setThread]);
 
   useEffect(() => {
@@ -96,7 +98,10 @@ export function useAIQuery(user?: AuthUser | null) {
         }
 
         if (prev.length < target.length) {
-          return target.slice(0, prev.length + 1);
+          const next = target.slice(0, prev.length + 1);
+          // Ažuriramo globalno stanje u istom tiku → React 18 batch-uje oba update-a
+          setGlobalStreaming({ isStreaming: true, text: next });
+          return next;
         }
         return prev;
       });
@@ -118,6 +123,7 @@ export function useAIQuery(user?: AuthUser | null) {
       setStreamingText("");
       targetTextRef.current = "";
       setError(null);
+      setGlobalStreaming({ isStreaming: true, text: "" });
 
       // ✅ Koristi eksplicitne auth podatke ako su prosleđeni, inače iz ref-a
       const currentUser = userRef.current;
@@ -194,6 +200,7 @@ export function useAIQuery(user?: AuthUser | null) {
         setIsStreaming(false);
         setIsTextLoading(false);
         isNetworkDoneRef.current = false;
+        setGlobalStreaming({ isStreaming: false, text: "" });
         setThread((prev) =>
           prev.filter((i) => i.id !== activeTempIdRef.current),
         );
@@ -231,5 +238,6 @@ export function useAIQuery(user?: AuthUser | null) {
     error,
     resetError: () => setError(null),
     clearChat: clearHistory,
+    claudiaStreaming,
   };
 }

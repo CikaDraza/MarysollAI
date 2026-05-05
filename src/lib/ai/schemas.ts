@@ -15,12 +15,24 @@ const blockEnum = [
   "WhyChooseUsBlock",
   "CityListBlock",
   "SalonListBlock",
-];
+] as const;
 
-// src/lib/ai/schemas.ts
 export const unifiedSchema = {
   type: "object",
   properties: {
+    intent: {
+      type: "object",
+      properties: {
+        city: { type: "string" },
+        category: { type: "string" },
+        service: { type: "string" },
+        date: { type: "string" },
+        time: { type: "string" },
+        timeWindowStart: { type: "number" },
+        timeWindowEnd: { type: "number" },
+        confidence: { type: "number" },
+      },
+    },
     messages: {
       type: "array",
       items: {
@@ -48,8 +60,7 @@ export const unifiedSchema = {
           priority: { type: "number" },
           query: {
             type: "string",
-            description:
-              "Search term for services, e.g., 'gel lak' or 'manikir' or 'šminkanje'",
+            description: "Search term for services, e.g. 'gel lak' or 'šminkanje'",
           },
           metadata: {
             type: "object",
@@ -57,44 +68,22 @@ export const unifiedSchema = {
               serviceId: { type: "string" },
               serviceName: {
                 type: "string",
-                description:
-                  "REQUIRED. The main name of the service from the knowledge base. Example: 'Gel lak'.",
+                description: "Main service name from the knowledge base. Example: 'Gel lak'.",
               },
               variantName: {
                 type: "string",
-                description:
-                  "OPTIONAL. Only if a specific variant or size is chosen. Otherwise empty string.",
+                description: "Specific variant or size, empty string if not applicable.",
               },
               time: { type: "string", description: "HH:mm format" },
-              date: {
-                type: "string",
-                description: "ISO format date YYYY-MM-DD",
-              },
+              date: { type: "string", description: "ISO format YYYY-MM-DD" },
               mode: {
                 type: "string",
-                enum: [
-                  "login",
-                  "logout",
-                  "register",
-                  "forgot",
-                  "reset",
-                  "preview",
-                  "list",
-                ],
-                description:
-                  "Mode for AuthBlock (login/register) or CalendarBlock (preview/list)",
+                enum: ["login", "logout", "register", "forgot", "reset", "preview", "list"],
               },
-              service: {
-                type: "string",
-                description: "Service name for CityListBlock and SalonListBlock",
-              },
-              city: {
-                type: "string",
-                description: "City name for SalonListBlock",
-              },
+              service: { type: "string" },
+              city: { type: "string" },
               cities: {
                 type: "array",
-                description: "List of cities for CityListBlock",
                 items: {
                   type: "object",
                   properties: {
@@ -106,7 +95,6 @@ export const unifiedSchema = {
               },
               salons: {
                 type: "array",
-                description: "List of salons for SalonListBlock",
                 items: {
                   type: "object",
                   properties: {
@@ -126,17 +114,49 @@ export const unifiedSchema = {
         required: ["type", "priority"],
       },
     },
+    // Tracks the active workflow so the frontend can route follow-up messages correctly
+    workflow: {
+      type: "object",
+      properties: {
+        agent: {
+          type: "string",
+          enum: ["maria", "booking", "calendar", "auth"],
+        },
+        step: { type: "string" },
+        completed: { type: "boolean" },
+      },
+    },
+    // Declarative UI commands — show/hide blocks, scroll, focus
+    ui: {
+      type: "object",
+      properties: {
+        focusBlock: { type: "string" },
+        hideBlocks: { type: "array", items: { type: "string" } },
+        showBlocks: { type: "array", items: { type: "string" } },
+        scrollTo: { type: "string" },
+      },
+    },
+    // Pre-filled booking form payload — AI assisted form filling
+    submitPayload: {
+      type: "object",
+      properties: {
+        serviceId: { type: "string" },
+        variantName: { type: "string" },
+        date: { type: "string" },
+        time: { type: "string" },
+        clientName: { type: "string" },
+        phone: { type: "string" },
+      },
+    },
   },
   required: ["messages", "layout"],
-} as const;
+};
 
-// ✅ Export za DeepSeek response_format
 export const deepseekResponseFormat = {
-  type: "json_schema",
+  type: "json_schema" as const,
   json_schema: {
     name: "assistant_response",
-    description: "AI assistant response with messages and layout blocks",
+    description: "AI assistant structured response with messages, layout blocks, and workflow state",
     schema: unifiedSchema,
-    strict: true,
   },
-} as const;
+};

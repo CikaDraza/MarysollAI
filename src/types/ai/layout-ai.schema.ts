@@ -12,6 +12,8 @@ const blockEnum = [
   "TestimonialBlock",
   "NewsletterFormBlock",
   "WhyChooseUsBlock",
+  "CityListBlock",
+  "SalonListBlock",
 ];
 
 export const LayoutSuggestionSchema = z.object({

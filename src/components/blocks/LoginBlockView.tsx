@@ -31,23 +31,29 @@ export function LoginBlockView({
   const [password, setPassword] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
 
-  const handleSubmit = useCallback(async (e: React.FormEvent) => {
-    e.preventDefault();
-    setErrorMsg("");
-    try {
-      await login({ email, password });
-      if (onActionComplete) {
-        onActionComplete("USPEŠNA PRIJAVA.");
+  const handleSubmit = useCallback(
+    async (e: React.FormEvent) => {
+      e.preventDefault();
+      setErrorMsg("");
+      try {
+        await login({ email, password });
+        if (onActionComplete) {
+          onActionComplete("USPEŠNA PRIJAVA.");
+        }
+      } catch (err: unknown) {
+        const axiosErr = err as AxiosError<{
+          error?: string;
+          message?: string;
+        }>;
+        const msg =
+          axiosErr.response?.data?.error ??
+          axiosErr.response?.data?.message ??
+          "Pogrešan email ili lozinka.";
+        setErrorMsg(msg);
       }
-    } catch (err: unknown) {
-      const axiosErr = err as AxiosError<{ error?: string; message?: string }>;
-      const msg =
-        axiosErr.response?.data?.error ??
-        axiosErr.response?.data?.message ??
-        "Pogrešan email ili lozinka.";
-      setErrorMsg(msg);
-    }
-  }, [email, password, login, onActionComplete]);
+    },
+    [email, password, login, onActionComplete],
+  );
 
   // FUNKCIJA ZA SKROL KOJA CILJA GLAVNI KONTEJNER
   const triggerGlobalScroll = () => {
@@ -73,7 +79,7 @@ export function LoginBlockView({
   return (
     <div ref={containerRef} className="scroll-mt-20">
       <Reveal>
-        <div className="isolate relative bg-gray-900 rounded-2xl">
+        <div className="isolate relative overflow-hidden bg-gray-900 rounded-2xl">
           <Toaster position="top-right" />
           <div
             aria-hidden="true"

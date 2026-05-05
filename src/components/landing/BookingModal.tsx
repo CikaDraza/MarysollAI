@@ -4,14 +4,9 @@ import { useState, useEffect } from "react";
 import { XMarkIcon, CheckCircleIcon } from "@heroicons/react/24/outline";
 import toast from "react-hot-toast";
 import { useAuthActions } from "@/hooks/useAuthActions";
-import type { FlatSlot } from "@/types/slots";
-
-interface Props {
-  slot: FlatSlot | null;
-  onClose: () => void;
-  onConfirm: () => void;
-  onLoginRequest: () => void;
-}
+import { useBookingModal } from "@/context/landing/BookingModalContext";
+import { useLandingUI } from "@/context/landing/LandingUIContext";
+import { useAIContext } from "@/context/landing/AIContext";
 
 function formatTime(iso: string): string {
   try {
@@ -26,8 +21,22 @@ function formatPrice(price?: number): string {
   return new Intl.NumberFormat("sr-Latn").format(price) + " RSD";
 }
 
-export default function BookingModal({ slot, onClose, onConfirm, onLoginRequest }: Props) {
+export default function BookingModal() {
+  const { modalSlot: slot, closeModal: onClose } = useBookingModal();
+  const { setConfirmed, setDrawerOpen } = useLandingUI();
+  const { sendMessage } = useAIContext();
   const { user } = useAuthActions();
+
+  const onConfirm = () => {
+    onClose();
+    setConfirmed(true);
+  };
+
+  const onLoginRequest = () => {
+    onClose();
+    setDrawerOpen(true);
+    sendMessage("Prijavi se");
+  };
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [loading, setLoading] = useState(false);

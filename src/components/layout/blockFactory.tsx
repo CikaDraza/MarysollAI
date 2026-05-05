@@ -4,13 +4,17 @@ import {
   AuthBlockType,
   BaseBlock,
   CalendarBlockType,
+  CityListBlockType,
   PricingBlockType,
+  SalonListBlockType,
 } from "@/types/landing-block";
 import { AuthBlockView } from "../blocks/AuthBlockView";
 import PricingBlockView from "../blocks/PricingBlockView";
 import AppointmentCalendarBlockView from "../blocks/AppointmentCalendarBlockView";
 import { CalendarBlockView } from "../blocks/CalendarBlockView";
 import TestimonialBlockView from "../blocks/TestimonialBlockView";
+import CityListBlockView from "../blocks/CityListBlockView";
+import SalonListBlockView from "../blocks/SalonListBlockView";
 
 export function blockFactory(
   block: BaseBlock,
@@ -52,6 +56,22 @@ export function blockFactory(
     case "TestimonialBlock":
       return (
         <TestimonialBlockView key={block.id} onActionComplete={safeOnAction} />
+      );
+    case "CityListBlock":
+      return (
+        <CityListBlockView
+          key={block.id}
+          block={block as CityListBlockType}
+          onActionComplete={safeOnAction}
+        />
+      );
+    case "SalonListBlock":
+      return (
+        <SalonListBlockView
+          key={block.id}
+          block={block as SalonListBlockType}
+          onActionComplete={safeOnAction}
+        />
       );
     default:
       console.warn("Factory: Unknown block type", block.type);

@@ -1,20 +1,30 @@
 "use client";
 
 import Image from "next/image";
-import { useState, useRef, useEffect, useMemo } from "react";
-import { XMarkIcon, CheckIcon, PaperAirplaneIcon, BoltIcon, SparklesIcon } from "@heroicons/react/24/outline";
+import { useState, useRef, useEffect } from "react";
+import {
+  XMarkIcon,
+  CheckIcon,
+  PaperAirplaneIcon,
+  BoltIcon,
+  SparklesIcon,
+} from "@heroicons/react/24/outline";
 import { ThreadItem } from "@/types/ai/chat-thread";
 import { ChatSession } from "@/types/ai/deepseek";
 import { BaseBlock } from "@/types/landing-block";
 import { HistoryDropdown } from "@/components/chat/HistoryDropdown";
 import { UsageStats } from "@/components/chat/UsageStats";
-import { LayoutEngine } from "@/components/layout/LayoutEngine";
+import { useLandingUI } from "@/context/landing/LandingUIContext";
+import { useAIContext } from "@/context/landing/AIContext";
 
 type Agent = "maria" | "claudia";
 
 const AGENT_INFO: Record<Agent, { name: string; avatar: string }> = {
   maria: { name: "Maria Deep", avatar: "/avatars/maria.png" },
-  claudia: { name: "Claudia Makelele", avatar: "/avatars/claudia-makelele.png" },
+  claudia: {
+    name: "Claudia Makelele",
+    avatar: "/avatars/claudia-makelele.png",
+  },
 };
 
 const detectAgent = (id: string): Agent =>
@@ -22,7 +32,14 @@ const detectAgent = (id: string): Agent =>
 
 type DisplayItem =
   | { kind: "msg"; id: string; from: "me"; text: string }
-  | { kind: "msg"; id: string; from: Agent; text: string; suggest?: boolean; showLabel?: boolean }
+  | {
+      kind: "msg";
+      id: string;
+      from: Agent;
+      text: string;
+      suggest?: boolean;
+      showLabel?: boolean;
+    }
   | { kind: "block"; id: string; block: BaseBlock }
   | { kind: "handoff"; id: string; toAgent: Agent };
 
@@ -41,38 +58,41 @@ const CHIPS = [
   { label: "Otkaži termin", value: "Otkaži termin sutra" },
 ];
 
-interface Props {
-  open: boolean;
-  onClose: () => void;
-  onAsk?: (q: string) => void;
-  aiThread?: ThreadItem[];
-  streamingText?: string;
-  isStreaming?: boolean;
-  streamingAgent?: Agent;
-  onClearChat?: () => void;
-}
+export default function AIDrawer() {
+  const { drawerOpen: open, setDrawerOpen } = useLandingUI();
+  const {
+    unifiedThread: aiThread,
+    sendMessage: onAsk,
+    clearChat: onClearChat,
+    streamingText,
+    isStreaming,
+    streamingAgent,
+  } = useAIContext();
 
-export default function AIDrawer({
-  open,
-  onClose,
-  onAsk,
-  aiThread,
-  streamingText,
-  isStreaming,
-  streamingAgent = "maria",
-  onClearChat,
-}: Props) {
+  const onClose = () => setDrawerOpen(false);
   const streamingInfo = AGENT_INFO[streamingAgent];
   // Keep SSR and initial client render in sync (always "maria") to avoid hydration mismatch.
   // useEffect updates the displayed agent after mount when thread state is available.
   const [activeAgent, setActiveAgent] = useState<Agent>("maria");
   useEffect(() => {
-    if (isStreaming) { setActiveAgent(streamingAgent); return; }
-    if (!aiThread) { setActiveAgent("maria"); return; }
+    if (isStreaming) {
+      setActiveAgent(streamingAgent);
+      return;
+    }
+    if (!aiThread) {
+      setActiveAgent("maria");
+      return;
+    }
     for (let i = aiThread.length - 1; i >= 0; i--) {
       const it = aiThread[i];
-      if (it.type === "block") { setActiveAgent("claudia"); return; }
-      if (it.type === "message" && it.data.role !== "user") { setActiveAgent(detectAgent(it.id)); return; }
+      if (it.type === "block") {
+        setActiveAgent("claudia");
+        return;
+      }
+      if (it.type === "message" && it.data.role !== "user") {
+        setActiveAgent(detectAgent(it.id));
+        return;
+      }
     }
     setActiveAgent("maria");
   }, [aiThread, isStreaming, streamingAgent]);
@@ -85,17 +105,25 @@ export default function AIDrawer({
   const [syntheticSessions, setSyntheticSessions] = useState<ChatSession[]>([]);
   const [usage, setUsage] = useState({ messagesSent: 0, estimatedTokens: 0 });
   useEffect(() => {
-    if (!aiThread || aiThread.length === 0) { setSyntheticSessions([]); return; }
+    if (!aiThread || aiThread.length === 0) {
+      setSyntheticSessions([]);
+      return;
+    }
     const msgItems = aiThread.filter(
-      (i): i is Extract<ThreadItem, { type: "message" }> => i.type === "message",
+      (i): i is Extract<ThreadItem, { type: "message" }> =>
+        i.type === "message",
     );
-    if (msgItems.length === 0) { setSyntheticSessions([]); return; }
+    if (msgItems.length === 0) {
+      setSyntheticSessions([]);
+      return;
+    }
     const firstUser = msgItems.find((i) => i.data.role === "user");
     setSyntheticSessions([
       {
         id: "landing-session",
         title: firstUser
-          ? firstUser.data.content.slice(0, 50) + (firstUser.data.content.length > 50 ? "..." : "")
+          ? firstUser.data.content.slice(0, 50) +
+            (firstUser.data.content.length > 50 ? "..." : "")
           : "Konverzacija",
         messages: msgItems.map((i) => ({
           id: i.data.id,
@@ -108,12 +136,20 @@ export default function AIDrawer({
       },
     ]);
     const messagesSent = msgItems.filter((i) => i.data.role === "user").length;
-    const estimatedTokens = msgItems.reduce((acc, i) => acc + Math.ceil(i.data.content.length / 4), 0);
+    const estimatedTokens = msgItems.reduce(
+      (acc, i) => acc + Math.ceil(i.data.content.length / 4),
+      0,
+    );
     setUsage({ messagesSent, estimatedTokens });
   }, [aiThread]);
 
   const [displayItems, setDisplayItems] = useState<DisplayItem[]>(() =>
-    INITIAL.map((m, i) => ({ kind: "msg" as const, id: `init-${i}`, from: "maria" as const, text: m.text })),
+    INITIAL.map((m, i) => ({
+      kind: "msg" as const,
+      id: `init-${i}`,
+      from: "maria" as const,
+      text: m.text,
+    })),
   );
   useEffect(() => {
     if (!aiThread) {
@@ -130,7 +166,12 @@ export default function AIDrawer({
     }
     if (aiThread.length === 0) {
       setDisplayItems(
-        INITIAL.map((m, i) => ({ kind: "msg" as const, id: `init-${i}`, from: "maria" as const, text: m.text })),
+        INITIAL.map((m, i) => ({
+          kind: "msg" as const,
+          id: `init-${i}`,
+          from: "maria" as const,
+          text: m.text,
+        })),
       );
       return;
     }
@@ -141,17 +182,32 @@ export default function AIDrawer({
       if (item.type === "message") {
         if (item.data.role === "user") {
           if (item.data.content) {
-            out.push({ kind: "msg", id: item.id, from: "me", text: item.data.content });
+            out.push({
+              kind: "msg",
+              id: item.id,
+              from: "me",
+              text: item.data.content,
+            });
           }
           prevAgent = null;
           lastAgentForLabel = null;
         } else {
           const agent = detectAgent(item.id);
           if (prevAgent && prevAgent !== agent) {
-            out.push({ kind: "handoff", id: `handoff-${item.id}`, toAgent: agent });
+            out.push({
+              kind: "handoff",
+              id: `handoff-${item.id}`,
+              toAgent: agent,
+            });
           }
           const showLabel = agent !== lastAgentForLabel;
-          out.push({ kind: "msg", id: item.id, from: agent, text: item.data.content, showLabel });
+          out.push({
+            kind: "msg",
+            id: item.id,
+            from: agent,
+            text: item.data.content,
+            showLabel,
+          });
           prevAgent = agent;
           lastAgentForLabel = agent;
         }
@@ -212,7 +268,7 @@ export default function AIDrawer({
       `}</style>
 
       <aside
-        className="ai-drawer-aside"
+        className="ai-drawer-aside z-50"
         aria-hidden={!open}
         aria-label="AI asistent"
         style={{
@@ -238,11 +294,14 @@ export default function AIDrawer({
             gap: 10,
             padding: "16px 18px",
             borderBottom: "1px solid var(--border-1)",
-            background: "linear-gradient(180deg, var(--surface-2) 0%, var(--surface) 100%)",
+            background:
+              "linear-gradient(180deg, var(--surface-2) 0%, var(--surface) 100%)",
             flexShrink: 0,
           }}
         >
-          <div style={{ display: "flex", alignItems: "center", gap: 10, flex: 1 }}>
+          <div
+            style={{ display: "flex", alignItems: "center", gap: 10, flex: 1 }}
+          >
             <div
               style={{
                 width: 36,
@@ -277,11 +336,15 @@ export default function AIDrawer({
                   fontFamily: "var(--main-font)",
                   fontWeight: 500,
                   fontSize: 11,
-                  color: isStreaming ? "var(--secondary-color)" : "var(--success)",
+                  color: isStreaming
+                    ? "var(--secondary-color)"
+                    : "var(--success)",
                   transition: "color 200ms",
                 }}
               >
-                {activeAgent === "claudia" ? "Specijalista za zakazivanje" : "AI asistent"}
+                {activeAgent === "claudia"
+                  ? "Specijalista za zakazivanje"
+                  : "AI asistent"}
                 {" · "}
                 {isStreaming ? "kuca..." : "online"}
               </div>
@@ -291,7 +354,9 @@ export default function AIDrawer({
           <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
             <HistoryDropdown
               sessions={syntheticSessions}
-              currentSessionId={syntheticSessions.length > 0 ? "landing-session" : null}
+              currentSessionId={
+                syntheticSessions.length > 0 ? "landing-session" : null
+              }
               onSelectSession={() => {}}
               onDeleteSession={() => onClearChat?.()}
               onNewChat={() => onClearChat?.()}
@@ -312,10 +377,12 @@ export default function AIDrawer({
                 justifyContent: "center",
               }}
               onMouseEnter={(e) => {
-                (e.currentTarget as HTMLButtonElement).style.background = "var(--brand-100)";
+                (e.currentTarget as HTMLButtonElement).style.background =
+                  "var(--brand-100)";
               }}
               onMouseLeave={(e) => {
-                (e.currentTarget as HTMLButtonElement).style.background = "var(--surface-2)";
+                (e.currentTarget as HTMLButtonElement).style.background =
+                  "var(--surface-2)";
               }}
             >
               <XMarkIcon style={{ width: 18, height: 18 }} strokeWidth={1.5} />
@@ -337,19 +404,9 @@ export default function AIDrawer({
           }}
         >
           {displayItems.map((item) => {
-            if (item.kind === "block") {
-              return (
-                <div
-                  key={item.id}
-                  style={{
-                    alignSelf: "stretch",
-                    width: "100%",
-                  }}
-                >
-                  <LayoutEngine blocks={item.block} onMessageAction={onAsk} />
-                </div>
-              );
-            }
+            // Blocks are now rendered in AIWorkspace (main page), not in the sidebar
+            if (item.kind === "block") return null;
+
             if (item.kind === "handoff") {
               const info = AGENT_INFO[item.toAgent];
               return (
@@ -368,16 +425,37 @@ export default function AIDrawer({
                     letterSpacing: 0.4,
                   }}
                 >
-                  <div style={{ flex: 1, height: 1, background: "var(--border-1)" }} />
-                  <SparklesIcon style={{ width: 12, height: 12, color: "var(--secondary-color)" }} />
+                  <div
+                    style={{
+                      flex: 1,
+                      height: 1,
+                      background: "var(--border-1)",
+                    }}
+                  />
+                  <SparklesIcon
+                    style={{
+                      width: 12,
+                      height: 12,
+                      color: "var(--secondary-color)",
+                    }}
+                  />
                   <span>Prebačeno na {info.name}</span>
-                  <div style={{ flex: 1, height: 1, background: "var(--border-1)" }} />
+                  <div
+                    style={{
+                      flex: 1,
+                      height: 1,
+                      background: "var(--border-1)",
+                    }}
+                  />
                 </div>
               );
             }
             if (item.from === "me") {
               return (
-                <div key={item.id} style={{ maxWidth: "85%", alignSelf: "flex-end" }}>
+                <div
+                  key={item.id}
+                  style={{ maxWidth: "85%", alignSelf: "flex-end" }}
+                >
                   <div
                     style={{
                       background: "var(--secondary-color)",
@@ -414,7 +492,10 @@ export default function AIDrawer({
                       fontFamily: "var(--main-font)",
                       fontWeight: 700,
                       fontSize: 11,
-                      color: item.from === "claudia" ? "var(--secondary-color)" : "var(--fg-3)",
+                      color:
+                        item.from === "claudia"
+                          ? "var(--secondary-color)"
+                          : "var(--fg-3)",
                       paddingLeft: 36,
                     }}
                   >
@@ -475,7 +556,10 @@ export default function AIDrawer({
                           color: "#fff",
                         }}
                       >
-                        <CheckIcon style={{ width: 14, height: 14 }} strokeWidth={2} />
+                        <CheckIcon
+                          style={{ width: 14, height: 14 }}
+                          strokeWidth={2}
+                        />
                         Potvrdi termin
                       </button>
                     )}
@@ -631,10 +715,12 @@ export default function AIDrawer({
                 transition: "background var(--dur-fast) var(--ease-out)",
               }}
               onMouseEnter={(e) => {
-                (e.currentTarget as HTMLButtonElement).style.background = "var(--brand-100)";
+                (e.currentTarget as HTMLButtonElement).style.background =
+                  "var(--brand-100)";
               }}
               onMouseLeave={(e) => {
-                (e.currentTarget as HTMLButtonElement).style.background = "var(--surface-2)";
+                (e.currentTarget as HTMLButtonElement).style.background =
+                  "var(--surface-2)";
               }}
             >
               {c.label}
@@ -660,80 +746,86 @@ export default function AIDrawer({
               paddingTop: 12,
             }}
           >
-          <textarea
-            rows={1}
-            placeholder="Pitaj Mariju…"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                send();
-              }
-            }}
-            style={{
-              flex: 1,
-              resize: "none",
-              border: "none",
-              background: "var(--surface-2)",
-              borderRadius: 14,
-              padding: "12px 14px",
-              fontFamily: "var(--main-font)",
-              fontWeight: 400,
-              fontSize: 14,
-              color: "var(--fg-1)",
-              outline: "none",
-            }}
-            onFocus={(e) => {
-              e.currentTarget.style.outline = "2px solid var(--secondary-color)";
-              e.currentTarget.style.background = "var(--surface)";
-            }}
-            onBlur={(e) => {
-              e.currentTarget.style.outline = "none";
-              e.currentTarget.style.background = "var(--surface-2)";
-            }}
-          />
-          <button
-            onClick={() => setShowStats((s) => !s)}
-            aria-label="Statistika korišćenja"
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "center",
-              width: 36,
-              height: 36,
-              borderRadius: "999px",
-              border: "none",
-              cursor: "pointer",
-              background: showStats ? "var(--brand-100)" : "var(--surface-2)",
-              color: showStats ? "var(--secondary-color)" : "var(--fg-2)",
-              flexShrink: 0,
-              transition: "background 150ms, color 150ms",
-            }}
-          >
-            <BoltIcon style={{ width: 16, height: 16 }} strokeWidth={1.5} />
-          </button>
-          <button
-            onClick={send}
-            disabled={!isSendEnabled}
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "center",
-              border: "none",
-              cursor: isSendEnabled ? "pointer" : "default",
-              fontFamily: "var(--main-font)",
-              fontWeight: 700,
-              fontSize: 12,
-              padding: "9px 14px",
-              borderRadius: 10,
-              background: isSendEnabled ? "var(--secondary-color)" : "var(--surface-2)",
-              color: isSendEnabled ? "#fff" : "var(--fg-3)",
-              transition: "background var(--dur-fast) var(--ease-out)",
-            }}
-          >
-            <PaperAirplaneIcon style={{ width: 14, height: 14 }} strokeWidth={1.5} />
-          </button>
+            <textarea
+              rows={1}
+              placeholder="Pitaj Mariju…"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  send();
+                }
+              }}
+              style={{
+                flex: 1,
+                resize: "none",
+                border: "none",
+                background: "var(--surface-2)",
+                borderRadius: 14,
+                padding: "12px 14px",
+                fontFamily: "var(--main-font)",
+                fontWeight: 400,
+                fontSize: 14,
+                color: "var(--fg-1)",
+                outline: "none",
+              }}
+              onFocus={(e) => {
+                e.currentTarget.style.outline =
+                  "2px solid var(--secondary-color)";
+                e.currentTarget.style.background = "var(--surface)";
+              }}
+              onBlur={(e) => {
+                e.currentTarget.style.outline = "none";
+                e.currentTarget.style.background = "var(--surface-2)";
+              }}
+            />
+            <button
+              onClick={() => setShowStats((s) => !s)}
+              aria-label="Statistika korišćenja"
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                width: 36,
+                height: 36,
+                borderRadius: "999px",
+                border: "none",
+                cursor: "pointer",
+                background: showStats ? "var(--brand-100)" : "var(--surface-2)",
+                color: showStats ? "var(--secondary-color)" : "var(--fg-2)",
+                flexShrink: 0,
+                transition: "background 150ms, color 150ms",
+              }}
+            >
+              <BoltIcon style={{ width: 16, height: 16 }} strokeWidth={1.5} />
+            </button>
+            <button
+              onClick={send}
+              disabled={!isSendEnabled}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                border: "none",
+                cursor: isSendEnabled ? "pointer" : "default",
+                fontFamily: "var(--main-font)",
+                fontWeight: 700,
+                fontSize: 12,
+                padding: "9px 14px",
+                borderRadius: 10,
+                background: isSendEnabled
+                  ? "var(--secondary-color)"
+                  : "var(--surface-2)",
+                color: isSendEnabled ? "#fff" : "var(--fg-3)",
+                transition: "background var(--dur-fast) var(--ease-out)",
+              }}
+            >
+              <PaperAirplaneIcon
+                style={{ width: 14, height: 14 }}
+                strokeWidth={1.5}
+              />
+            </button>
           </div>
         </div>
       </aside>

@@ -50,7 +50,7 @@ export default function PricingBlockView({ block }: Props) {
     <div ref={containerRef} className="scroll-mt-20">
       <Reveal>
         <div className="bg-gray-100 rounded-3xl px-2 md:px-0 p-6 border border-gray-100 shadow-xl">
-          <div className="relative isolate px-1 lg:px-8">
+          <div className="relative isolate overflow-hidden px-1 lg:px-8">
             <div
               aria-hidden="true"
               className="absolute inset-x-0 -top-4 -z-10 transform-gpu overflow-hidden blur-3xl sm:-top-18"

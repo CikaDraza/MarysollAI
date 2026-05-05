@@ -2,14 +2,15 @@
 
 import { useState } from "react";
 import { SparklesIcon } from "@heroicons/react/24/outline";
+import { useLandingUI } from "@/context/landing/LandingUIContext";
+import { useCityContext } from "@/context/landing/CityContext";
+import { useFilters } from "@/context/landing/FiltersContext";
 
-interface Props {
-  onOpenAI: () => void;
-  city?: string;
-  category?: string;
-}
-
-export default function NotifyMeWidget({ onOpenAI, city, category }: Props) {
+export default function NotifyMeWidget() {
+  const { setDrawerOpen } = useLandingUI();
+  const { cityName: city } = useCityContext();
+  const { category } = useFilters();
+  const onOpenAI = () => setDrawerOpen(true);
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");

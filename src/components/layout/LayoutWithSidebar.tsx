@@ -60,7 +60,7 @@ export default function LayoutWithSidebar({
   );
 
   if (isLanding) {
-    return <AgentBridge>{children}</AgentBridge>;
+    return <>{children}</>;
   }
 
   return (

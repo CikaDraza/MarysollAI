@@ -87,7 +87,7 @@ export function ResetPasswordBlockView({
   return (
     <div ref={containerRef} className="scroll-mt-20">
       <Reveal>
-        <div className="isolate relative bg-gray-900 rounded-2xl">
+        <div className="isolate relative bg-gray-900 overflow-hidden rounded-2xl">
           <Toaster position="top-right" />
           <div
             aria-hidden="true"

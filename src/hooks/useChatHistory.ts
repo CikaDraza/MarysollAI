@@ -31,6 +31,15 @@ const getInitialThread = (): ThreadItem[] => {
 let thread = getInitialThread();
 const listeners = new Set<() => void>();
 
+interface GlobalStreamingState { isStreaming: boolean; text: string }
+let streamingState: GlobalStreamingState = { isStreaming: false, text: "" };
+const streamingListeners = new Set<() => void>();
+
+export function setGlobalStreaming(state: GlobalStreamingState) {
+  streamingState = state;
+  streamingListeners.forEach(l => l());
+}
+
 const threadStore = {
   getThread: () => thread,
   setThread: (
@@ -57,6 +66,12 @@ export function useChatHistory() {
     threadStore.subscribe,
     threadStore.getThread,
     threadStore.getThread,
+  );
+
+  const claudiaStreaming = useSyncExternalStore(
+    (onChange) => { streamingListeners.add(onChange); return () => streamingListeners.delete(onChange); },
+    () => streamingState,
+    () => streamingState,
   );
 
   const setThread = useCallback(
@@ -109,5 +124,6 @@ export function useChatHistory() {
     saveToHistory,
     updateThread,
     clearHistory,
+    claudiaStreaming,
   };
 }

@@ -1,87 +1,21 @@
 // app/api/ai/deepseek-conversation/route.ts
 import { NextResponse } from "next/server";
-import { Message, SendMessageResponse } from "@/types/ai/deepseek";
-import { SalonProfile } from "@/types/salon-profile-type";
-import { IService } from "@/types/services-type";
+import { Message } from "@/types/ai/deepseek";
+import { fetchPlatformKnowledge } from "@/lib/ai/platform-knowledge";
 
 export const maxDuration = 60;
 export const dynamic = "force-dynamic";
 
-// Tipovi za interne funkcije
-interface SalonKnowledge {
-  services: IService[];
-  profile: SalonProfile | null;
-}
-
-interface AgentCallMetadata {
-  type: string;
-  originalMessage: string;
-  userIntent: string;
-}
-
-interface DeepSeekResponse extends SendMessageResponse {
-  _agentCall?: AgentCallMetadata;
-}
-
-// Funkcija za dobavljanje podataka o salonu
-async function getSalonKnowledge(): Promise<SalonKnowledge | null> {
-  const MAIN_SITE_API = process.env.MAIN_SITE_API;
-
-  if (!MAIN_SITE_API) {
-    console.error("MAIN_SITE_API nije definisan");
-    return null;
-  }
-
-  try {
-    const [servicesRes, profileRes] = await Promise.all([
-      fetch(`${MAIN_SITE_API}/services`, { cache: "no-store" }),
-      fetch(`${MAIN_SITE_API}/salon-profile`, { cache: "no-store" }),
-    ]);
-
-    if (!servicesRes.ok || !profileRes.ok) {
-      console.error("Greška pri dobavljanju podataka:", {
-        services: servicesRes.status,
-        profile: profileRes.status,
-      });
-      return null;
-    }
-
-    const servicesData: IService[] = await servicesRes.json();
-    const profileData: SalonProfile = await profileRes.json();
-
-    return {
-      services: servicesData,
-      profile: profileData,
-    };
-  } catch (error) {
-    console.error("Failed to fetch salon knowledge:", error);
-    return null;
-  }
-}
-
-// System prompt za DeepSeek
-function getSystemPrompt(salonData: SalonKnowledge | null): string {
-  const services = salonData?.services ?? [];
-  const profile = salonData?.profile ?? null;
-
-  const servicesText =
-    services.length > 0
-      ? services
-          .map((service: IService) => {
-            if (service.type === "variant" && service.variants?.length) {
-              return `- ${service.name} (osnovna cena: ${service.basePrice || "počev od"} RSD, trajanje: ${service.duration} min)`;
-            }
-            return `- ${service.name}: ${service.price || service.basePrice || "Cena na upit"} RSD (trajanje: ${service.duration} min)`;
-          })
-          .join("\n")
-      : "Trenutno nema dostupnih usluga.";
-
-  const workingHoursText = profile?.workingHours
-    ? Object.entries(profile.workingHours)
-        .map(([day, hours]) => `${day}: ${hours}`)
-        .join(", ")
-    : "Radno vreme nije definisano.";
-
+function buildMariaSystemPrompt(
+  salonsText: string,
+  servicesText: string,
+  citiesText: string,
+  categoriesText: string,
+  userName: string,
+  isAuthenticated: boolean,
+  userCity: string,
+  language: string,
+): string {
   const currentDate = new Date().toLocaleDateString("sr-RS", {
     weekday: "long",
     year: "numeric",
@@ -91,100 +25,119 @@ function getSystemPrompt(salonData: SalonKnowledge | null): string {
 
   return `
 # IDENTITY
-Ti si **Maria Deep** koji predstavlja **Marysoll sistem za pomoc salonima**. 
-NISI nezavisni AI asistent - ti si glas i predstavnik salona koji koriste Marysoll sistem za zakazivanje, sistem za komunikaciju sa klijentima, automatski podsetnici.
-Kada korisnik pita za usluge, ti odgovaraš sa USLUGAMA SALONA, ne o sebi.
 
-# ROLE
-Ime: Maria Deep. Ton: Profesionalan, ženski rod, prijatan i koristan.
-Ti si AI asistent za beauty salon koji pomaže klijentima sa informacijama i upućuje ih na drugog asistenta za konkretne akcije.
+Ti si **Maria**, AI concierge Marysoll booking platforme.
+Govoriš u ženskom rodu. Ton: kratak, jasan, prijatan.
+Bez emojia. Bez dugih objašnjenja.
 
-# KNOWLEDGE BASE - SALON INFO
-- NAZIV SALONA: ${profile?.name || "Marysoll Salon"}
-- LOKACIJA: ${profile?.street || "Nije definisana"}, ${profile?.city || ""}
-- KONTAKT: ${profile?.phone || "Nije definisan"} | ${profile?.email || "Nije definisan"}
-- RADNO VREME: ${workingHoursText}
-- DANAS JE: ${currentDate}
+# CRITICAL RULE
 
-# USLUGE I CENE (OVO SU USLUGE SALONA, KOJE TI PREDSTAVLJAŠ)
+Ti NISI booking agent. Ti si SAMO concierge i router.
+Tvoj jedini cilj: prepoznaj intent → prosledi pravom agentu.
+
+NIKADA ne vodiš booking razgovor.
+NIKADA ne postavljaš više pitanja za booking flow.
+Maksimalno JEDNA rečenica po odgovoru.
+
+--------------------------------------------------
+# DANAS JE
+${currentDate}
+
+# USER CONTEXT
+- USER: ${userName || "Gost"}
+- AUTHENTICATED: ${isAuthenticated}
+- CITY: ${userCity || "nije definisan"}
+- LANGUAGE: ${language || "sr"}
+
+--------------------------------------------------
+# KNOWLEDGE BASE
+
+### SALONI
+${salonsText}
+
+### USLUGE
 ${servicesText}
 
-# TVOJA ULOGA
-Ti si prvi kontakt sa korisnikom. Tvoj zadatak je da:
-1. Odgovaraš na opšta pitanja o salonu, uslugama, radnom vremenu
-2. Prepoznaš kada korisnik želi da izvrši neku AKCIJU (zakazivanje, prijava, pregled termina, cenovnik, utisci)
-3. Kada prepoznaš akciju, ti ćeš pozvati specijalizovanog asistenta
+### GRADOVI
+${citiesText}
 
-# VAŽNO: Kada korisnik pita "koje usluge imate", ti odgovaraš sa listom USLUGA IZ NADMA navedenih. Nikada ne reci "ja lično ne pružam usluge" - ti si predstavnik salona, i salon pruža ove usluge.
+### KATEGORIJE
+${categoriesText}
 
-# PRIMER DOBROG ODGOVORA:
-Korisnik: "Koje usluge imate?"
-Ti: "U našem salonu možemo da ti ponudimo:
-- Šišanje i farbanje: od 2500 RSD
-- Manikir: od 1500 RSD
-- Pedikir: od 2000 RSD
-- Šminkanje: od 3000 RSD
+--------------------------------------------------
+# AGENT HANDOFF — OBAVEZNO
 
-Želiš li da vidiš kompletan cenovnik? [CALL_AGENT:prices]"
+Kada prepoznaš intent, odmah dodaj marker na KRAJU poruke.
+Marker mora biti POSLEDNJA stvar u poruci. Bez objašnjenja. Bez "pogleda dole".
 
-# PREPOZNAVANJE AKCIJA
-Korisnik može želeti:
-- ZAKAZIVANJE: "želim da zakažem", "termin za", "rezerviši", "booking", "zakaži"
-- PRIJAVA: "da se prijavim", "login", "uloguj se", "registracija", "napravi nalog"
-- CENOVNIK: "cene", "koliko košta", "cenovnik", "price", "spisak usluga"
-- TERMINI: "moji termini", "kada sam zakazao", "pregled termina", "moje rezervacije"
-- UTISCI: "ostavi utisak", "recenzija", "komentar", "mišljenje", "iskustvo"
+## TERMINI
+Prepoznaješ: "moji termini", "šta sam zakazala", "reservations", "zakazano"
+→ "Prikazujem tvoje termine." [CALL_AGENT:appointments]
 
-# KADA POZVATI DRUGOG ASISTENTA
-Kada prepoznaš akciju, odgovori korisniku da ćeš ga povezati sa asistentom koji može da pomogne.
-Zatim u odgovoru **OBAVEZNO** dodaj marker na KRAJU: [CALL_AGENT:action_type]
+## BOOKING
+Prepoznaješ: "zakaži", "termin", "slobodan termin", "rezerviši", "booking", "sutra", "danas", "posle Xh", "hitno"
+→ "Tražim slobodne termine za tebe." [CALL_AGENT:booking]
 
-Mogući action_type: 
-- "booking" - za zakazivanje
-- "auth" - za login/registraciju
-- "prices" - za cenovnik
-- "appointments" - za pregled termina
-- "testimonials" - za utiske
+## LOGIN / REGISTRACIJA
+Prepoznaješ: "login", "prijavi me", "napravi nalog", "registracija", "uloguj", "zaboravio lozinku"
+→ "Otvaramo prijavu." [CALL_AGENT:auth]
 
-# PRIMER SA MARKEROM
-Korisnik: "Koje usluge imate?"
-Ti: "Imamo širok spektar usluga: šišanje, farbanje, manikir, pedikir... Cene se kreću od 1500 RSD. Želiš li da vidiš kompletan cenovnik? [CALL_AGENT:prices]"
+## CENOVNIK
+Prepoznaješ: "cenovnik", "koliko košta", "cene", "price list", "šta košta"
+→ "Otvaramo cenovnik." [CALL_AGENT:prices]
 
-# VAŽNA PRAVILA
-1. Uvek budi ljubazna i profesionalna
-2. Ako ne znaš odgovor, reci da ćeš povezati sa odgovarajućim asistentom
-3. Nikada ne izmišljaj informacije - koristi samo knowledge base
-4. Za jednostavna pitanja (radno vreme, lokacija, usluge) odgovori direktno
-5. Za bilo šta što zahteva akciju, prosledi drugom asistentu i OBAVEZNO dodaj marker
-`;
+## UTISCI
+Prepoznaješ: "utisci", "review", "komentar", "ocena"
+→ "Otvaramo utiske." [CALL_AGENT:testimonials]
+
+--------------------------------------------------
+# MULTI LANGUAGE
+
+Odgovaraj na jeziku korisnika (srpski / engleski / mešano).
+
+--------------------------------------------------
+# HARD RULES
+
+- MAX 1 rečenica po odgovoru.
+- UVEK završi sa markerom kada prepoznaš intent.
+- NIKADA ne izmišljaj usluge, cene ili termine.
+- NIKADA ne govori "pogledaj dole" ili "nije dostupno".
+- Za opšta pitanja (radno vreme, lokacije): odgovori direktno iz knowledge base, 1 rečenica.
+`.trim();
 }
 
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { messages, stream = false } = body as {
+    const {
+      messages,
+      stream = false,
+      isAuthenticated = false,
+      userName = "Guest",
+      userCity = "",
+      language = "sr",
+    } = body as {
       messages: Pick<Message, "role" | "content">[];
       stream?: boolean;
+      isAuthenticated?: boolean;
+      userName?: string;
+      userCity?: string;
+      language?: string;
     };
 
-    // Dobavi podatke o salonu
-    const salonData = await getSalonKnowledge();
+    const { salonsText, servicesText, citiesText, categoriesText } =
+      await fetchPlatformKnowledge();
 
-    // Kreiraj system prompt sa knowledge base-om
-    const systemPrompt = getSystemPrompt(salonData);
-
-    const wrappedMessages = [
-      {
-        role: "user" as const,
-        content: `[SISTEMSKE INSTRUKCIJE - OVO JE OBAVEZNO ZA TVOJ RAD]:\n\n${systemPrompt}\n\nZapamti ove instrukcije. Ti si isključivo predstavnik salona.`,
-      },
-      {
-        role: "assistant" as const,
-        content:
-          "Razumem. Ja sam predstavnik Marysoll salona i odgovaraću isključivo na osnovu datih informacija o salonu.",
-      },
-      ...messages,
-    ];
+    const systemPrompt = buildMariaSystemPrompt(
+      salonsText,
+      servicesText,
+      citiesText,
+      categoriesText,
+      userName,
+      isAuthenticated,
+      userCity,
+      language,
+    );
 
     const response = await fetch(
       "https://api.deepseek.com/v1/chat/completions",
@@ -196,10 +149,13 @@ export async function POST(req: Request) {
         },
         body: JSON.stringify({
           model: "deepseek-chat",
-          messages: wrappedMessages,
-          temperature: 0.7,
-          max_tokens: 2000,
-          stream: stream,
+          messages: [
+            { role: "system", content: systemPrompt },
+            ...messages,
+          ],
+          temperature: 0.3,
+          max_tokens: 200,
+          stream,
         }),
       },
     );
@@ -213,7 +169,6 @@ export async function POST(req: Request) {
       );
     }
 
-    // Ako je streaming, prosledi stream odgovor
     if (stream) {
       return new Response(response.body, {
         headers: {
@@ -224,39 +179,15 @@ export async function POST(req: Request) {
       });
     }
 
-    // Inače vrati JSON
-    const data = (await response.json()) as DeepSeekResponse;
-
-    const assistantMessage = data.choices[0]?.message?.content;
-
-    if (!assistantMessage) {
-      return NextResponse.json(data);
-    }
-
-    const agentCallMatch = assistantMessage.match(/\[CALL_AGENT:(\w+)\]/);
-
-    if (agentCallMatch) {
-      // Ukloni marker iz poruke
-      const cleanMessage = assistantMessage
-        .replace(/\[CALL_AGENT:\w+\]/, "")
-        .trim();
-
-      data.choices[0].message.content = cleanMessage;
-
-      // Dodaj metapodatke o pozivu agenta
-      data._agentCall = {
-        type: agentCallMatch[1],
-        originalMessage: cleanMessage,
-        userIntent: agentCallMatch[1],
-      };
-    }
-
-    return NextResponse.json(data);
+    return new Response(response.body, {
+      headers: { "Content-Type": "application/json" },
+    });
   } catch (error) {
-    console.error("Error in chat API:", error);
+    console.error("Error in deepseek-conversation API:", error);
     return NextResponse.json(
       {
-        error: error instanceof Error ? error.message : "Internal server error",
+        error:
+          error instanceof Error ? error.message : "Internal server error",
       },
       { status: 500 },
     );

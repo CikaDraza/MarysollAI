@@ -7,15 +7,9 @@ import {
   ClockIcon,
 } from "@heroicons/react/24/solid";
 import type { FlatSlot, SearchResult } from "@/types/slots";
-import type { CitySlots } from "@/hooks/useSearch";
-
-interface Props {
-  slotsByCity: CitySlots[];
-  loading?: boolean;
-  onBook: (slot: FlatSlot) => void;
-  userCity?: string;      // user's selected/geo city for context labels
-  fallbackLevel?: number; // from useSearch — determines label tone
-}
+import { useCityContext } from "@/context/landing/CityContext";
+import { useSearchContext } from "@/context/landing/SearchContext";
+import { useBookingModal } from "@/context/landing/BookingModalContext";
 
 /** Returns a human-readable section label for a city group. */
 function cityGroupLabel(
@@ -23,29 +17,28 @@ function cityGroupLabel(
   userCity: string | undefined,
   fallbackLevel: number,
 ): string {
-  const isUserCity =
-    userCity && city.toLowerCase() === userCity.toLowerCase();
+  const isUserCity = userCity && city.toLowerCase() === userCity.toLowerCase();
 
   if (isUserCity) return `Slobodni termini — ${city}`;
   if (fallbackLevel <= 4) return `Bliski gradovi — ${city}`;
   return `Popularno u Srbiji — ${city}`;
 }
 
-export default function BookingWidget({
-  slotsByCity,
-  loading,
-  onBook,
-  userCity,
-  fallbackLevel = 0,
-}: Props) {
+export default function BookingWidget() {
+  const { cityName: userCity } = useCityContext();
+  const { slotsByCity, fallbackLevel, isLoading: loading } = useSearchContext();
+  const { openModal: onBook } = useBookingModal();
   const hasAny = slotsByCity.some((g) => g.slots.length > 0);
 
   // Compute a friendly subtitle once
   const subtitle = useMemo(() => {
     if (!hasAny || loading) return null;
-    const cities = slotsByCity.filter((g) => g.slots.length > 0).map((g) => g.city);
+    const cities = slotsByCity
+      .filter((g) => g.slots.length > 0)
+      .map((g) => g.city);
     if (cities.length === 0) return null;
-    const hasUserCity = userCity && cities[0]?.toLowerCase() === userCity.toLowerCase();
+    const hasUserCity =
+      userCity && cities[0]?.toLowerCase() === userCity.toLowerCase();
     if (hasUserCity) return null; // no extra explanation needed
     if (fallbackLevel >= 5) return "Prikazujemo termine iz popularnih gradova.";
     if (fallbackLevel >= 4) return "Prikazujemo termine iz gradova u blizini.";
@@ -273,7 +266,7 @@ function SlotCard({
           marginBottom: 3,
         }}
       >
-        <p
+        <h3
           style={{
             fontFamily: "var(--main-font)",
             fontWeight: 700,
@@ -287,8 +280,9 @@ function SlotCard({
             minWidth: 0,
           }}
         >
-          {slot.salonName}
-        </p>
+          {slot.serviceName}
+          {slot.serviceDuration ? ` · ${slot.serviceDuration} min` : ""}
+        </h3>
         {slot.verified && (
           <CheckBadgeIcon
             title="Verifikovani salon"
@@ -315,8 +309,7 @@ function SlotCard({
           whiteSpace: "nowrap",
         }}
       >
-        {slot.serviceName}
-        {slot.serviceDuration ? ` · ${slot.serviceDuration} min` : ""}
+        {slot.salonName}
       </p>
 
       {/* Meta row: distance + price */}
@@ -423,7 +416,13 @@ function SlotSkeleton() {
         boxShadow: "var(--shadow-sm)",
       }}
     >
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "baseline",
+        }}
+      >
         <div style={skel(72, 30)} />
         <div style={skel(56, 20, 8)} />
       </div>
@@ -475,8 +474,18 @@ function formatTimeFallback(iso: string): string {
 }
 
 const MONTHS = [
-  "jan", "feb", "mar", "apr", "maj", "jun",
-  "jul", "avg", "sep", "okt", "nov", "dec",
+  "jan",
+  "feb",
+  "mar",
+  "apr",
+  "maj",
+  "jun",
+  "jul",
+  "avg",
+  "sep",
+  "okt",
+  "nov",
+  "dec",
 ];
 const DAYS = ["Ned", "Pon", "Uto", "Sre", "Čet", "Pet", "Sub"];
 

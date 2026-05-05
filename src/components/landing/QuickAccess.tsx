@@ -10,6 +10,13 @@ import {
   type CategorySlug,
 } from "@/lib/intent/categoryMap";
 import { generateSlotsFromWorkingHours } from "@/lib/slots/generateSlots";
+import { stripDiacritics } from "@/lib/intent/parseIntent";
+import { useSalons } from "@/hooks/useSalons";
+import { useCityContext } from "@/context/landing/CityContext";
+import { useFilters } from "@/context/landing/FiltersContext";
+import { useSearchContext } from "@/context/landing/SearchContext";
+import { useBookingModal } from "@/context/landing/BookingModalContext";
+import type { FlatSlot } from "@/types/slots";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -31,16 +38,6 @@ const MONTHS_SR = [
 const DAYS_SR = ["Ned", "Pon", "Uto", "Sre", "Čet", "Pet", "Sub"];
 
 // ── Types ─────────────────────────────────────────────────────────────────────
-
-interface Props {
-  salons: MappedSalon[];
-  loading?: boolean;
-  category: string;
-  cityName?: string;
-  slotsByCity?: CitySlots[];
-  onPick: (slot: QuickSlot) => void;
-  onCategoryPick: (category: string) => void;
-}
 
 export interface QuickSlot {
   salonId: string;
@@ -150,15 +147,34 @@ function formatPrice(
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export default function QuickAccess({
-  salons,
-  loading,
-  category,
-  cityName,
-  slotsByCity,
-  onPick,
-  onCategoryPick,
-}: Props) {
+export default function QuickAccess() {
+  const { cityName } = useCityContext();
+  const {
+    category,
+    subcategoryFilter: subcategory,
+    dateFilter: date,
+    timeWindowStart,
+    timeWindowEnd,
+    handleCategoryPick,
+  } = useFilters();
+  const { slotsByCity } = useSearchContext();
+  const { openModal } = useBookingModal();
+  const { data: salons = [], isLoading: loading } = useSalons(cityName);
+
+  const onPick = (slot: QuickSlot) => {
+    const flatSlot: FlatSlot = {
+      salonId: slot.salonId,
+      salonName: slot.salonName,
+      serviceId: slot.serviceId,
+      serviceName: slot.serviceName,
+      category: slot.serviceCategory,
+      startTime: slot.startTime,
+      city: slot.city,
+    };
+    openModal(flatSlot);
+  };
+
+  const onCategoryPick = (slug: string) => handleCategoryPick(slug, cityName ?? "");
   const [activeServiceId, setActiveServiceId] = useState<string | null>(null);
 
   // Salons for the user's city only (if city is known)
@@ -300,15 +316,49 @@ export default function QuickAccess({
     return result.sort((a, b) => a.startTime.localeCompare(b.startTime));
   }, [citySalons, slotsByCity, cityName]);
 
+  // Filter slots to the searched category (when active)
+  const categoryFilteredSlots = useMemo<QuickSlot[]>(() => {
+    if (!category) return allSlots;
+    const canonicalLabel = SLUG_TO_CANONICAL[category as CategorySlug];
+    if (!canonicalLabel) return allSlots;
+    return allSlots.filter((s) => s.serviceCategory === canonicalLabel);
+  }, [allSlots, category]);
+
+  // Filter by date and time window when a search is active
+  const dateTimeFilteredSlots = useMemo<QuickSlot[]>(() => {
+    let slots = categoryFilteredSlots;
+    if (date) {
+      const byDate = slots.filter((s) => s.startTime.slice(0, 10) === date);
+      if (byDate.length > 0) slots = byDate;
+    }
+    if (timeWindowStart !== undefined) {
+      const byTime = slots.filter((s) => {
+        const h = parseInt(s.startTime.slice(11, 13), 10);
+        return h >= timeWindowStart && (timeWindowEnd === undefined || h <= timeWindowEnd);
+      });
+      if (byTime.length > 0) slots = byTime;
+    }
+    return slots;
+  }, [categoryFilteredSlots, date, timeWindowStart, timeWindowEnd]);
+
+  // Narrow to subcategory match when set (service name contains the search term)
+  const subcategoryFilteredSlots = useMemo<QuickSlot[]>(() => {
+    if (!subcategory) return dateTimeFilteredSlots;
+    const subNorm = stripDiacritics(subcategory.toLowerCase());
+    const byName = dateTimeFilteredSlots.filter((s) =>
+      stripDiacritics(s.serviceName.toLowerCase()).includes(subNorm),
+    );
+    return byName.length > 0 ? byName : dateTimeFilteredSlots;
+  }, [dateTimeFilteredSlots, subcategory]);
+
   // Apply service filter if one is active
   const displayedSlots = useMemo(() => {
     if (activeServiceId) {
-      const filtered = allSlots.filter((s) => s.serviceId === activeServiceId);
+      const filtered = subcategoryFilteredSlots.filter((s) => s.serviceId === activeServiceId);
       if (filtered.length > 0) return filtered.slice(0, 3);
     }
-
-    return allSlots.slice(0, 3);
-  }, [allSlots, activeServiceId]);
+    return subcategoryFilteredSlots.slice(0, 3);
+  }, [subcategoryFilteredSlots, activeServiceId]);
 
   // Category groups with services (from city salons only)
   const categoryGroups = useMemo<CategoryGroup[]>(() => {
@@ -343,7 +393,7 @@ export default function QuickAccess({
     !loading && (citySalons.length > 0 || (slotsByCity?.length ?? 0) > 0);
 
   return (
-    <section style={{ marginTop: 64 }}>
+    <section id="quick-access" style={{ marginTop: 64 }}>
       {/* Section header */}
       <div style={{ textAlign: "center", marginBottom: 32 }}>
         <p
@@ -408,7 +458,9 @@ export default function QuickAccess({
             }}
           >
             <ClockIcon style={{ width: 15, height: 15 }} strokeWidth={2} />
-            Termini u — {displayCity}
+            {category && SLUG_TO_CANONICAL[category as CategorySlug]
+              ? `${SLUG_TO_CANONICAL[category as CategorySlug]} — ${displayCity}`
+              : `Termini u — ${displayCity}`}
           </p>
           <div className="ms-slots-row">
             {displayedSlots.map((slot) => (
@@ -420,12 +472,21 @@ export default function QuickAccess({
             ))}
           </div>
         </div>
+      ) : category && SLUG_TO_CANONICAL[category as CategorySlug] ? (
+        <CategoryNotFound
+          category={SLUG_TO_CANONICAL[category as CategorySlug]!}
+          categorySlug={category}
+          city={displayCity}
+          alternateCities={(slotsByCity ?? []).filter(
+            (g) => g.city.toLowerCase() !== displayCity.toLowerCase() && g.slots.length > 0,
+          )}
+        />
       ) : (
         <RecoveryCTA city={displayCity} />
       )}
 
-      {/* ── Categories ─────────────────────────────────────────────────────── */}
-      {(hasData || loading) && (
+      {/* ── Categories — hidden when a search category is active ──────────── */}
+      {!category && (hasData || loading) && (
         <div style={{ marginTop: 8, marginBottom: 48 }}>
           <p
             style={{
@@ -765,6 +826,100 @@ function CategoryCard({
           </button>
         );
       })}
+    </div>
+  );
+}
+
+// ── Category not found ────────────────────────────────────────────────────────
+
+function CategoryNotFound({
+  category,
+  categorySlug,
+  city,
+  alternateCities,
+}: {
+  category: string;
+  categorySlug: string;
+  city: string;
+  alternateCities: CitySlots[];
+}) {
+  const hasCities = alternateCities.length > 0;
+
+  return (
+    <div style={{ marginBottom: 32, textAlign: "center", padding: "28px 24px" }}>
+      <p
+        style={{
+          fontFamily: "var(--main-font)",
+          fontWeight: 700,
+          fontSize: 16,
+          color: "var(--fg-1)",
+          margin: "0 0 8px",
+        }}
+      >
+        Nema slobodnih termina za {category}{city ? ` u ${city}` : ""}
+      </p>
+
+      {hasCities ? (
+        <>
+          <p
+            style={{
+              fontFamily: "var(--main-font)",
+              fontSize: 13,
+              color: "var(--fg-3)",
+              margin: "0 0 16px",
+            }}
+          >
+            Ima slobodnih termina u:
+          </p>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 10, justifyContent: "center" }}>
+            {alternateCities.slice(0, 4).map((g) => {
+              const citySlug = g.city.toLowerCase().replace(/\s+/g, "-");
+              return (
+                <a
+                  key={g.city}
+                  href={`/${citySlug}/${categorySlug}`}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 6,
+                    fontFamily: "var(--main-font)",
+                    fontWeight: 700,
+                    fontSize: 14,
+                    color: "#fff",
+                    background: "var(--secondary-color)",
+                    padding: "10px 20px",
+                    borderRadius: 999,
+                    textDecoration: "none",
+                    transition: "background var(--dur-fast) var(--ease-out)",
+                  }}
+                  onMouseEnter={(e) => {
+                    (e.currentTarget as HTMLAnchorElement).style.background = "var(--secondary-hover)";
+                  }}
+                  onMouseLeave={(e) => {
+                    (e.currentTarget as HTMLAnchorElement).style.background = "var(--secondary-color)";
+                  }}
+                >
+                  {g.city}
+                  <span style={{ opacity: 0.7, fontSize: 12 }}>
+                    {g.slots.length} {g.slots.length === 1 ? "termin" : "termina"}
+                  </span>
+                </a>
+              );
+            })}
+          </div>
+        </>
+      ) : (
+        <p
+          style={{
+            fontFamily: "var(--main-font)",
+            fontSize: 13,
+            color: "var(--fg-3)",
+            margin: 0,
+          }}
+        >
+          Pogledaj termine u okolnim gradovima ispod &darr;
+        </p>
+      )}
     </div>
   );
 }
