@@ -16,6 +16,7 @@ import TestimonialBlockView from "../blocks/TestimonialBlockView";
 import CityListBlockView from "../blocks/CityListBlockView";
 import SalonListBlockView from "../blocks/SalonListBlockView";
 import LandingSearchBlock from "../blocks/LandingSearchBlock";
+import LandingConfirmBlock from "../blocks/LandingConfirmBlock";
 
 export function blockFactory(
   block: BaseBlock,
@@ -36,19 +37,18 @@ export function blockFactory(
         />
       );
     case "ServicePriceBlock":
-      if (isLanding) {
-        return (
-          <LandingSearchBlock
-            key={block.id}
-            block={block}
-            onActionComplete={safeOnAction}
-          />
-        );
-      }
       return (
         <PricingBlockView key={block.id} block={block as PricingBlockType} />
       );
     case "AppointmentCalendarBlock":
+      if (isLanding && block.metadata.time) {
+        return (
+          <LandingConfirmBlock
+            key={block.id}
+            block={block as AppointmentCalendarBlockType}
+          />
+        );
+      }
       if (isLanding) {
         return (
           <LandingSearchBlock

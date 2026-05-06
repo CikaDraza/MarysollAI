@@ -162,7 +162,7 @@ export default function TestimonialBlockView({ onActionComplete }: Props) {
     <div className="scroll-mt-20">
       <Reveal>
         <div className="bg-white rounded-xl p-1 shadow-xl max-w-7xl mx-auto my-6">
-          <Toaster position="top-right" />
+          <Toaster position="top-center" />
 
           {/* Tabs */}
           {/* Lite Header - Tanji i svedeniji */}

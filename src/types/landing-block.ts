@@ -91,6 +91,11 @@ export interface CalendarBlockType extends BaseBlock {
 export interface PricingBlockType extends BaseBlock {
   type: "ServicePriceBlock";
   query?: string;
+  metadata: BaseBlock["metadata"] & {
+    salonId?: string;
+    salonName?: string;
+    service?: string;
+  };
 }
 
 export interface TestimonialBlockType extends BaseBlock {
@@ -105,6 +110,10 @@ export interface AppointmentCalendarBlockType extends BaseBlock {
     variantName: string;
     date?: string;
     time?: string;
+    service?: string;
+    city?: string;
+    salonId?: string;
+    salonName?: string;
   };
   query?: string;
   selectedServiceId?: string;

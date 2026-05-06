@@ -17,6 +17,7 @@ interface Props {
   blocks: BaseBlock[] | BaseBlock | null;
   renderBeforeBlock?: (type: BlockTypes) => React.ReactNode;
   onMessageAction?: (type: string) => void;
+  onBlockAction?: (type: string) => void;
   isLanding?: boolean;
 }
 
@@ -24,6 +25,7 @@ export function LayoutEngine({
   blocks,
   renderBeforeBlock,
   onMessageAction,
+  onBlockAction,
   isLanding,
 }: Props) {
   if (!blocks) return null;
@@ -44,7 +46,7 @@ export function LayoutEngine({
               {renderBeforeBlock && renderBeforeBlock(block.type)}
 
               <div className="relative">
-                {blockFactory(block, onMessageAction, isLanding)}
+                {blockFactory(block, onBlockAction ?? onMessageAction, isLanding)}
 
                 {/* AI follow-up chip — only when AI is wired and hint exists */}
                 {onMessageAction && followUp && (

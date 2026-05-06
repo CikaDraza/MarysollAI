@@ -13,7 +13,8 @@ interface Props {
 
 export default function PricingBlockView({ block }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const { data, isLoading } = useServices({ query: block.query });
+  const salonId = block.metadata?.salonId;
+  const { data, isLoading } = useServices({ query: block.query, salonId });
   const services = data || [];
 
   const groupedServices = groupAndSortServices(services);
@@ -131,7 +132,7 @@ export default function PricingBlockView({ block }: Props) {
                             </li>
                           ))}
                         </ul>
-                        {service.items.length > 0 && (
+                        {service?.items?.length > 0 && (
                           <p className="mt-5 font-semibold text-gray-700">
                             Šta je uključeno
                           </p>
@@ -140,7 +141,7 @@ export default function PricingBlockView({ block }: Props) {
                           role="list"
                           className="text-gray-300 mt-1 space-y-1 text-sm/6 sm:mt-3"
                         >
-                          {service.items.map((item, idx) => (
+                          {service?.items?.map((item, idx) => (
                             <li
                               key={idx}
                               className="flex gap-x-3 text-pretty text-gray-900 flex-col ml-6 list-disc"

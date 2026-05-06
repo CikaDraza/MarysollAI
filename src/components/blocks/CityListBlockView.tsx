@@ -31,10 +31,12 @@ export default function CityListBlockView({ block, onActionComplete }: Props) {
     enabled: true,
   });
 
-  const cities: CityEntry[] = (data?.slotsByCity ?? []).map(({ city, slots }) => ({
-    name: city,
-    slotCount: slots.length,
-  }));
+  const cities: CityEntry[] = (data?.slotsByCity ?? []).map(
+    ({ city, slots }) => ({
+      name: city,
+      slotCount: slots.length,
+    }),
+  );
 
   if (isLoading) {
     return (
@@ -91,9 +93,7 @@ export default function CityListBlockView({ block, onActionComplete }: Props) {
           <Reveal key={`${city.name}-${i}`} delay={i * 0.05}>
             <CityCard
               city={city}
-              onPick={() =>
-                onActionComplete(`Izabrao sam grad: ${city.name}`)
-              }
+              onPick={() => onActionComplete(`Izabrao sam grad: ${city.name}`)}
             />
           </Reveal>
         ))}
@@ -102,13 +102,7 @@ export default function CityListBlockView({ block, onActionComplete }: Props) {
   );
 }
 
-function CityCard({
-  city,
-  onPick,
-}: {
-  city: CityEntry;
-  onPick: () => void;
-}) {
+function CityCard({ city, onPick }: { city: CityEntry; onPick: () => void }) {
   const [hovered, setHovered] = useState(false);
 
   return (

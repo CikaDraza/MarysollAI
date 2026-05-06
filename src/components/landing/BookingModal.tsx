@@ -75,7 +75,8 @@ export default function BookingModal() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           salonId: slot!.salonId,
-          serviceId: slot!.serviceId ?? "",
+          serviceId: slot!.serviceId ?? undefined,
+          serviceName: slot!.serviceName,
           startTime: slot!.startTime,
           user: { name, phone, instagram: instagram || undefined },
         }),

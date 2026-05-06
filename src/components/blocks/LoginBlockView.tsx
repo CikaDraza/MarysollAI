@@ -80,7 +80,7 @@ export function LoginBlockView({
     <div ref={containerRef} className="scroll-mt-20">
       <Reveal>
         <div className="isolate relative overflow-hidden bg-gray-900 rounded-2xl">
-          <Toaster position="top-right" />
+          <Toaster position="top-center" />
           <div
             aria-hidden="true"
             className="absolute inset-x-0 -top-44 -z-10 transform-gpu overflow-hidden blur-3xl lg:-top-96"

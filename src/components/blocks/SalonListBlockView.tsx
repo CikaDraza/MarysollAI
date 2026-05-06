@@ -56,7 +56,7 @@ export default function SalonListBlockView({ block, onActionComplete }: Props) {
               salon={salon}
               onPick={() =>
                 onActionComplete(
-                  `Izabrao sam salon: ${salon.name}${city ? ` u ${city}` : ""}`,
+                  `Izabrao sam salon: ${salon.name} [salonId:${salon.id}]${city ? ` u ${city}` : ""}`,
                 )
               }
             />

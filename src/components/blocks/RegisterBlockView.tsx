@@ -96,7 +96,7 @@ export function RegisterBlockView({
     <div ref={containerRef} className="scroll-mt-20">
       <Reveal>
         <div className="isolate relative bg-gray-900 overflow-hidden px-6 py-24 lg:px-8 rounded-2xl">
-          <Toaster position="top-right" />
+          <Toaster position="top-center" />
           <div
             aria-hidden="true"
             className="absolute inset-x-0 -top-40 -z-10 transform-gpu overflow-hidden blur-3xl sm:-top-80"

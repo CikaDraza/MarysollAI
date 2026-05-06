@@ -23,7 +23,7 @@ const enterTransition = {
 
 export default function AIWorkspace() {
   const { activeBlock, dismissWorkspace } = useWorkspace();
-  const { sendMessage } = useAIContext();
+  const { sendMessage, sendToOrchestrator } = useAIContext();
 
   return (
     <AnimatePresence mode="wait">
@@ -136,6 +136,7 @@ export default function AIWorkspace() {
               <LayoutEngine
                 blocks={activeBlock}
                 onMessageAction={sendMessage}
+                onBlockAction={sendToOrchestrator}
                 isLanding
               />
             </div>

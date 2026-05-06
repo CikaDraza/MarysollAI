@@ -13,6 +13,7 @@ import { useSalonProfile } from "@/hooks/useSalonProfile";
 import { getDay } from "date-fns";
 import LoaderButton from "../LoaderButton";
 import MiniLoader from "../MiniLoader";
+import { formatDatePretty } from "@/helpers/formatISODate";
 import { Reveal } from "../motion/Reveal";
 
 interface Props {
@@ -74,7 +75,13 @@ export default function AppointmentCalendarBlockView({
 
     if (timeRange.includes(" - ")) {
       const [start, end] = timeRange.split(" - ");
-      return { dayName, timeRange, isWorking: true, start: start.trim(), end: end.trim() };
+      return {
+        dayName,
+        timeRange,
+        isWorking: true,
+        start: start.trim(),
+        end: end.trim(),
+      };
     }
 
     return { isWorking: false, start: null, end: null };
@@ -91,7 +98,10 @@ export default function AppointmentCalendarBlockView({
   const triggerGlobalScroll = () => {
     const mainContent = document.getElementById("main-content");
     if (mainContent && containerRef.current) {
-      containerRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+      containerRef.current.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
     }
   };
 
@@ -111,13 +121,88 @@ export default function AppointmentCalendarBlockView({
 
   if (services?.length === 0) return null;
 
-  const locationLabel = [profile?.city, profile?.name].filter(Boolean).join(" · ");
+  const locationLabel = [profile?.city, profile?.name]
+    .filter(Boolean)
+    .join(" · ");
+
+  // Confirm mode: AI has all data (service + date + time) — show summary + single button
+  if (displayValues.selectedTime && displayValues.selectedService) {
+    return (
+      <Reveal>
+        <div
+          style={{
+            background: "var(--surface-2)",
+            borderRadius: 20,
+            padding: "20px 20px 18px",
+            maxWidth: 400,
+            margin: "0 auto",
+          }}
+        >
+          <p
+            style={{
+              fontFamily: "var(--main-font)",
+              fontWeight: 700,
+              fontSize: 13,
+              color: "var(--fg-3)",
+              textTransform: "uppercase",
+              letterSpacing: ".08em",
+              margin: "0 0 14px",
+            }}
+          >
+            Potvrda termina
+          </p>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 18 }}>
+            <Row label="Usluga" value={displayValues.selectedService.name} />
+            <Row label="Datum" value={formatDatePretty(displayValues.selectedDate)} />
+            <Row label="Vreme" value={displayValues.selectedTime} />
+            {locationLabel && <Row label="Salon" value={locationLabel} />}
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 14 }}>
+            <input
+              type="text"
+              placeholder="Ime i prezime"
+              value={displayValues.clientName}
+              onChange={(e) => setters.setClientName(e.target.value)}
+              style={inputStyle}
+            />
+            <input
+              type="tel"
+              placeholder="Telefon"
+              value={displayValues.clientPhone}
+              onChange={(e) => setters.setClientPhone(e.target.value)}
+              style={inputStyle}
+            />
+          </div>
+          <button
+            onClick={handleAIConfirm}
+            disabled={isPending}
+            style={{
+              width: "100%",
+              border: "none",
+              cursor: isPending ? "not-allowed" : "pointer",
+              fontFamily: "var(--main-font)",
+              fontWeight: 700,
+              fontSize: 14,
+              padding: "13px 0",
+              borderRadius: 14,
+              background: isPending ? "var(--fg-3)" : "var(--secondary-color)",
+              color: "#fff",
+              transition: "background 150ms",
+              opacity: isPending ? 0.6 : 1,
+            }}
+          >
+            {isPending ? "Zakazujem…" : "Potvrdi termin"}
+          </button>
+        </div>
+      </Reveal>
+    );
+  }
 
   return (
     <div ref={containerRef} className="scroll-mt-20">
       <Reveal>
         <div className="bg-white rounded-3xl p-6 shadow-xl max-w-md mx-auto my-6">
-          <Toaster position="top-right" />
+          <Toaster position="top-center" />
 
           {/* Header */}
           <div className="flex justify-between items-center mb-5">
@@ -229,7 +314,11 @@ export default function AppointmentCalendarBlockView({
             <div className="grid grid-cols-4 gap-2">
               {timeOptions.map((t) => {
                 const isOutside = workingHoursForDay?.isWorking
-                  ? !isTimeBetween(t, workingHoursForDay.start!, workingHoursForDay.end!)
+                  ? !isTimeBetween(
+                      t,
+                      workingHoursForDay.start!,
+                      workingHoursForDay.end!,
+                    )
                   : true;
                 if (isOutside) return null;
                 return (
@@ -266,3 +355,29 @@ export default function AppointmentCalendarBlockView({
     </div>
   );
 }
+
+function Row({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+      <span style={{ fontFamily: "var(--main-font)", fontSize: 12, color: "var(--fg-3)", fontWeight: 500 }}>
+        {label}
+      </span>
+      <span style={{ fontFamily: "var(--main-font)", fontSize: 13, color: "var(--fg-1)", fontWeight: 700 }}>
+        {value}
+      </span>
+    </div>
+  );
+}
+
+const inputStyle: React.CSSProperties = {
+  width: "100%",
+  padding: "11px 14px",
+  background: "var(--surface)",
+  border: "1px solid var(--border-1)",
+  borderRadius: 12,
+  fontFamily: "var(--main-font)",
+  fontSize: 13,
+  color: "var(--fg-1)",
+  outline: "none",
+  boxSizing: "border-box",
+};

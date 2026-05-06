@@ -35,6 +35,8 @@ const AGENT_MAP: Record<AgentType, ActiveAgent> = {
 interface AIContextValue {
   unifiedThread: ThreadItem[];
   sendMessage: (q: string) => void;
+  /** Always routes directly to Claudia — use this for block interaction callbacks. */
+  sendToOrchestrator: (q: string) => void;
   clearChat: () => void;
   streamingText: string | undefined;
   isStreaming: boolean;
@@ -141,6 +143,18 @@ export function AIProvider({ children }: { children: ReactNode }) {
     [maria, claudia],
   );
 
+  // Block interactions always go straight to Claudia — never through Maria
+  const sendToOrchestrator = useCallback(
+    (q: string) => {
+      // Ensure activeAgent reflects that Claudia is now handling the session
+      if (activeAgentRef.current === "maria") {
+        setActiveAgent("claudia-booking");
+      }
+      void claudia.askAI(q);
+    },
+    [claudia],
+  );
+
   const clearChat = useCallback(() => {
     maria.clearChat();
     claudia.clearChat();
@@ -156,6 +170,7 @@ export function AIProvider({ children }: { children: ReactNode }) {
       value={{
         unifiedThread,
         sendMessage,
+        sendToOrchestrator,
         clearChat,
         streamingText: claudia.streamingText ?? undefined,
         isStreaming: maria.isStreaming || claudia.isStreaming,
