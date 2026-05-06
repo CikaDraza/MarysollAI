@@ -31,6 +31,8 @@ export interface BaseBlock {
     date?: string;
     time?: string;
     mode?: AuthMode | CalendarMode;
+    service?: string;
+    city?: string;
   };
   query?: string;
 }

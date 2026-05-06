@@ -1,11 +1,11 @@
 // blocks/ClientBlockAppointments.tsx
 import { useMemo, useState } from "react";
 import { IAppointment } from "@/types/appointments-type";
-import { useAppointments } from "@/hooks/useAppointments";
+import { useAppointmentsWithToken } from "@/hooks/useAppointmentsWithToken";
 import { formatISODate } from "@/helpers/formatISODate";
 import MiniLoader from "../MiniLoader";
 import Paginator from "../Paginator";
-import { useAuth } from "@/hooks/context/AuthContext";
+import { useAuthActions } from "@/hooks/useAuthActions";
 
 interface ClientAppointmentListItemProps {
   appointment: IAppointment;
@@ -106,17 +106,16 @@ function ClientAppointmentListItem({
 
 export default function ClientBlockAppointments() {
   const [page, setPage] = useState(1);
-  const { user } = useAuth();
+  const { token } = useAuthActions();
 
-  // API poziv sa debounced vrednostima
   const {
     data: response,
     isLoading,
     isError,
-  } = useAppointments({
+  } = useAppointmentsWithToken(token ?? "", {
     page,
     limit: 10,
-    clientId: user?.id,
+    enabled: !!token,
   });
 
   const appointments = useMemo(() => {

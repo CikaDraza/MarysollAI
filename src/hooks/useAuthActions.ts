@@ -6,16 +6,29 @@ import toast from "react-hot-toast";
 import { AuthUser, LoginResponse, RegisterPayload } from "@/types/auth-types";
 import { getUserFromToken } from "@/lib/auth/auth-utils";
 
+const PROFILE_KEY = "assistant_user_profile";
+
+function loadProfileSupplement(): { phone?: string; instagram?: string } {
+  try {
+    return JSON.parse(localStorage.getItem(PROFILE_KEY) ?? "{}");
+  } catch {
+    return {};
+  }
+}
+
 export function useAuthActions() {
   const queryClient = useQueryClient();
 
-  // 1. Fetch trenutnog korisnika iz localStorage
+  // 1. Fetch trenutnog korisnika iz localStorage + supplement (phone, instagram)
   const { data: user, isLoading } = useQuery<AuthUser | null>({
     queryKey: ["authUser"],
     queryFn: () => {
       if (typeof window === "undefined") return null;
       const token = localStorage.getItem("assistant_token");
-      return token ? getUserFromToken(token) : null;
+      if (!token) return null;
+      const decoded = getUserFromToken(token);
+      if (!decoded) return null;
+      return { ...decoded, ...loadProfileSupplement() };
     },
     staleTime: Infinity,
   });
@@ -33,7 +46,13 @@ export function useAuthActions() {
     },
     onSuccess: (data) => {
       localStorage.setItem("assistant_token", data.token);
-      queryClient.setQueryData(["authUser"], getUserFromToken(data.token));
+      const supplement: { phone?: string; instagram?: string } = {};
+      const rawUser = data.user as AuthUser & { phone?: string; instagram?: string };
+      if (rawUser.phone) supplement.phone = rawUser.phone;
+      if (rawUser.instagram) supplement.instagram = rawUser.instagram;
+      localStorage.setItem(PROFILE_KEY, JSON.stringify(supplement));
+      const decoded = getUserFromToken(data.token);
+      queryClient.setQueryData(["authUser"], decoded ? { ...decoded, ...supplement } : null);
       toast.success(`Dobrodošli nazad, ${data.user.name}`);
     },
     onError: (error: AxiosError<{ error: string }>) => {
@@ -115,6 +134,7 @@ export function useAuthActions() {
   // 7. Logout
   const logout = () => {
     localStorage.removeItem("assistant_token");
+    localStorage.removeItem(PROFILE_KEY);
     queryClient.setQueryData(["authUser"], null);
     toast.success("Odjavljeni ste.");
   };

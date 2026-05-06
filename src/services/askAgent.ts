@@ -2,7 +2,6 @@
 import { ThreadItem } from "@/types/ai/chat-thread";
 import OpenAI from "openai";
 import { fetchPlatformKnowledge } from "@/lib/ai/platform-knowledge";
-import { deepseekResponseFormat } from "@/lib/ai/schemas";
 
 const deepseek = new OpenAI({
   baseURL: "https://api.deepseek.com/v1",
@@ -40,6 +39,48 @@ Tvoj jedini cilj:
 3. Voditi korisnika do potvrđene rezervacije
 
 Ti ne vodis opšti razgovor. Ti vodiš booking workflow.
+
+--------------------------------------------------
+# OBAVEZAN FORMAT ODGOVORA
+
+Vraćaš ISKLJUČIVO ovaj JSON objekat — bez markdowna, bez teksta van JSON-a:
+{
+  "messages": [{ "role": "assistant", "content": "Kratka poruka korisniku.", "attachToBlockType": "AppointmentCalendarBlock" }],
+  "layout": [{ "type": "AppointmentCalendarBlock", "priority": 1, "metadata": { "service": "naziv usluge", "city": "naziv grada" } }],
+  "intent": { "city": "Grad", "category": "kategorija", "date": "YYYY-MM-DD" }
+}
+
+## STRUKTURA METADATA PO BLOKU
+
+AppointmentCalendarBlock:
+  metadata: { "service": "string", "city": "string", "date": "YYYY-MM-DD ili prazan string" }
+
+ServicePriceBlock:
+  metadata: { "service": "string" }
+
+CityListBlock:
+  metadata: {
+    "service": "naziv usluge",
+    "cities": [ { "name": "Beograd" }, { "name": "Novi Sad" } ]
+  }
+  ⚠ Popuni "cities" iz GRADOVI sekcije. Svaki element MORA imati polje "name".
+
+SalonListBlock:
+  metadata: {
+    "city": "naziv grada",
+    "service": "naziv usluge",
+    "salons": [ { "id": "id_iz_SALONI_sekcije", "name": "naziv salona" } ]
+  }
+  ⚠ Popuni "salons" iz SALONI sekcije, filtriraj po gradu. Svaki element MORA imati "id" i "name".
+
+CalendarBlock:
+  metadata: { "mode": "list" }
+
+AuthBlock:
+  metadata: { "mode": "login" }  -- vrednosti: login | register | forgot | reset
+
+TestimonialBlock:
+  metadata: {}
 
 --------------------------------------------------
 # DANAS JE
@@ -101,11 +142,11 @@ NE traži login za browsing.
 --------------------------------------------------
 # DOSTUPNI BLOKOVI
 
-- AppointmentCalendarBlock: slobodni termini (zakazivanje)
-- CalendarBlock: moji termini (mode: list) — samo prijavljeni
+- AppointmentCalendarBlock: slobodni termini — zahteva i grad i uslugu
+- CalendarBlock: moji zakazani termini (mode: list) — samo prijavljeni korisnici
 - ServicePriceBlock: cenovnik usluga
-- SalonListBlock: lista salona
-- CityListBlock: izbor grada
+- SalonListBlock: lista salona u gradu — metadata.salons popuni iz SALONI sekcije
+- CityListBlock: izbor grada — metadata.cities popuni iz GRADOVI sekcije (niz objekata sa poljem "name")
 - AuthBlock: prijava/registracija (mode: login|register|forgot|reset)
 - TestimonialBlock: utisci klijenata
 
@@ -159,9 +200,7 @@ export async function askAgent(
       ],
       stream: true,
       temperature: 0.2,
-      response_format: deepseekResponseFormat as Parameters<
-        typeof deepseek.chat.completions.create
-      >[0]["response_format"],
+      response_format: { type: "json_object" as const },
     });
 
     const readableStream = new ReadableStream({

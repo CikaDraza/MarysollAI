@@ -62,32 +62,7 @@ const MAX_SESSIONS = 10;
 export function useChatSeek(
   options: UseChatWithAIOptions = {},
 ): UseChatWithAIReturn {
-  const [sessions, setSessions] = useState<ChatSession[]>(() => {
-    if (typeof window !== "undefined") {
-      const saved = localStorage.getItem(CHAT_SESSIONS_KEY);
-      if (saved) {
-        try {
-          const parsed = JSON.parse(saved) as StoredSession[];
-          return parsed.map(
-            (session: StoredSession): ChatSession => ({
-              ...session,
-              createdAt: new Date(session.createdAt),
-              updatedAt: new Date(session.updatedAt),
-              messages: session.messages.map(
-                (message: StoredMessage): Message => ({
-                  ...message,
-                  createdAt: new Date(message.createdAt),
-                }),
-              ),
-            }),
-          );
-        } catch (error) {
-          console.error("Failed to parse sessions:", error);
-        }
-      }
-    }
-    return [];
-  });
+  const [sessions, setSessions] = useState<ChatSession[]>([]);
 
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(
     options.sessionId || null,
@@ -109,6 +84,32 @@ export function useChatSeek(
     () => currentSession?.messages || [],
     [currentSession],
   );
+
+  // Restore sessions from localStorage after hydration (not during — avoids SSR mismatch)
+  useEffect(() => {
+    const saved = localStorage.getItem(CHAT_SESSIONS_KEY);
+    if (!saved) return;
+    try {
+      const parsed = JSON.parse(saved) as StoredSession[];
+      setSessions(
+        parsed.map(
+          (session: StoredSession): ChatSession => ({
+            ...session,
+            createdAt: new Date(session.createdAt),
+            updatedAt: new Date(session.updatedAt),
+            messages: session.messages.map(
+              (message: StoredMessage): Message => ({
+                ...message,
+                createdAt: new Date(message.createdAt),
+              }),
+            ),
+          }),
+        ),
+      );
+    } catch (error) {
+      console.error("Failed to parse sessions:", error);
+    }
+  }, []);
 
   // Čuvaj sesije u localStorage
   useEffect(() => {

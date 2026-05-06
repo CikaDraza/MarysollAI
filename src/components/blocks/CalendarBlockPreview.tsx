@@ -2,100 +2,54 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { format, addDays, isSameDay, getDay } from "date-fns";
+import { format, addDays, isSameDay } from "date-fns";
 import { sr } from "date-fns/locale";
-import { useAppointments } from "@/hooks/useAppointments";
-import { useAuth } from "@/hooks/context/AuthContext";
-import { useSalonProfile } from "@/hooks/useSalonProfile";
+import { useAppointmentsWithToken } from "@/hooks/useAppointmentsWithToken";
+import { useAuthActions } from "@/hooks/useAuthActions";
+import { IAppointment } from "@/types/appointments-type";
 
 interface Props {
   onSlotClick: (date: string, time: string) => void;
 }
 
+const STATUS_LABELS: Record<string, string> = {
+  pending: "Na čekanju",
+  appointment_approved: "Odobreno",
+  appointment_rejected: "Odbijeno",
+  appointment_rescheduled: "Pomereno",
+  appointment_cancelled: "Otkazano",
+};
+
+const STATUS_COLORS: Record<string, string> = {
+  pending: "bg-yellow-50 border-yellow-200 text-yellow-700",
+  appointment_approved: "bg-green-50 border-green-200 text-green-700",
+  appointment_rejected: "bg-red-50 border-red-200 text-red-500",
+  appointment_rescheduled: "bg-blue-50 border-blue-200 text-blue-700",
+  appointment_cancelled: "bg-gray-50 border-gray-200 text-gray-400",
+};
+
 export function CalendarBlockPreview({ onSlotClick }: Props) {
   const [selectedDate, setSelectedDate] = useState(new Date());
-  const { user } = useAuth();
-  const { data: profile } = useSalonProfile();
+  const { token } = useAuthActions();
 
-  const workingHoursForDay = useMemo(() => {
-    const dayNames = [
-      "Nedelja",
-      "Ponedeljak",
-      "Utorak",
-      "Sreda",
-      "Četvrtak",
-      "Petak",
-      "Subota",
-    ];
+  const dateStr = format(selectedDate, "yyyy-MM-dd");
 
-    const hoursSource = profile?.workingHours;
-
-    if (!hoursSource) {
-      return { isWorking: false, start: null, end: null };
-    }
-
-    const dayName = dayNames[getDay(selectedDate)]; // npr. "Sreda"
-    const timeRange = hoursSource[dayName];
-
-    if (!timeRange) {
-      return {
-        dayName,
-        isWorking: false,
-        start: null,
-        end: null,
-      };
-    }
-
-    if (timeRange.includes(" - ")) {
-      const [start, end] = timeRange.split(" - ");
-      return {
-        dayName,
-        timeRange,
-        isWorking: true,
-        start: start.trim(),
-        end: end.trim(),
-      };
-    }
-
-    return { isWorking: false, start: null, end: null };
-  }, [selectedDate, profile]);
-
-  // 1. Fetch podataka za izabrani datum
-  const { data: response, isLoading } = useAppointments({
-    date: format(selectedDate, "yyyy-MM-dd"),
-    limit: 100, // Uzimamo sve za taj dan
-    clientId: user?.id,
+  const { data: response, isLoading } = useAppointmentsWithToken(token ?? "", {
+    date: dateStr,
+    limit: 100,
+    enabled: !!token,
   });
 
-  // 2. Generisanje dana (narednih 7 dana)
-  const days = useMemo(() => {
-    return Array.from({ length: 14 }).map((_, i) => addDays(new Date(), i));
-  }, []);
+  const days = useMemo(
+    () => Array.from({ length: 14 }).map((_, i) => addDays(new Date(), i)),
+    [],
+  );
 
-  // 3. Generisanje slotova (npr. od 09:00 do 20:00 na svakih 30 min)
-  const timeSlots = useMemo(() => {
-    const slots = [];
-    for (let hour = 0; hour <= 23; hour++) {
-      slots.push(`${hour.toString().padStart(2, "0")}:00`);
-      slots.push(`${hour.toString().padStart(2, "0")}:30`);
-    }
-    return slots;
-  }, []);
-
-  // Provera da li je slot unutar radnog vremena
-  const canBook = workingHoursForDay?.isWorking;
-
-  function isTimeBetween(slot: string, start: string, end: string) {
-    const toMins = (t: string) => {
-      const [h, m] = t.split(":").map(Number);
-      return h * 60 + m;
-    };
-    return toMins(slot) >= toMins(start) && toMins(slot) < toMins(end);
-  }
+  const appointments: IAppointment[] = response?.appointments ?? [];
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Horizontalni Date Picker */}
+      {/* Date picker */}
       <div className="flex gap-2 overflow-x-auto p-2 mx-auto w-full snap-x scrollbar-hide scrollbar-custom">
         {days.map((day) => (
           <button
@@ -115,79 +69,44 @@ export function CalendarBlockPreview({ onSlotClick }: Props) {
         ))}
       </div>
 
-      {/* Grid sa terminima */}
-      <div className="grid grid-cols-3 gap-2 max-h-75 overflow-y-auto p-1">
-        {!canBook ? (
-          <div className="py-10 text-center col-span-3 text-sm text-red-400 bg-gray-50 rounded-2xl">
-            Salon ne radi ovim danom.
+      {/* Appointment list for selected day */}
+      <div className="flex flex-col gap-2 max-h-72 overflow-y-auto px-1">
+        {!token ? (
+          <div className="py-10 text-center text-sm text-gray-400 bg-gray-50 rounded-2xl">
+            Prijavite se da vidite vaše termine.
+          </div>
+        ) : isLoading ? (
+          <div className="py-10 text-center text-sm text-gray-400">
+            Učitavam termine...
+          </div>
+        ) : appointments.length === 0 ? (
+          <div className="py-10 text-center col-span-3 text-sm text-gray-400 bg-gray-50 rounded-2xl">
+            Nemate termina za ovaj dan.{" "}
+            <button
+              onClick={() => onSlotClick(dateStr, "09:00")}
+              className="underline text-(--secondary-color) cursor-pointer bg-transparent border-none font-semibold"
+            >
+              Zakaži novi
+            </button>
           </div>
         ) : (
-          <>
-            {isLoading ? (
-              <div className="col-span-3 py-10 text-center text-sm text-gray-400">
-                Učitavam termine...
+          appointments.map((a) => (
+            <div
+              key={a._id}
+              className={`flex items-center justify-between px-4 py-3 rounded-xl border text-sm ${
+                STATUS_COLORS[a.status] ?? "bg-gray-50 border-gray-200 text-gray-600"
+              }`}
+            >
+              <div className="flex flex-col gap-0.5">
+                <span className="font-bold">{a.time}</span>
+                <span className="text-xs opacity-80">{a.serviceName}</span>
               </div>
-            ) : (
-              timeSlots.map((slot) => {
-                // Provera da li je slot unutar radnog vremena
-                const isOutside = !isTimeBetween(
-                  slot,
-                  workingHoursForDay.start!,
-                  workingHoursForDay.end!,
-                );
-                const appointment = response?.appointments.find(
-                  (a) => a.time === slot,
-                );
-                const isTaken = !!appointment;
-                const isMine = appointment?.clientId === user?.id;
-                if (isOutside) return null;
-                return (
-                  <button
-                    key={slot}
-                    disabled={isTaken && !isMine}
-                    onClick={() =>
-                      !isTaken &&
-                      onSlotClick(format(selectedDate, "yyyy-MM-dd"), slot)
-                    }
-                    className={`cursor-pointer py-3 rounded-xl text-xs font-bold border transition-all ${
-                      isMine
-                        ? "bg-purple-100 border-purple-300 text-purple-700 ring-2 ring-purple-200" // Tvoj termin
-                        : isTaken
-                          ? "bg-gray-50 border-gray-100 text-gray-300 cursor-not-allowed opacity-50" // Tuđ termin
-                          : "bg-white border-gray-100 text-gray-700 hover:border-(--secondary-color) hover:text-(--secondary-color)" // Slobodno
-                    }`}
-                  >
-                    {slot}
-                    {isMine && (
-                      <span className="block text-[8px] uppercase">
-                        Tvoj termin
-                      </span>
-                    )}
-                  </button>
-                );
-              })
-            )}
-          </>
+              <span className="text-xs font-semibold px-2 py-1 rounded-full bg-white/60">
+                {STATUS_LABELS[a.status] ?? a.status}
+              </span>
+            </div>
+          ))
         )}
-      </div>
-      {/* Legenda */}
-      <div className="flex justify-between items-center px-2 py-3 bg-gray-50 rounded-2xl border border-gray-100">
-        <div className="flex items-center gap-1.5">
-          <div className="w-2.5 h-2.5 rounded-full bg-white border border-gray-300"></div>
-          <span className="text-[10px] font-medium text-gray-600">
-            Slobodno
-          </span>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <div className="w-2.5 h-2.5 rounded-full bg-gray-300"></div>
-          <span className="text-[10px] font-medium text-gray-600">Zauzeto</span>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <div className="w-2.5 h-2.5 rounded-full bg-purple-600"></div>
-          <span className="text-[10px] font-medium text-gray-500">
-            Tvoj termin
-          </span>
-        </div>
       </div>
     </div>
   );

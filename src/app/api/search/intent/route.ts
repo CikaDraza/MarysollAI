@@ -10,6 +10,8 @@ import { SERBIAN_CITIES } from "@/lib/cities";
 import { VALID_CATEGORY_SLUGS } from "@/lib/intent/categoryMap";
 import { stripDiacritics } from "@/lib/intent/parseIntent";
 import { todayInBelgrade, tomorrowInBelgrade } from "@/lib/search/normalizeSearch";
+import { fetchCategories } from "@/lib/search/fetchCategories";
+import type { PlatformCategory } from "@/types/category-types";
 import type { ParsedIntent, IntentType } from "@/types/intent";
 
 const VALID_INTENT_TYPES = new Set<string>([
@@ -22,7 +24,36 @@ const VALID_INTENT_TYPES = new Set<string>([
 
 const CITY_LIST = SERBIAN_CITIES.map((c) => c.name).join(", ");
 
-function buildSystemPrompt(today: string, tomorrow: string): string {
+function buildCategorySection(categories: PlatformCategory[]): string {
+  return categories
+    .map((cat) => {
+      const allTerms = [
+        cat.label,
+        ...cat.synonyms,
+        ...cat.subcategories.flatMap((s) => [s.label, ...s.synonyms]),
+      ].filter(Boolean);
+      const unique = [...new Set(allTerms)].join(", ");
+      return `- "${cat.key}" — ${unique}`;
+    })
+    .join("\n");
+}
+
+function buildSystemPrompt(
+  today: string,
+  tomorrow: string,
+  categories: PlatformCategory[],
+): string {
+  const categorySection = categories.length
+    ? buildCategorySection(categories)
+    : `- "massage"  — masaža, masaže, maderoterapija, anticelulit, limfna drenaža, relaks
+- "nails"    — nokti, manikir, pedikir, gel lak, izlivanje noktiju, nadogradnja, akril, french, tipse
+- "hair"     — kosa, šišanje, frizura, pramen, bojanje, balayage, highlights, keratin, brijanje
+- "makeup"   — šminka, makeup, make-up, vjenčanje šminka, svadba šminka
+- "waxing"   — depilacija, vosak, vaks, laser depilacija, sugaring
+- "eyebrows" — obrve, trepavice, microblading, laminacija obrva, brow lift, threading
+- "facial"   — tretman lica, čišćenje lica, peeling, microneedling, derma, botoks, hijaluron
+- "body"     — oblikovanje tela, kavitacija, RF, vakuum, termo, slim`;
+
   return `You are a booking intent extraction engine for a Serbian beauty salon platform.
 Extract booking intent from user input (Serbian or English natural language).
 Return ONLY valid JSON — no prose, no markdown, no explanation.
@@ -30,14 +61,7 @@ Return ONLY valid JSON — no prose, no markdown, no explanation.
 Today is ${today}. Tomorrow is ${tomorrow}. Timezone: Europe/Belgrade.
 
 CATEGORY SLUGS (use ONLY these values for categoryKey, or null):
-- "massage"  — masaža, masaže, maderoterapija, anticelulit, limfna drenaža, relaks, šiatsu
-- "nails"    — nokti, manikir, pedikir, gel lak, izlivanje noktiju, nadogradnja, akril, french, tipse
-- "hair"     — kosa, šišanje, frizura, pramen, bojanje, balayage, highlights, keratin, brijanje, feniranje
-- "makeup"   — šminka, makeup, make-up, vjenčanje šminka, svadba šminka
-- "waxing"   — depilacija, vosak, vaks, laser depilacija, sugaring
-- "eyebrows" — obrve, trepavice, microblading, laminacija obrva, brow lift, threading
-- "facial"   — tretman lica, čišćenje lica, peeling, microneedling, derma, botoks, hijaluron
-- "body"     — oblikovanje tela, kavitacija, RF, vakuum, termo, slim
+${categorySection}
 
 INTENT TYPES:
 - "availability_search" — looking for a free slot (DEFAULT — use when unsure)
@@ -77,7 +101,10 @@ OUTPUT (return ONLY this JSON, no other text):
 }`;
 }
 
-function validateAndSanitize(raw: Record<string, unknown>): ParsedIntent {
+function validateAndSanitize(
+  raw: Record<string, unknown>,
+  validKeys: Set<string>,
+): ParsedIntent {
   // city — must be an exact match (case-insensitive + diacritics-stripped) from SERBIAN_CITIES
   let city: string | null = null;
   if (typeof raw.city === "string" && raw.city.trim()) {
@@ -86,12 +113,9 @@ function validateAndSanitize(raw: Record<string, unknown>): ParsedIntent {
     city = found?.name ?? null;
   }
 
-  // categoryKey — must be one of our valid slugs
+  // categoryKey — validate against DB keys (falls back to hardcoded set if DB unavailable)
   let categoryKey: ParsedIntent["categoryKey"] = null;
-  if (
-    typeof raw.categoryKey === "string" &&
-    VALID_CATEGORY_SLUGS.has(raw.categoryKey)
-  ) {
+  if (typeof raw.categoryKey === "string" && validKeys.has(raw.categoryKey)) {
     categoryKey = raw.categoryKey as ParsedIntent["categoryKey"];
   }
 
@@ -160,8 +184,13 @@ export async function GET(req: Request): Promise<NextResponse> {
 
   const today = todayInBelgrade();
   const tomorrow = tomorrowInBelgrade();
+  const categories = await fetchCategories();
+  const validKeys =
+    categories.length > 0
+      ? new Set(categories.map((c) => c.key))
+      : VALID_CATEGORY_SLUGS;
 
-  console.log(`[/api/search/intent] q="${q}"`);
+  console.log(`[/api/search/intent] q="${q}" categories=${categories.length}`);
 
   let rawJson: Record<string, unknown>;
   try {
@@ -174,7 +203,7 @@ export async function GET(req: Request): Promise<NextResponse> {
       body: JSON.stringify({
         model: "deepseek-chat",
         messages: [
-          { role: "system", content: buildSystemPrompt(today, tomorrow) },
+          { role: "system", content: buildSystemPrompt(today, tomorrow, categories) },
           { role: "user", content: q },
         ],
         temperature: 0,
@@ -202,7 +231,7 @@ export async function GET(req: Request): Promise<NextResponse> {
     );
   }
 
-  const intent = validateAndSanitize(rawJson);
+  const intent = validateAndSanitize(rawJson, validKeys);
   console.log("[/api/search/intent] →", intent);
 
   return NextResponse.json(intent, { headers: { "Cache-Control": "no-store" } });

@@ -20,6 +20,7 @@ import {
   todayInBelgrade,
   tomorrowInBelgrade,
 } from "@/lib/search/normalizeSearch";
+import { fetchCategories } from "@/lib/search/fetchCategories";
 import { findBestSlots, pickDiverseSlots } from "@/lib/search/findBestSlots";
 import { SERBIAN_CITIES, haversineKm, CITY_POPULARITY } from "@/lib/cities";
 import { stripDiacritics } from "@/lib/intent/parseIntent";
@@ -130,6 +131,8 @@ function groupAndSortByCityPriority(
 export async function GET(req: Request): Promise<NextResponse> {
   const { searchParams } = new URL(req.url);
 
+  const categories = await fetchCategories();
+
   const params = normalizeSearch({
     city: searchParams.get("city") ?? undefined,
     category: searchParams.get("category") ?? undefined,
@@ -141,6 +144,7 @@ export async function GET(req: Request): Promise<NextResponse> {
     lat: searchParams.get("lat") ?? undefined,
     lng: searchParams.get("lng") ?? undefined,
     limit: searchParams.get("limit") ?? undefined,
+    categories,
   });
 
   const rawQs = Object.fromEntries(new URL(req.url).searchParams);

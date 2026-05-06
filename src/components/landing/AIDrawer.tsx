@@ -53,9 +53,11 @@ const INITIAL: Message[] = [
 ];
 
 const CHIPS = [
-  { label: "Najbliži salon", value: "Najbliži salon za masažu" },
+  { label: "Najbliži salon", value: "Koji je meni najbliži salon?" },
   { label: "Moji termini", value: "Šta sam zakazala?" },
+  { label: "Cenovnik", value: "Mogu da pogle dam cenovnik?" },
   { label: "Otkaži termin", value: "Otkaži termin sutra" },
+  { label: "Kako zakazati termin", value: "Kako da zakažem termin?" },
 ];
 
 export default function AIDrawer() {
@@ -251,95 +253,48 @@ export default function AIDrawer() {
 
   return (
     <>
-      <style>{`
-        @keyframes maria-dot-bounce {
-          0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
-          40%           { transform: scale(1);   opacity: 1;   }
-        }
-        .ai-drawer-aside {
-          width: 500px;
-        }
-        @media (max-width: 640px) {
-          .ai-drawer-aside {
-            width: 100vw !important;
-            border-left: none !important;
-          }
-        }
-      `}</style>
-
       <aside
-        className="ai-drawer-aside z-50"
+        className={`
+      fixed right-0 top-0 bottom-0 z-[70] flex flex-col
+      ${open ? "translate-x-0" : "translate-x-full"}
+      transition-transform duration-280 ease-out
+      border-l border-[var(--border-1)]
+      shadow-lg
+      ai-drawer-aside
+      lg:w-[500px] w-full
+    `}
         aria-hidden={!open}
         aria-label="AI asistent"
-        style={{
-          position: "fixed",
-          right: 0,
-          top: 0,
-          bottom: 0,
-          background: "var(--surface)",
-          boxShadow: "var(--shadow-lg)",
-          display: "flex",
-          flexDirection: "column",
-          transform: open ? "translateX(0)" : "translateX(100%)",
-          transition: "transform 280ms var(--ease-out)",
-          zIndex: 60,
-          borderLeft: "1px solid var(--border-1)",
-        }}
+        style={{ background: "var(--surface)" }}
       >
         {/* Header */}
         <header
+          className="flex items-center gap-2.5 px-4 py-4 border-b border-[var(--border-1)] flex-shrink-0"
           style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 10,
-            padding: "16px 18px",
-            borderBottom: "1px solid var(--border-1)",
             background:
               "linear-gradient(180deg, var(--surface-2) 0%, var(--surface) 100%)",
-            flexShrink: 0,
           }}
         >
-          <div
-            style={{ display: "flex", alignItems: "center", gap: 10, flex: 1 }}
-          >
-            <div
-              style={{
-                width: 36,
-                height: 36,
-                borderRadius: "999px",
-                overflow: "hidden",
-                flexShrink: 0,
-              }}
-            >
+          <div className="flex items-center gap-2.5 flex-1">
+            <div className="w-9 h-9 rounded-full overflow-hidden flex-shrink-0">
               <Image
                 src={activeInfo.avatar}
                 alt={activeInfo.name}
                 width={36}
                 height={36}
-                style={{ objectFit: "cover" }}
+                className="object-cover"
               />
             </div>
             <div>
-              <div
-                style={{
-                  fontFamily: "var(--main-font)",
-                  fontWeight: 700,
-                  fontSize: 14,
-                  color: "var(--fg-1)",
-                  transition: "color 200ms",
-                }}
-              >
+              <div className="font-bold text-sm text-[var(--fg-1)] transition-colors duration-200">
                 {activeInfo.name}
               </div>
               <div
+                className="font-medium text-xs transition-colors duration-200"
                 style={{
-                  fontFamily: "var(--main-font)",
-                  fontWeight: 500,
-                  fontSize: 11,
                   color: isStreaming
                     ? "var(--secondary-color)"
                     : "var(--success)",
-                  transition: "color 200ms",
                 }}
               >
                 {activeAgent === "claudia"
@@ -351,7 +306,7 @@ export default function AIDrawer() {
             </div>
           </div>
 
-          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+          <div className="flex items-center gap-1">
             <HistoryDropdown
               sessions={syntheticSessions}
               currentSessionId={
@@ -364,28 +319,9 @@ export default function AIDrawer() {
             <button
               onClick={onClose}
               aria-label="Zatvori"
-              style={{
-                width: 38,
-                height: 38,
-                borderRadius: "999px",
-                border: "none",
-                background: "var(--surface-2)",
-                color: "var(--fg-2)",
-                cursor: "pointer",
-                display: "inline-flex",
-                alignItems: "center",
-                justifyContent: "center",
-              }}
-              onMouseEnter={(e) => {
-                (e.currentTarget as HTMLButtonElement).style.background =
-                  "var(--brand-100)";
-              }}
-              onMouseLeave={(e) => {
-                (e.currentTarget as HTMLButtonElement).style.background =
-                  "var(--surface-2)";
-              }}
+              className="w-[38px] h-[38px] rounded-full border-none bg-[var(--surface-2)] text-[var(--fg-2)] cursor-pointer inline-flex items-center justify-center hover:bg-[var(--brand-100)] transition-colors"
             >
-              <XMarkIcon style={{ width: 18, height: 18 }} strokeWidth={1.5} />
+              <XMarkIcon className="w-[18px] h-[18px]" strokeWidth={1.5} />
             </button>
           </div>
         </header>
@@ -393,18 +329,9 @@ export default function AIDrawer() {
         {/* Chat body */}
         <div
           ref={bodyRef}
-          className="scrollbar-custom"
-          style={{
-            flex: 1,
-            overflowY: "auto",
-            padding: 16,
-            display: "flex",
-            flexDirection: "column",
-            gap: 12,
-          }}
+          className="flex-1 overflow-y-auto p-4 flex flex-col gap-3 scrollbar-custom"
         >
           {displayItems.map((item) => {
-            // Blocks are now rendered in AIWorkspace (main page), not in the sidebar
             if (item.kind === "block") return null;
 
             if (item.kind === "handoff") {
@@ -412,61 +339,23 @@ export default function AIDrawer() {
               return (
                 <div
                   key={item.id}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 10,
-                    margin: "4px 0",
-                    color: "var(--fg-3)",
-                    fontFamily: "var(--main-font)",
-                    fontWeight: 600,
-                    fontSize: 11,
-                    textTransform: "uppercase",
-                    letterSpacing: 0.4,
-                  }}
+                  className="flex items-center gap-2.5 my-1 text-[var(--fg-3)] font-semibold text-xs uppercase tracking-wide"
                 >
-                  <div
-                    style={{
-                      flex: 1,
-                      height: 1,
-                      background: "var(--border-1)",
-                    }}
-                  />
-                  <SparklesIcon
-                    style={{
-                      width: 12,
-                      height: 12,
-                      color: "var(--secondary-color)",
-                    }}
-                  />
+                  <div className="flex-1 h-px bg-[var(--border-1)]" />
+                  <SparklesIcon className="w-3 h-3 text-[var(--secondary-color)]" />
                   <span>Prebačeno na {info.name}</span>
-                  <div
-                    style={{
-                      flex: 1,
-                      height: 1,
-                      background: "var(--border-1)",
-                    }}
-                  />
+                  <div className="flex-1 h-px bg-[var(--border-1)]" />
                 </div>
               );
             }
             if (item.from === "me") {
               return (
-                <div
-                  key={item.id}
-                  style={{ maxWidth: "85%", alignSelf: "flex-end" }}
-                >
+                <div key={item.id} className="max-w-[85%] self-end">
                   <div
+                    className="text-white text-sm font-normal leading-relaxed whitespace-pre-wrap px-3.5 py-2.5"
                     style={{
                       background: "var(--secondary-color)",
-                      padding: "10px 14px",
                       borderRadius: "16px 16px 4px 16px",
-                      fontFamily: "var(--main-font)",
-                      fontWeight: 400,
-                      fontSize: 14,
-                      lineHeight: 1.45,
-                      color: "#fff",
-                      whiteSpace: "pre-wrap",
                     }}
                   >
                     {item.text}
@@ -478,38 +367,25 @@ export default function AIDrawer() {
             return (
               <div
                 key={item.id}
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 4,
-                  maxWidth: "85%",
-                  alignSelf: "flex-start",
-                }}
+                className="flex flex-col gap-1 max-w-[85%] self-start"
               >
                 {item.showLabel && (
                   <div
+                    className="font-bold text-xs pl-9"
                     style={{
-                      fontFamily: "var(--main-font)",
-                      fontWeight: 700,
-                      fontSize: 11,
                       color:
                         item.from === "claudia"
                           ? "var(--secondary-color)"
                           : "var(--fg-3)",
-                      paddingLeft: 36,
                     }}
                   >
                     {info.name}
                   </div>
                 )}
-                <div style={{ display: "flex", gap: 8 }}>
+                <div className="flex gap-2">
                   <div
+                    className="w-7 h-7 rounded-full overflow-hidden flex-shrink-0"
                     style={{
-                      width: 28,
-                      height: 28,
-                      borderRadius: "999px",
-                      overflow: "hidden",
-                      flexShrink: 0,
                       border:
                         item.from === "claudia"
                           ? "2px solid var(--secondary-color)"
@@ -521,45 +397,17 @@ export default function AIDrawer() {
                       alt=""
                       width={28}
                       height={28}
-                      style={{ objectFit: "cover" }}
+                      className="object-cover"
                     />
                   </div>
                   <div
-                    style={{
-                      background: "var(--surface-2)",
-                      padding: "10px 14px",
-                      borderRadius: "16px 16px 16px 4px",
-                      fontFamily: "var(--main-font)",
-                      fontWeight: 400,
-                      fontSize: 14,
-                      lineHeight: 1.45,
-                      color: "var(--fg-1)",
-                      whiteSpace: "pre-wrap",
-                    }}
+                    className="text-sm font-normal leading-relaxed text-[var(--fg-1)] whitespace-pre-wrap px-3.5 py-2.5 bg-[var(--surface-2)]"
+                    style={{ borderRadius: "16px 16px 16px 4px" }}
                   >
                     {item.text}
                     {item.suggest && (
-                      <button
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 6,
-                          marginTop: 8,
-                          border: "none",
-                          cursor: "pointer",
-                          fontFamily: "var(--main-font)",
-                          fontWeight: 700,
-                          fontSize: 12,
-                          padding: "9px 14px",
-                          borderRadius: 10,
-                          background: "var(--secondary-color)",
-                          color: "#fff",
-                        }}
-                      >
-                        <CheckIcon
-                          style={{ width: 14, height: 14 }}
-                          strokeWidth={2}
-                        />
+                      <button className="flex items-center gap-1.5 mt-2 border-none cursor-pointer font-bold text-xs px-3.5 py-2 rounded-[10px] bg-[var(--secondary-color)] text-white">
+                        <CheckIcon className="w-3.5 h-3.5" strokeWidth={2} />
                         Potvrdi termin
                       </button>
                     )}
@@ -571,21 +419,10 @@ export default function AIDrawer() {
 
           {/* Streaming text bubble */}
           {isStreaming && streamingText && (
-            <div
-              style={{
-                display: "flex",
-                gap: 8,
-                maxWidth: "85%",
-                alignSelf: "flex-start",
-              }}
-            >
+            <div className="flex gap-2 max-w-[85%] self-start">
               <div
+                className="w-7 h-7 rounded-full overflow-hidden flex-shrink-0"
                 style={{
-                  width: 28,
-                  height: 28,
-                  borderRadius: "999px",
-                  overflow: "hidden",
-                  flexShrink: 0,
                   border:
                     streamingAgent === "claudia"
                       ? "2px solid var(--secondary-color)"
@@ -597,55 +434,25 @@ export default function AIDrawer() {
                   alt=""
                   width={28}
                   height={28}
-                  style={{ objectFit: "cover" }}
+                  className="object-cover"
                 />
               </div>
               <div
-                style={{
-                  background: "var(--surface-2)",
-                  padding: "10px 14px",
-                  borderRadius: "16px 16px 16px 4px",
-                  fontFamily: "var(--main-font)",
-                  fontWeight: 400,
-                  fontSize: 14,
-                  lineHeight: 1.45,
-                  color: "var(--fg-1)",
-                }}
+                className="text-sm font-normal leading-relaxed text-[var(--fg-1)] px-3.5 py-2.5 bg-[var(--surface-2)]"
+                style={{ borderRadius: "16px 16px 16px 4px" }}
               >
                 {streamingText}
-                <span
-                  style={{
-                    display: "inline-block",
-                    width: 6,
-                    height: 14,
-                    marginLeft: 4,
-                    background: "var(--secondary-color)",
-                    verticalAlign: "middle",
-                    animation: "maria-dot-bounce 1s 0s infinite",
-                    borderRadius: 2,
-                  }}
-                />
+                <span className="inline-block w-1.5 h-3.5 ml-1 bg-[var(--secondary-color)] align-middle rounded-sm animate-maria-bounce" />
               </div>
             </div>
           )}
 
           {/* Typing dots */}
           {isStreaming && !streamingText && (
-            <div
-              style={{
-                display: "flex",
-                gap: 8,
-                maxWidth: "85%",
-                alignSelf: "flex-start",
-              }}
-            >
+            <div className="flex gap-2 max-w-[85%] self-start">
               <div
+                className="w-7 h-7 rounded-full overflow-hidden flex-shrink-0"
                 style={{
-                  width: 28,
-                  height: 28,
-                  borderRadius: "999px",
-                  overflow: "hidden",
-                  flexShrink: 0,
                   border:
                     streamingAgent === "claudia"
                       ? "2px solid var(--secondary-color)"
@@ -657,71 +464,28 @@ export default function AIDrawer() {
                   alt=""
                   width={28}
                   height={28}
-                  style={{ objectFit: "cover" }}
+                  className="object-cover"
                 />
               </div>
               <div
-                style={{
-                  background: "var(--surface-2)",
-                  padding: "14px 18px",
-                  borderRadius: "16px 16px 16px 4px",
-                  display: "flex",
-                  gap: 6,
-                  alignItems: "center",
-                }}
+                className="flex gap-1.5 items-center px-4 py-3.5 bg-[var(--surface-2)]"
+                style={{ borderRadius: "16px 16px 16px 4px" }}
               >
-                {[0, 1, 2].map((i) => (
-                  <span
-                    key={i}
-                    style={{
-                      width: 7,
-                      height: 7,
-                      borderRadius: "999px",
-                      background: "var(--secondary-color)",
-                      display: "inline-block",
-                      animation: `maria-dot-bounce 1.1s ${i * 0.18}s infinite`,
-                    }}
-                  />
-                ))}
+                <span className="w-[7px] h-[7px] rounded-full bg-[var(--secondary-color)] inline-block animate-maria-bounce-1" />
+                <span className="w-[7px] h-[7px] rounded-full bg-[var(--secondary-color)] inline-block animate-maria-bounce-2" />
+                <span className="w-[7px] h-[7px] rounded-full bg-[var(--secondary-color)] inline-block animate-maria-bounce-3" />
               </div>
             </div>
           )}
         </div>
 
         {/* Quick-action chips */}
-        <div
-          style={{
-            display: "flex",
-            gap: 6,
-            padding: "0 16px 8px",
-            flexWrap: "wrap",
-            flexShrink: 0,
-          }}
-        >
+        <div className="flex gap-1.5 py-2 px-4 flex-wrap flex-shrink-0">
           {CHIPS.map((c) => (
             <button
               key={c.label}
               onClick={() => setInput(c.value)}
-              style={{
-                background: "var(--surface-2)",
-                color: "var(--secondary-color)",
-                border: "1px solid var(--brand-100)",
-                borderRadius: 999,
-                padding: "6px 12px",
-                fontFamily: "var(--main-font)",
-                fontWeight: 600,
-                fontSize: 12,
-                cursor: "pointer",
-                transition: "background var(--dur-fast) var(--ease-out)",
-              }}
-              onMouseEnter={(e) => {
-                (e.currentTarget as HTMLButtonElement).style.background =
-                  "var(--brand-100)";
-              }}
-              onMouseLeave={(e) => {
-                (e.currentTarget as HTMLButtonElement).style.background =
-                  "var(--surface-2)";
-              }}
+              className="bg-[var(--surface-2)] text-[var(--secondary-color)] border border-[var(--brand-100)] rounded-full px-3 py-1.5 font-semibold text-xs cursor-pointer hover:bg-[var(--brand-100)] transition-colors"
             >
               {c.label}
             </button>
@@ -729,23 +493,9 @@ export default function AIDrawer() {
         </div>
 
         {/* Input row */}
-        <div
-          style={{
-            padding: "0 12px 12px",
-            borderTop: "1px solid var(--border-1)",
-            flexShrink: 0,
-            position: "relative",
-          }}
-        >
+        <div className="px-3 pb-3 border-t border-[var(--border-1)] flex-shrink-0 relative">
           <UsageStats isOpen={showStats} usage={usage} />
-          <div
-            style={{
-              display: "flex",
-              alignItems: "flex-end",
-              gap: 8,
-              paddingTop: 12,
-            }}
-          >
+          <div className="flex items-end gap-2 pt-3">
             <textarea
               rows={1}
               placeholder="Pitaj Mariju…"
@@ -757,74 +507,32 @@ export default function AIDrawer() {
                   send();
                 }
               }}
-              style={{
-                flex: 1,
-                resize: "none",
-                border: "none",
-                background: "var(--surface-2)",
-                borderRadius: 14,
-                padding: "12px 14px",
-                fontFamily: "var(--main-font)",
-                fontWeight: 400,
-                fontSize: 14,
-                color: "var(--fg-1)",
-                outline: "none",
-              }}
-              onFocus={(e) => {
-                e.currentTarget.style.outline =
-                  "2px solid var(--secondary-color)";
-                e.currentTarget.style.background = "var(--surface)";
-              }}
-              onBlur={(e) => {
-                e.currentTarget.style.outline = "none";
-                e.currentTarget.style.background = "var(--surface-2)";
-              }}
+              className="flex-1 resize-none border-none bg-[var(--surface-2)] rounded-[14px] px-3.5 py-3 font-normal text-sm text-[var(--fg-1)] outline-none focus:outline-2 focus:outline-[var(--secondary-color)] focus:bg-[var(--surface)] transition-colors"
             />
             <button
               onClick={() => setShowStats((s) => !s)}
               aria-label="Statistika korišćenja"
+              className="inline-flex items-center justify-center w-9 h-9 rounded-full border-none cursor-pointer flex-shrink-0 transition-colors duration-150"
               style={{
-                display: "inline-flex",
-                alignItems: "center",
-                justifyContent: "center",
-                width: 36,
-                height: 36,
-                borderRadius: "999px",
-                border: "none",
-                cursor: "pointer",
                 background: showStats ? "var(--brand-100)" : "var(--surface-2)",
                 color: showStats ? "var(--secondary-color)" : "var(--fg-2)",
-                flexShrink: 0,
-                transition: "background 150ms, color 150ms",
               }}
             >
-              <BoltIcon style={{ width: 16, height: 16 }} strokeWidth={1.5} />
+              <BoltIcon className="w-4 h-4" strokeWidth={1.5} />
             </button>
             <button
               onClick={send}
               disabled={!isSendEnabled}
+              className="inline-flex items-center justify-center border-none font-bold text-xs px-3.5 py-2 rounded-[10px] transition-colors"
               style={{
-                display: "inline-flex",
-                alignItems: "center",
-                justifyContent: "center",
-                border: "none",
                 cursor: isSendEnabled ? "pointer" : "default",
-                fontFamily: "var(--main-font)",
-                fontWeight: 700,
-                fontSize: 12,
-                padding: "9px 14px",
-                borderRadius: 10,
                 background: isSendEnabled
                   ? "var(--secondary-color)"
                   : "var(--surface-2)",
                 color: isSendEnabled ? "#fff" : "var(--fg-3)",
-                transition: "background var(--dur-fast) var(--ease-out)",
               }}
             >
-              <PaperAirplaneIcon
-                style={{ width: 14, height: 14 }}
-                strokeWidth={1.5}
-              />
+              <PaperAirplaneIcon className="w-3.5 h-3.5" strokeWidth={1.5} />
             </button>
           </div>
         </div>

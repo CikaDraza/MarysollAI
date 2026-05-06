@@ -6,7 +6,9 @@ import {
   SLUG_TO_CANONICAL,
   type CategorySlug,
 } from "@/lib/intent/categoryMap";
+import { resolveCategoryOnly } from "@/lib/search/categoryResolver";
 import { SERBIAN_CITIES, type SerbianCity, findCity } from "@/lib/cities";
+import type { PlatformCategory } from "@/types/category-types";
 
 export interface NormalizedSearch {
   citySlug: string; // "novi-sad"
@@ -102,10 +104,10 @@ function resolveCity(raw: string): {
   };
 }
 
-function resolveCategory(raw: string): {
-  slug?: CategorySlug;
-  canonical?: string;
-} {
+function resolveCategory(
+  raw: string,
+  categories?: PlatformCategory[],
+): { slug?: CategorySlug; canonical?: string } {
   if (!raw) return {};
 
   // Already a valid slug
@@ -122,7 +124,16 @@ function resolveCategory(raw: string): {
     return { slug: fromCanonical, canonical: raw };
   }
 
-  // Fuzzy via CATEGORY_MAP synonyms
+  // DB-driven fuzzy match (synonyms + subcategory synonyms from platform)
+  if (categories?.length) {
+    const dbKey = resolveCategoryOnly(raw, categories);
+    if (dbKey && dbKey in SLUG_TO_CANONICAL) {
+      const slug = dbKey as CategorySlug;
+      return { slug, canonical: SLUG_TO_CANONICAL[slug] };
+    }
+  }
+
+  // Hardcoded CATEGORY_MAP as final fallback (parseIntent.ts parity)
   const norm = stripDiacritics(raw);
   for (const [slug, synonyms] of CATEGORY_MAP) {
     if (synonyms.some((s) => norm.includes(s) || s.includes(norm))) {
@@ -139,16 +150,17 @@ export function normalizeSearch(params: {
   subcategory?: string;
   date?: string;
   time?: string;
-  timeWindowStart?: string | number; // explicit override from intent parser
+  timeWindowStart?: string | number;
   timeWindowEnd?: string | number;
   lat?: string | number;
   lng?: string | number;
   limit?: string | number;
+  categories?: PlatformCategory[];
 }): NormalizedSearch {
   const today = todayInBelgrade();
 
   const cityNorm = resolveCity(params.city ?? "Beograd");
-  const catNorm = resolveCategory(params.category ?? "");
+  const catNorm = resolveCategory(params.category ?? "", params.categories);
 
   const date = params.date ?? today;
 

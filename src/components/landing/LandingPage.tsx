@@ -109,7 +109,7 @@ function LandingPageContent() {
 
       <Hero />
 
-      <div
+      <main
         style={{
           maxWidth: 1240,
           margin: "0 auto",
@@ -123,7 +123,7 @@ function LandingPageContent() {
 
         <BookingWidget />
         <NotifyMeWidget />
-      </div>
+      </main>
 
       <ConfirmedToast />
       <StickyOffer />

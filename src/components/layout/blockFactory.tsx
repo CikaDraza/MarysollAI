@@ -15,10 +15,12 @@ import { CalendarBlockView } from "../blocks/CalendarBlockView";
 import TestimonialBlockView from "../blocks/TestimonialBlockView";
 import CityListBlockView from "../blocks/CityListBlockView";
 import SalonListBlockView from "../blocks/SalonListBlockView";
+import LandingSearchBlock from "../blocks/LandingSearchBlock";
 
 export function blockFactory(
   block: BaseBlock,
   onMessageAction?: (m: string) => void,
+  isLanding?: boolean,
 ) {
   const safeOnAction =
     onMessageAction ||
@@ -34,10 +36,28 @@ export function blockFactory(
         />
       );
     case "ServicePriceBlock":
+      if (isLanding) {
+        return (
+          <LandingSearchBlock
+            key={block.id}
+            block={block}
+            onActionComplete={safeOnAction}
+          />
+        );
+      }
       return (
         <PricingBlockView key={block.id} block={block as PricingBlockType} />
       );
     case "AppointmentCalendarBlock":
+      if (isLanding) {
+        return (
+          <LandingSearchBlock
+            key={block.id}
+            block={block}
+            onActionComplete={safeOnAction}
+          />
+        );
+      }
       return (
         <AppointmentCalendarBlockView
           key={block.id}

@@ -31,10 +31,15 @@ export default function AIWorkspace() {
         <motion.div
           key={activeBlock.id}
           initial={{ opacity: 0, height: 0, marginTop: 0, marginBottom: 0 }}
-          animate={{ opacity: 1, height: "auto", marginTop: 56, marginBottom: 0 }}
+          animate={{
+            opacity: 1,
+            height: "auto",
+            marginTop: 56,
+            marginBottom: 0,
+          }}
           exit={{ opacity: 0, height: 0, marginTop: 0, marginBottom: 0 }}
           transition={enterTransition}
-          style={{ overflow: "hidden" }}
+          className="overflow-hidden rounded-xl"
         >
           {/* Inner card */}
           <motion.div
@@ -119,7 +124,10 @@ export default function AIWorkspace() {
                     "var(--fg-3)";
                 }}
               >
-                <XMarkIcon style={{ width: 15, height: 15 }} strokeWidth={1.5} />
+                <XMarkIcon
+                  style={{ width: 15, height: 15 }}
+                  strokeWidth={1.5}
+                />
               </button>
             </div>
 
@@ -128,6 +136,7 @@ export default function AIWorkspace() {
               <LayoutEngine
                 blocks={activeBlock}
                 onMessageAction={sendMessage}
+                isLanding
               />
             </div>
           </motion.div>

@@ -25,7 +25,7 @@ export default function BookingModal() {
   const { modalSlot: slot, closeModal: onClose } = useBookingModal();
   const { setConfirmed, setDrawerOpen } = useLandingUI();
   const { sendMessage } = useAIContext();
-  const { user } = useAuthActions();
+  const { user, isLoading: authLoading } = useAuthActions();
 
   const onConfirm = () => {
     onClose();
@@ -37,20 +37,35 @@ export default function BookingModal() {
     setDrawerOpen(true);
     sendMessage("Prijavi se");
   };
-  const [name, setName] = useState("");
-  const [phone, setPhone] = useState("");
+  const [formName, setFormName] = useState("");
+  const [formPhone, setFormPhone] = useState("");
+  const [formInstagram, setFormInstagram] = useState("");
   const [loading, setLoading] = useState(false);
 
+  // Pre-fill form when user loads (handles page-refresh case where phone may be missing)
   useEffect(() => {
-    if (user?.name) setName(user.name);
-  }, [user?.name]);
+    setFormName(user?.name ?? "");
+    setFormPhone(user?.phone ?? "");
+    setFormInstagram(user?.instagram ?? "");
+  }, [user?.name, user?.phone, user?.instagram, slot]);
 
   if (!slot) return null;
 
+  // Whether the logged-in user already has a contact method — skip the form
+  const userHasContact = !authLoading && !!user && !!(user.phone || user.instagram);
+
   async function handleSubmit(e: { preventDefault(): void }) {
     e.preventDefault();
-    if (!name.trim() || !phone.trim()) {
-      toast.error("Unesite ime i telefon");
+    const name = (user ? user.name : formName).trim();
+    const phone = (user?.phone || formPhone).trim();
+    const instagram = (user?.instagram || formInstagram).trim();
+
+    if (!name) {
+      toast.error("Unesite ime i prezime");
+      return;
+    }
+    if (!phone && !instagram) {
+      toast.error("Unesite telefon ili Instagram");
       return;
     }
     setLoading(true);
@@ -62,7 +77,7 @@ export default function BookingModal() {
           salonId: slot!.salonId,
           serviceId: slot!.serviceId ?? "",
           startTime: slot!.startTime,
-          user: { name, phone },
+          user: { name, phone, instagram: instagram || undefined },
         }),
       });
       if (!res.ok) {
@@ -97,7 +112,7 @@ export default function BookingModal() {
           alignItems: "center",
           justifyContent: "center",
           padding: 16,
-          zIndex: 61,
+          zIndex: 80,
           pointerEvents: "none",
         }}
       >
@@ -186,123 +201,74 @@ export default function BookingModal() {
             </button>
           </div>
 
-          {/* Form */}
-          <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            <ModalField label="Ime i prezime">
-              <input
-                type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Ana Petrović"
-                required
-                style={inputStyle}
-              />
-            </ModalField>
-
-            <ModalField label="Telefon">
-              <input
-                type="tel"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                placeholder="+381 60 123 4567"
-                required
-                style={inputStyle}
-              />
-            </ModalField>
-
-            {/* Price */}
-            {priceLabel && (
-              <div
-                style={{
-                  borderTop: "1px solid var(--border-1)",
-                  paddingTop: 14,
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                }}
-              >
-                <span
-                  style={{
-                    fontFamily: "var(--main-font)",
-                    fontSize: 13,
-                    color: "var(--fg-2)",
-                    fontWeight: 500,
-                  }}
-                >
-                  Cena usluge
-                </span>
-                <span
-                  style={{
-                    fontFamily: "var(--main-font)",
-                    fontSize: 15,
-                    fontWeight: 700,
-                    color: "var(--fg-1)",
-                  }}
-                >
-                  {priceLabel}
-                </span>
-              </div>
-            )}
-
-            {/* Login nudge (only if not logged in) */}
-            {!user && (
-              <div style={{ display: "flex", justifyContent: "center" }}>
-                <button
-                  type="button"
-                  onClick={onLoginRequest}
-                  style={{
-                    background: "none",
-                    border: "none",
-                    cursor: "pointer",
-                    fontFamily: "var(--main-font)",
-                    fontSize: 13,
-                    fontWeight: 600,
-                    color: "var(--secondary-color)",
-                    padding: "2px 4px",
-                    borderRadius: 6,
-                    transition: "opacity 150ms",
-                  }}
-                  onMouseEnter={(e) => {
-                    (e.currentTarget as HTMLButtonElement).style.opacity = "0.7";
-                  }}
-                  onMouseLeave={(e) => {
-                    (e.currentTarget as HTMLButtonElement).style.opacity = "1";
-                  }}
-                >
-                  Već imate nalog? Prijavi se
-                </button>
-              </div>
-            )}
-
-            <button
-              type="submit"
-              disabled={loading}
+          {/* Price row */}
+          {priceLabel && (
+            <div
               style={{
-                border: "none",
-                cursor: loading ? "not-allowed" : "pointer",
-                fontFamily: "var(--main-font)",
-                fontWeight: 700,
-                fontSize: 14,
-                padding: "14px 0",
-                borderRadius: 14,
-                background: "var(--secondary-color)",
-                color: "#fff",
-                width: "100%",
-                opacity: loading ? 0.7 : 1,
-                marginTop: 4,
-                transition: "background var(--dur-fast) var(--ease-out), opacity 150ms",
-              }}
-              onMouseEnter={(e) => {
-                if (!loading)
-                  (e.currentTarget as HTMLButtonElement).style.background = "var(--secondary-hover)";
-              }}
-              onMouseLeave={(e) => {
-                (e.currentTarget as HTMLButtonElement).style.background = "var(--secondary-color)";
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                marginBottom: 18,
+                paddingBottom: 18,
+                borderBottom: "1px solid var(--border-1)",
               }}
             >
-              {loading ? "Zakazujem…" : "Zakaži termin"}
-            </button>
-          </form>
+              <span style={{ fontFamily: "var(--main-font)", fontSize: 13, color: "var(--fg-2)", fontWeight: 500 }}>
+                Cena usluge
+              </span>
+              <span style={{ fontFamily: "var(--main-font)", fontSize: 15, fontWeight: 700, color: "var(--fg-1)" }}>
+                {priceLabel}
+              </span>
+            </div>
+          )}
+
+          {userHasContact ? (
+            /* ── Logged-in with contact: one-tap confirm ── */
+            <form onSubmit={handleSubmit}>
+              <SubmitBtn loading={loading} label="Potvrdi termin" />
+            </form>
+          ) : (
+            /* ── Needs contact info: logged-in without phone/insta OR guest ── */
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              {!user && !authLoading && (
+                <>
+                  <OutlineBtn onClick={onLoginRequest} label="Prijavi se" />
+                  <Divider label="ili nastavi kao gost" />
+                </>
+              )}
+
+              <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                <ModalField label="Ime i prezime">
+                  <input
+                    type="text"
+                    value={formName}
+                    onChange={(e) => setFormName(e.target.value)}
+                    placeholder="Ana Petrović"
+                    style={inputStyle}
+                  />
+                </ModalField>
+                <ModalField label="Telefon">
+                  <input
+                    type="tel"
+                    value={formPhone}
+                    onChange={(e) => setFormPhone(e.target.value)}
+                    placeholder="+381 60 123 4567"
+                    style={inputStyle}
+                  />
+                </ModalField>
+                <ModalField label="Instagram (alternativa za telefon)">
+                  <input
+                    type="text"
+                    value={formInstagram}
+                    onChange={(e) => setFormInstagram(e.target.value)}
+                    placeholder="@ime.prezime"
+                    style={inputStyle}
+                  />
+                </ModalField>
+                <SubmitBtn loading={loading} label={user ? "Potvrdi termin" : "Zakaži kao gost"} />
+              </form>
+            </div>
+          )}
         </div>
       </div>
     </>
@@ -326,6 +292,83 @@ function ModalField({ label, children }: { label: string; children: React.ReactN
       </span>
       {children}
     </label>
+  );
+}
+
+function SubmitBtn({ loading, label }: { loading: boolean; label: string }) {
+  return (
+    <button
+      type="submit"
+      disabled={loading}
+      style={{
+        border: "none",
+        cursor: loading ? "not-allowed" : "pointer",
+        fontFamily: "var(--main-font)",
+        fontWeight: 700,
+        fontSize: 14,
+        padding: "14px 0",
+        borderRadius: 14,
+        background: "var(--secondary-color)",
+        color: "#fff",
+        width: "100%",
+        opacity: loading ? 0.7 : 1,
+        transition: "background var(--dur-fast) var(--ease-out), opacity 150ms",
+      }}
+      onMouseEnter={(e) => {
+        if (!loading) (e.currentTarget as HTMLButtonElement).style.background = "var(--secondary-hover)";
+      }}
+      onMouseLeave={(e) => {
+        (e.currentTarget as HTMLButtonElement).style.background = "var(--secondary-color)";
+      }}
+    >
+      {loading ? "Zakazujem…" : label}
+    </button>
+  );
+}
+
+function OutlineBtn({ onClick, label }: { onClick: () => void; label: string }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        border: "2px solid var(--secondary-color)",
+        cursor: "pointer",
+        fontFamily: "var(--main-font)",
+        fontWeight: 700,
+        fontSize: 14,
+        padding: "13px 0",
+        borderRadius: 14,
+        background: "transparent",
+        color: "var(--secondary-color)",
+        width: "100%",
+        transition: "background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out)",
+      }}
+      onMouseEnter={(e) => {
+        const b = e.currentTarget as HTMLButtonElement;
+        b.style.background = "var(--secondary-color)";
+        b.style.color = "#fff";
+      }}
+      onMouseLeave={(e) => {
+        const b = e.currentTarget as HTMLButtonElement;
+        b.style.background = "transparent";
+        b.style.color = "var(--secondary-color)";
+      }}
+    >
+      {label}
+    </button>
+  );
+}
+
+function Divider({ label }: { label: string }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+      <div style={{ flex: 1, height: 1, background: "var(--border-1)" }} />
+      <span style={{ fontFamily: "var(--main-font)", fontSize: 12, color: "var(--fg-3)", whiteSpace: "nowrap" }}>
+        {label}
+      </span>
+      <div style={{ flex: 1, height: 1, background: "var(--border-1)" }} />
+    </div>
   );
 }
 

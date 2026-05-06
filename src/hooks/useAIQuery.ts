@@ -82,6 +82,11 @@ export function useAIQuery(user?: AuthUser | null) {
     setGlobalStreaming({ isStreaming: false, text: "" });
   }, [pendingResponse, saveToHistory, setThread]);
 
+  // Sync local streaming state to the global store — runs after render, never during
+  useEffect(() => {
+    setGlobalStreaming({ isStreaming, text: streamingText });
+  }, [isStreaming, streamingText]);
+
   useEffect(() => {
     if (!isStreaming) return;
 
@@ -98,10 +103,7 @@ export function useAIQuery(user?: AuthUser | null) {
         }
 
         if (prev.length < target.length) {
-          const next = target.slice(0, prev.length + 1);
-          // Ažuriramo globalno stanje u istom tiku → React 18 batch-uje oba update-a
-          setGlobalStreaming({ isStreaming: true, text: next });
-          return next;
+          return target.slice(0, prev.length + 1);
         }
         return prev;
       });

@@ -29,6 +29,7 @@ const getInitialThread = (): ThreadItem[] => {
 };
 
 let thread = getInitialThread();
+const EMPTY_THREAD: ThreadItem[] = [];
 const listeners = new Set<() => void>();
 
 interface GlobalStreamingState { isStreaming: boolean; text: string }
@@ -65,7 +66,7 @@ export function useChatHistory() {
   const thread = useSyncExternalStore(
     threadStore.subscribe,
     threadStore.getThread,
-    threadStore.getThread,
+    () => EMPTY_THREAD, // server snapshot — always empty to match SSR output
   );
 
   const claudiaStreaming = useSyncExternalStore(

@@ -6,6 +6,8 @@ export interface AuthUser {
   isAdmin: boolean;
   token: string;
   isOnline?: boolean;
+  phone?: string;
+  instagram?: string;
 }
 
 export interface LoginResponse {

@@ -2,7 +2,9 @@
 
 import { useState } from "react";
 import { MapPinIcon } from "@heroicons/react/24/solid";
-import type { CityListBlockType, CityItem } from "@/types/landing-block";
+import { useQuery } from "@tanstack/react-query";
+import type { CityListBlockType } from "@/types/landing-block";
+import type { SearchApiResponse } from "@/types/slots";
 import { Reveal } from "@/components/motion/Reveal";
 
 interface Props {
@@ -10,9 +12,48 @@ interface Props {
   onActionComplete: (message: string) => void;
 }
 
+interface CityEntry {
+  name: string;
+  slotCount: number;
+}
+
 export default function CityListBlockView({ block, onActionComplete }: Props) {
-  const cities: CityItem[] = block.metadata.cities ?? [];
   const service = block.metadata.service ?? block.metadata.serviceName ?? "";
+
+  const { data, isLoading } = useQuery<SearchApiResponse>({
+    queryKey: ["city-list", service],
+    queryFn: () => {
+      const params = new URLSearchParams();
+      if (service) params.set("category", service);
+      return fetch(`/api/search?${params.toString()}`).then((r) => r.json());
+    },
+    staleTime: 60_000,
+    enabled: true,
+  });
+
+  const cities: CityEntry[] = (data?.slotsByCity ?? []).map(({ city, slots }) => ({
+    name: city,
+    slotCount: slots.length,
+  }));
+
+  if (isLoading) {
+    return (
+      <div style={{ padding: "28px 0", textAlign: "center" }}>
+        <div
+          style={{
+            display: "inline-block",
+            width: 24,
+            height: 24,
+            border: "3px solid var(--brand-100, #e9d5f9)",
+            borderTopColor: "var(--secondary-color)",
+            borderRadius: "50%",
+            animation: "spin 0.7s linear infinite",
+          }}
+        />
+        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      </div>
+    );
+  }
 
   if (cities.length === 0) {
     return (
@@ -47,7 +88,7 @@ export default function CityListBlockView({ block, onActionComplete }: Props) {
       </p>
       <div style={gridStyle}>
         {cities.map((city, i) => (
-          <Reveal key={city.name} delay={i * 0.05}>
+          <Reveal key={`${city.name}-${i}`} delay={i * 0.05}>
             <CityCard
               city={city}
               onPick={() =>
@@ -65,7 +106,7 @@ function CityCard({
   city,
   onPick,
 }: {
-  city: CityItem;
+  city: CityEntry;
   onPick: () => void;
 }) {
   const [hovered, setHovered] = useState(false);
@@ -125,7 +166,7 @@ function CityCard({
           >
             {city.name}
           </div>
-          {city.salonCount != null && (
+          {city.slotCount > 0 && (
             <div
               style={{
                 fontFamily: "var(--main-font)",
@@ -135,7 +176,7 @@ function CityCard({
                 marginTop: 2,
               }}
             >
-              {city.salonCount} salona
+              {city.slotCount} slobodnih termina
             </div>
           )}
         </div>
