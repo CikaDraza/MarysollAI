@@ -14,6 +14,7 @@ export interface AgentCallMetadata {
   originalMessage: string;
   userIntent: string;
   timestamp: number;
+  payload?: Record<string, string>;
 }
 
 export interface AgentCallEvent {
@@ -23,6 +24,7 @@ export interface AgentCallEvent {
     userMessage: string;
     history: DeepSeekMessage[];
     sessionId?: string;
+    handoffPayload?: Record<string, string>;
   };
   timestamp: number;
 }
@@ -70,3 +72,13 @@ export type ChatBusEvent =
   | AgentCallBusEvent
   | AgentResponseBusEvent
   | AgentCompleteBusEvent;
+
+// Maria JSON route response — replaces text [CALL_AGENT:...] markers
+export type MariaRouteResponse =
+  | {
+      type: "handoff";
+      targetAgent: AgentType;
+      reply: string;
+      payload?: Record<string, string>;
+    }
+  | { type: "answer"; message: string };

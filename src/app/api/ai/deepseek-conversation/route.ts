@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import { Message } from "@/types/ai/deepseek";
 import { fetchPlatformKnowledge } from "@/lib/ai/platform-knowledge";
+import { parseMariaResponse } from "@/lib/ai/schemas/maria.schema";
 
 export const maxDuration = 60;
 export const dynamic = "force-dynamic";
@@ -65,44 +66,78 @@ ${citiesText}
 ${categoriesText}
 
 --------------------------------------------------
-# AGENT HANDOFF — OBAVEZNO
+# FORMAT ODGOVORA — OBAVEZNO
 
-Kada prepoznaš intent, odmah dodaj marker na KRAJU poruke.
-Marker mora biti POSLEDNJA stvar u poruci. Bez objašnjenja. Bez "pogleda dole".
+Tvoj odgovor mora biti ISKLJUČIVO validan JSON objekat. Bez teksta van JSON-a.
+Bez markdown blokova. Bez code fence. Bez objašnjenja.
+
+## Šema (ISTA polja za sve odgovore):
+{
+  "type": "answer" | "handoff",
+  "message": "kratka rečenica korisniku",
+  "targetAgent": "booking" | "auth" | "prices" | "appointments" | "testimonials" | "none",
+  "payload": { "intent": "...", "service": "...", "city": "...", "date": "YYYY-MM-DD", "time": "HH:MM" }
+}
+
+## Pravila:
+- "answer" → targetAgent UVEK "none". Payload se ignoriše.
+- "handoff" → targetAgent OBAVEZNO jedan od: booking, auth, prices, appointments, testimonials.
+- "payload" je opcionalno; popuni samo polja koja korisnik EKSPLICITNO pomenuo.
+- "message" je UVEK kratka rečenica (1 rečenica) na jeziku korisnika.
+
+## Primeri
+
+Direktan odgovor (FAQ):
+{"type":"answer","message":"Radimo u Novom Sadu i Beogradu.","targetAgent":"none"}
+
+Handoff (booking):
+{"type":"handoff","message":"Tražim slobodne termine za tebe.","targetAgent":"booking","payload":{"intent":"booking","service":"šišanje","date":"2026-05-11"}}
+
+Handoff (termini):
+{"type":"handoff","message":"Prikazujem tvoje termine.","targetAgent":"appointments"}
+
+--------------------------------------------------
+# AGENT HANDOFF — KADA KORISTITI
 
 ## TERMINI
-Prepoznaješ: "moji termini", "šta sam zakazala", "reservations", "zakazano"
-→ "Prikazujem tvoje termine." [CALL_AGENT:appointments]
+Prepoznaješ: "moji termini", "šta sam zakazala", "reservations", "zakazano", "mogu li da vidim moje termine", "da li mogu da vidim moje termine", "pogledaj moje termine", "da li mi je termin odobren", "status termina", "da li je termin potvrđen", "čekam potvrdu", "je li moj termin odobren"
+→ {"type":"handoff","message":"Prikazujem tvoje termine.","targetAgent":"appointments"}
 
 ## BOOKING
 Prepoznaješ: "zakaži", "termin", "slobodan termin", "rezerviši", "booking", "sutra", "danas", "posle Xh", "hitno"
-→ "Tražim slobodne termine za tebe." [CALL_AGENT:booking]
+→ {"type":"handoff","message":"Tražim slobodne termine za tebe.","targetAgent":"booking","payload":{"intent":"booking"}}
 
 ## LOGIN / REGISTRACIJA
 Prepoznaješ: "login", "prijavi me", "napravi nalog", "registracija", "uloguj", "zaboravio lozinku"
-→ "Otvaramo prijavu." [CALL_AGENT:auth]
+→ {"type":"handoff","message":"Otvaramo prijavu.","targetAgent":"auth"}
 
 ## CENOVNIK
 Prepoznaješ: "cenovnik", "koliko košta", "cene", "price list", "šta košta"
-→ "Otvaramo cenovnik." [CALL_AGENT:prices]
+→ {"type":"handoff","message":"Otvaramo cenovnik.","targetAgent":"prices"}
 
 ## UTISCI
 Prepoznaješ: "utisci", "review", "komentar", "ocena"
-→ "Otvaramo utiske." [CALL_AGENT:testimonials]
+→ {"type":"handoff","message":"Otvaramo utiske.","targetAgent":"testimonials"}
+
+--------------------------------------------------
+# DIREKTNI ODGOVORI (answer)
+
+Za opšta pitanja (radno vreme, lokacije, usluge):
+Odgovori direktno iz knowledge base, 1 rečenica.
+→ {"type":"answer","message":"...","targetAgent":"none"}
 
 --------------------------------------------------
 # MULTI LANGUAGE
 
 Odgovaraj na jeziku korisnika (srpski / engleski / mešano).
+Polje "message" uvek na jeziku korisnika.
 
 --------------------------------------------------
 # HARD RULES
 
-- MAX 1 rečenica po odgovoru.
-- UVEK završi sa markerom kada prepoznaš intent.
+- UVEK vraćaj validan JSON.
 - NIKADA ne izmišljaj usluge, cene ili termine.
-- NIKADA ne govori "pogledaj dole" ili "nije dostupno".
-- Za opšta pitanja (radno vreme, lokacije): odgovori direktno iz knowledge base, 1 rečenica.
+- NIKADA ne dodavaj tekst van JSON objekta.
 `.trim();
 }
 
@@ -111,14 +146,12 @@ export async function POST(req: Request) {
     const body = await req.json();
     const {
       messages,
-      stream = false,
       isAuthenticated = false,
       userName = "Guest",
       userCity = "",
       language = "sr",
     } = body as {
       messages: Pick<Message, "role" | "content">[];
-      stream?: boolean;
       isAuthenticated?: boolean;
       userName?: string;
       userCity?: string;
@@ -155,7 +188,8 @@ export async function POST(req: Request) {
           ],
           temperature: 0.3,
           max_tokens: 200,
-          stream,
+          stream: false,
+          response_format: { type: "json_object" },
         }),
       },
     );
@@ -169,19 +203,18 @@ export async function POST(req: Request) {
       );
     }
 
-    if (stream) {
-      return new Response(response.body, {
-        headers: {
-          "Content-Type": "text/event-stream",
-          "Cache-Control": "no-cache",
-          Connection: "keep-alive",
-        },
-      });
+    const data = await response.json();
+
+    // Validate Maria's response against the schema. Replace `choices[0].message.content`
+    // with a normalized JSON string so the client always receives the canonical shape
+    // — even if the model regressed to the old `reply` field.
+    const rawContent: string = data.choices?.[0]?.message?.content ?? "{}";
+    const normalized = parseMariaResponse(rawContent);
+    if (data.choices?.[0]?.message) {
+      data.choices[0].message.content = JSON.stringify(normalized);
     }
 
-    return new Response(response.body, {
-      headers: { "Content-Type": "application/json" },
-    });
+    return NextResponse.json(data);
   } catch (error) {
     console.error("Error in deepseek-conversation API:", error);
     return NextResponse.json(

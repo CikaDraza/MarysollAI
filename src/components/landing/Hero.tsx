@@ -12,6 +12,7 @@ import { useCityContext } from "@/context/landing/CityContext";
 import { useFilters } from "@/context/landing/FiltersContext";
 import { useWorkspace } from "@/context/landing/WorkspaceContext";
 import { SERBIAN_CITIES } from "@/lib/cities";
+import TrustRow from "./TrustRow";
 
 export interface SearchParams {
   city: string;
@@ -122,7 +123,16 @@ export default function Hero() {
       setTimeWindowStart(params.timeWindowStart ?? undefined);
       setTimeWindowEnd(params.timeWindowEnd ?? undefined);
     },
-    [dismissWorkspace, setCity, setCategory, setDateFilter, setTimeFilter, setSubcategoryFilter, setTimeWindowStart, setTimeWindowEnd],
+    [
+      dismissWorkspace,
+      setCity,
+      setCategory,
+      setDateFilter,
+      setTimeFilter,
+      setSubcategoryFilter,
+      setTimeWindowStart,
+      setTimeWindowEnd,
+    ],
   );
   const [value, setValue] = useState("");
   const [focused, setFocused] = useState(false);
@@ -274,7 +284,7 @@ export default function Hero() {
         style={{
           position: "relative",
           zIndex: 1,
-          padding: "72px 24px 80px",
+          padding: "72px 24px 20px",
           textAlign: "center",
         }}
       >
@@ -333,6 +343,9 @@ export default function Hero() {
             Pronađi masažu, tretman ili šišanje u svom gradu i rezerviši odmah —
             bez poziva, bez čekanja.
           </p>
+          <div className="mb-16">
+            <TrustRow />
+          </div>
 
           {/* Booking concierge input */}
           <div className="hero-smart-wrap">

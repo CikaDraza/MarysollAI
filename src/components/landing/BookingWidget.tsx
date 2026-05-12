@@ -10,6 +10,16 @@ import type { FlatSlot, SearchResult } from "@/types/slots";
 import { useCityContext } from "@/context/landing/CityContext";
 import { useSearchContext } from "@/context/landing/SearchContext";
 import { useBookingModal } from "@/context/landing/BookingModalContext";
+import { formatDistance } from "@/lib/utils/distance";
+import {
+  rankSearchResults,
+  type RankedSlot,
+} from "@/lib/search/rankSearchResults";
+import {
+  resolveFallbackPolicy,
+  applyFallbackPolicy,
+} from "@/lib/availability/fallbackPolicy";
+import { trackSearchEvent } from "@/lib/search/searchAnalytics";
 
 /** Returns a human-readable section label for a city group. */
 function cityGroupLabel(
@@ -25,25 +35,50 @@ function cityGroupLabel(
 }
 
 export default function BookingWidget() {
-  const { cityName: userCity } = useCityContext();
-  const { slotsByCity, fallbackLevel, isLoading: loading } = useSearchContext();
+  const { cityName: userCity, geoResolved } = useCityContext();
+  const { results, fallbackLevel, isLoading: loading } = useSearchContext();
   const { openModal: onBook } = useBookingModal();
-  const hasAny = slotsByCity.some((g) => g.slots.length > 0);
+
+  // Phase 2.5C Task 2 — unified ranking. Replaces local grouping/sorting
+  // with the strategy-aware adapter. Output: 3 city rows × 5 slots/row,
+  // diversified per-salon, ordered by the same score-cascade everywhere.
+  //
+  // Phase 3 — Policy enforcement. BookingWidget is a discovery surface: max L5,
+  // allowNearbyCities=true, allowSynthetic=false. Filter applied before ranking
+  // so rankSearchResults never sees ineligible candidates.
+  const ranked = useMemo(() => {
+    const policy = resolveFallbackPolicy("bookingwidget", { kind: "discovery" });
+    const eligible = applyFallbackPolicy(results, policy);
+    return rankSearchResults({
+      slots: eligible,
+      strategy: "bookingwidget",
+      userLocation:
+        geoResolved.lat != null && geoResolved.lng != null
+          ? { lat: geoResolved.lat, lng: geoResolved.lng }
+          : undefined,
+      fallbackLevel,
+    });
+  }, [results, geoResolved.lat, geoResolved.lng, fallbackLevel]);
+
+  const groupedByCity = ranked.groupedByCity;
+  const hasAny = groupedByCity.some((g) => g.slots.length > 0);
 
   // Compute a friendly subtitle once
   const subtitle = useMemo(() => {
     if (!hasAny || loading) return null;
-    const cities = slotsByCity
+    const cities = groupedByCity
       .filter((g) => g.slots.length > 0)
       .map((g) => g.city);
     if (cities.length === 0) return null;
     const hasUserCity =
       userCity && cities[0]?.toLowerCase() === userCity.toLowerCase();
     if (hasUserCity) return null; // no extra explanation needed
+    // Defer to ranked.fallback.userMessage when expanded, but keep the
+    // BookingWidget-specific wording for L4/L5.
     if (fallbackLevel >= 5) return "Prikazujemo termine iz popularnih gradova.";
     if (fallbackLevel >= 4) return "Prikazujemo termine iz gradova u blizini.";
     return null;
-  }, [hasAny, loading, slotsByCity, userCity, fallbackLevel]);
+  }, [hasAny, loading, groupedByCity, userCity, fallbackLevel]);
 
   return (
     <section id="booking-widget" style={{ marginTop: 56 }}>
@@ -123,7 +158,7 @@ export default function BookingWidget() {
       )}
 
       {!loading &&
-        slotsByCity
+        groupedByCity
           .filter((g) => g.slots.length > 0)
           .map((group) => (
             <div key={group.city} style={{ marginBottom: 44 }}>
@@ -157,7 +192,34 @@ export default function BookingWidget() {
                   <SlotCard
                     key={`${slot.salonId}-${slot.startTime}-${i}`}
                     slot={slot as SearchResult}
-                    onBook={() => onBook(slot)}
+                    onBook={() => {
+                      // Phase 2.5D Task 3 — analytics on click.
+                      const meta = (slot as RankedSlot).rankingMeta;
+                      const fromFallback = (slot as RankedSlot).fromFallback;
+                      trackSearchEvent({
+                        type: "search.result_click",
+                        slotId: `${slot.salonId}|${slot.startTime}|${slot.serviceId ?? ""}`,
+                        salonId: slot.salonId,
+                        serviceId: slot.serviceId,
+                        position: i,
+                        fallbackLevel: meta?.fallbackLevel ?? fallbackLevel,
+                        strategy: meta?.strategy ?? "bookingwidget",
+                      });
+                      if (fromFallback) {
+                        trackSearchEvent({
+                          type: "search.fallback_accepted",
+                          level: meta?.fallbackLevel ?? fallbackLevel,
+                          converted: true,
+                          slotId: `${slot.salonId}|${slot.startTime}|${slot.serviceId ?? ""}`,
+                          salonId: slot.salonId,
+                          serviceId: slot.serviceId,
+                          strategy: meta?.strategy ?? "bookingwidget",
+                          city: slot.city,
+                          service: slot.serviceName,
+                        });
+                      }
+                      onBook(slot);
+                    }}
                   />
                 ))}
               </div>
@@ -322,24 +384,28 @@ function SlotCard({
           gap: 6,
         }}
       >
-        {slot.distanceKm != null ? (
-          <span
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 3,
-              fontFamily: "var(--main-font)",
-              fontWeight: 500,
-              fontSize: 11,
-              color: "var(--fg-3)",
-            }}
-          >
-            <MapPinIcon style={{ width: 11, height: 11 }} />
-            {slot.distanceKm.toFixed(1)} km
-          </span>
-        ) : (
-          <span />
-        )}
+        {(() => {
+          // Phase 2.5C Task 7 — single distance formatter everywhere.
+          const distLabel = formatDistance(slot.distanceKm);
+          return distLabel ? (
+            <span
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 3,
+                fontFamily: "var(--main-font)",
+                fontWeight: 500,
+                fontSize: 11,
+                color: "var(--fg-3)",
+              }}
+            >
+              <MapPinIcon style={{ width: 11, height: 11 }} />
+              {distLabel}
+            </span>
+          ) : (
+            <span />
+          );
+        })()}
 
         {slot.price ? (
           <span

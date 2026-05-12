@@ -5,6 +5,7 @@ import { CheckBadgeIcon, StarIcon } from "@heroicons/react/24/solid";
 import { MapPinIcon } from "@heroicons/react/24/outline";
 import type { SalonListBlockType, SalonItem } from "@/types/landing-block";
 import { Reveal } from "@/components/motion/Reveal";
+import { bookingFlow } from "@/lib/ai/booking-flow-state";
 
 interface Props {
   block: SalonListBlockType;
@@ -54,11 +55,17 @@ export default function SalonListBlockView({ block, onActionComplete }: Props) {
           <Reveal key={salon.id} delay={i * 0.05}>
             <SalonCard
               salon={salon}
-              onPick={() =>
+              onPick={() => {
+                // Phase 2 Task 10 — hydrate bookingFlow from UI selection.
+                bookingFlow.get().collect({
+                  salonId: salon.id,
+                  salonName: salon.name,
+                  ...(city ? { city } : {}),
+                });
                 onActionComplete(
                   `Izabrao sam salon: ${salon.name} [salonId:${salon.id}]${city ? ` u ${city}` : ""}`,
-                )
-              }
+                );
+              }}
             />
           </Reveal>
         ))}

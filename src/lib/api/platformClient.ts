@@ -213,7 +213,7 @@ export const platformClient = {
     if (params.serviceId) qs.set("serviceId", params.serviceId);
     if (params.date) qs.set("date", params.date);
     return request<PlatformSlot[]>(`/marketplace/slots?${qs.toString()}`, {
-      next: { revalidate: 30 },
+      cache: "no-store",
     } as RequestInit);
   },
 

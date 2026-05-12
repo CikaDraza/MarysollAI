@@ -7,15 +7,21 @@ import {
   useCallback,
   useEffect,
   useRef,
-  useState,
   type ReactNode,
 } from "react";
 import { useAIQuery } from "@/hooks/useAIQuery";
 import { useChatSeek } from "@/hooks/useChatSeek";
 import type { ThreadItem } from "@/types/ai/chat-thread";
-import { chatEvents, isAgentCallEvent } from "@/lib/ai/events/chatEvents";
-import type { AgentType } from "@/types/ai/deepseek/agent-call";
+import { blockOrchestrator } from "@/lib/ai/block-orchestrator";
+import {
+  useAgentState,
+  type ActiveAgent as StoreActiveAgent,
+  type ClaudiaSubAgent,
+} from "@/store/ai/agent-state";
+import { resetAgentState } from "@/lib/ai/orchestrator/ai-orchestrator";
 
+// Public ActiveAgent for legacy consumers — derived from the Zustand store.
+// Kept for backward compatibility with components reading `useAIContext().activeAgent`.
 export type ActiveAgent =
   | "maria"
   | "claudia-booking"
@@ -24,18 +30,24 @@ export type ActiveAgent =
   | "claudia-appointments"
   | "claudia-testimonials";
 
-const AGENT_MAP: Record<AgentType, ActiveAgent> = {
-  booking: "claudia-booking",
-  auth: "claudia-auth",
-  prices: "claudia-prices",
-  appointments: "claudia-appointments",
-  testimonials: "claudia-testimonials",
-};
+function deriveLegacyAgent(
+  active: StoreActiveAgent,
+  sub: ClaudiaSubAgent | null,
+): ActiveAgent {
+  if (active === "maria" || active === "idle") return "maria";
+  if (active === "auth") return "claudia-auth";
+  // active === "claudia"
+  if (sub === "auth") return "claudia-auth";
+  if (sub === "prices") return "claudia-prices";
+  if (sub === "appointments") return "claudia-appointments";
+  if (sub === "testimonials") return "claudia-testimonials";
+  return "claudia-booking";
+}
 
 interface AIContextValue {
   unifiedThread: ThreadItem[];
   sendMessage: (q: string) => void;
-  /** Always routes directly to Claudia — use this for block interaction callbacks. */
+  /** Routes directly to Claudia — use for block interaction callbacks. */
   sendToOrchestrator: (q: string) => void;
   clearChat: () => void;
   streamingText: string | undefined;
@@ -50,37 +62,19 @@ const AIContext = createContext<AIContextValue | null>(null);
 export function AIProvider({ children }: { children: ReactNode }) {
   const maria = useChatSeek();
   const claudia = useAIQuery(null);
-  const [activeAgent, setActiveAgent] = useState<ActiveAgent>("maria");
 
-  // Stable refs — event subscribers must not go stale
-  const askClaudiaRef = useRef(claudia.askAI);
-  useEffect(() => {
-    askClaudiaRef.current = claudia.askAI;
-  }, [claudia.askAI]);
+  // Read agent state from the Zustand store — single source of truth.
+  // Owner of writes: lib/ai/orchestrator (via AgentBridge handoff path).
+  const storeActive = useAgentState((s) => s.activeAgent);
+  const storeSub = useAgentState((s) => s.claudiaSubAgent);
+  const setActiveAgentInStore = useAgentState((s) => s.setActiveAgent);
+  const activeAgent = deriveLegacyAgent(storeActive, storeSub);
 
+  // Ref tracks the current "is Maria active" decision for callbacks below.
   const activeAgentRef = useRef(activeAgent);
   useEffect(() => {
     activeAgentRef.current = activeAgent;
   }, [activeAgent]);
-
-  // When Maria emits CALL_AGENT: switch ownership to Claudia and forward the query
-  useEffect(() => {
-    const unsubscribe = chatEvents.subscribe("CALL_AGENT", (event) => {
-      if (!isAgentCallEvent(event)) return;
-
-      const { agentType } = event.payload;
-      setActiveAgent(AGENT_MAP[agentType] ?? "claudia-booking");
-
-      const lastUserMsg = [...event.payload.history]
-        .reverse()
-        .find((m) => m.role === "user");
-
-      const query = lastUserMsg?.content ?? event.payload.userMessage;
-      void askClaudiaRef.current(query);
-    });
-
-    return unsubscribe;
-  }, []);
 
   const unifiedThread = useMemo<ThreadItem[]>(() => {
     const mariaItems: ThreadItem[] = maria.messages
@@ -91,13 +85,12 @@ export function AIProvider({ children }: { children: ReactNode }) {
         data: {
           id: `maria-${m.id}`,
           role: m.role === "user" ? "user" : "assistant",
-          content: m.content.replace(/\[CALL_AGENT:\w+\]/g, "").trim(),
+          content: m.content,
           timestamp: m.createdAt.getTime(),
         },
       }));
 
-    // Collect all user message contents from Maria to deduplicate the
-    // forwarded CALL_AGENT query that Claudia receives as a user message.
+    // Deduplicate forwarded user query — Claudia receives it as first user message
     const mariaUserContents = new Set(
       mariaItems
         .filter((i) => i.type === "message" && i.data.role === "user")
@@ -108,11 +101,7 @@ export function AIProvider({ children }: { children: ReactNode }) {
     const claudiaItems: Array<ThreadItem & { _ts: number }> = [];
     claudia.thread.forEach((item) => {
       if (item.type === "message") {
-        if (item.data.role === "user") {
-          // Skip the initial forwarded query (already shown via Maria).
-          // Subsequent user messages sent directly to Claudia are NOT skipped.
-          if (mariaUserContents.has(item.data.content)) return;
-        }
+        if (item.data.role === "user" && mariaUserContents.has(item.data.content)) return;
         lastTs = item.data.timestamp;
         claudiaItems.push({ ...item, _ts: lastTs });
       } else {
@@ -131,9 +120,9 @@ export function AIProvider({ children }: { children: ReactNode }) {
     return all.map(({ _ts, ...rest }) => rest as ThreadItem);
   }, [maria.messages, claudia.thread]);
 
-  // Routes new messages: Maria handles general chat, Claudia handles active workflows
   const sendMessage = useCallback(
     (q: string) => {
+      // When Claudia is active, route directly to Claudia — never re-invoke Maria
       if (activeAgentRef.current === "maria") {
         void maria.sendMessage(q);
       } else {
@@ -143,26 +132,28 @@ export function AIProvider({ children }: { children: ReactNode }) {
     [maria, claudia],
   );
 
-  // Block interactions always go straight to Claudia — never through Maria
+  // Block interactions always go straight to Claudia with isBlockInteraction flag.
+  // We flip the store directly (no orchestrator handoff needed — there's no
+  // Maria response to sequence against here).
   const sendToOrchestrator = useCallback(
     (q: string) => {
-      // Ensure activeAgent reflects that Claudia is now handling the session
       if (activeAgentRef.current === "maria") {
-        setActiveAgent("claudia-booking");
+        setActiveAgentInStore("claudia", "booking");
       }
-      void claudia.askAI(q);
+      void claudia.askAI(q, { isBlockInteraction: true });
     },
-    [claudia],
+    [claudia, setActiveAgentInStore],
   );
 
   const clearChat = useCallback(() => {
     maria.clearChat();
     claudia.clearChat();
-    setActiveAgent("maria");
+    blockOrchestrator.clear();
+    resetAgentState();
   }, [maria, claudia]);
 
   const resetAgent = useCallback(() => {
-    setActiveAgent("maria");
+    resetAgentState();
   }, []);
 
   return (

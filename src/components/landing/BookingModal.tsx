@@ -22,7 +22,7 @@ function formatPrice(price?: number): string {
 }
 
 export default function BookingModal() {
-  const { modalSlot: slot, closeModal: onClose } = useBookingModal();
+  const { modalSlot: slot, closeModal: onClose, triggerSuccess } = useBookingModal();
   const { setConfirmed, setDrawerOpen } = useLandingUI();
   const { sendMessage } = useAIContext();
   const { user, isLoading: authLoading } = useAuthActions();
@@ -51,14 +51,11 @@ export default function BookingModal() {
 
   if (!slot) return null;
 
-  // Whether the logged-in user already has a contact method — skip the form
-  const userHasContact = !authLoading && !!user && !!(user.phone || user.instagram);
-
   async function handleSubmit(e: { preventDefault(): void }) {
     e.preventDefault();
-    const name = (user ? user.name : formName).trim();
-    const phone = (user?.phone || formPhone).trim();
-    const instagram = (user?.instagram || formInstagram).trim();
+    const name = formName.trim();
+    const phone = formPhone.trim();
+    const instagram = formInstagram.trim();
 
     if (!name) {
       toast.error("Unesite ime i prezime");
@@ -86,6 +83,7 @@ export default function BookingModal() {
         throw new Error(data.error ?? "Greška");
       }
       toast.success("Termin uspešno zakazan!");
+      triggerSuccess();
       onConfirm();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Greška pri zakazivanju");
@@ -223,53 +221,45 @@ export default function BookingModal() {
             </div>
           )}
 
-          {userHasContact ? (
-            /* ── Logged-in with contact: one-tap confirm ── */
-            <form onSubmit={handleSubmit}>
-              <SubmitBtn loading={loading} label="Potvrdi termin" />
-            </form>
-          ) : (
-            /* ── Needs contact info: logged-in without phone/insta OR guest ── */
-            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              {!user && !authLoading && (
-                <>
-                  <OutlineBtn onClick={onLoginRequest} label="Prijavi se" />
-                  <Divider label="ili nastavi kao gost" />
-                </>
-              )}
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {!user && !authLoading && (
+              <>
+                <OutlineBtn onClick={onLoginRequest} label="Prijavi se" />
+                <Divider label="ili nastavi kao gost" />
+              </>
+            )}
 
-              <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                <ModalField label="Ime i prezime">
-                  <input
-                    type="text"
-                    value={formName}
-                    onChange={(e) => setFormName(e.target.value)}
-                    placeholder="Ana Petrović"
-                    style={inputStyle}
-                  />
-                </ModalField>
-                <ModalField label="Telefon">
-                  <input
-                    type="tel"
-                    value={formPhone}
-                    onChange={(e) => setFormPhone(e.target.value)}
-                    placeholder="+381 60 123 4567"
-                    style={inputStyle}
-                  />
-                </ModalField>
-                <ModalField label="Instagram (alternativa za telefon)">
-                  <input
-                    type="text"
-                    value={formInstagram}
-                    onChange={(e) => setFormInstagram(e.target.value)}
-                    placeholder="@ime.prezime"
-                    style={inputStyle}
-                  />
-                </ModalField>
-                <SubmitBtn loading={loading} label={user ? "Potvrdi termin" : "Zakaži kao gost"} />
-              </form>
-            </div>
-          )}
+            <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <ModalField label="Ime i prezime">
+                <input
+                  type="text"
+                  value={formName}
+                  onChange={(e) => setFormName(e.target.value)}
+                  placeholder="Ana Petrović"
+                  style={inputStyle}
+                />
+              </ModalField>
+              <ModalField label="Telefon">
+                <input
+                  type="tel"
+                  value={formPhone}
+                  onChange={(e) => setFormPhone(e.target.value)}
+                  placeholder="+381 60 123 4567"
+                  style={inputStyle}
+                />
+              </ModalField>
+              <ModalField label="Instagram (alternativa za telefon)">
+                <input
+                  type="text"
+                  value={formInstagram}
+                  onChange={(e) => setFormInstagram(e.target.value)}
+                  placeholder="@ime.prezime"
+                  style={inputStyle}
+                />
+              </ModalField>
+              <SubmitBtn loading={loading} label={user ? "Potvrdi termin" : "Zakaži kao gost"} />
+            </form>
+          </div>
         </div>
       </div>
     </>

@@ -3,12 +3,20 @@
 import { createContext, useContext, type ReactNode } from "react";
 import { useCitySelector } from "@/hooks/useCitySelector";
 import { SERBIAN_CITIES, type SerbianCity } from "@/lib/cities";
+import type {
+  GeoSignals,
+  ResolvedGeo,
+} from "@/lib/geo/resolveGeoPriority";
 
 interface CityContextValue {
   city: SerbianCity;
   cityName: string;
   setCity: (city: SerbianCity) => void;
   setCityByName: (name: string) => void;
+  /** Phase 2.5B — geo signals + resolved priority surfaced for consumers
+   * that need richer geo info (preload, ranking, analytics). */
+  geoSignals: GeoSignals;
+  geoResolved: ResolvedGeo;
 }
 
 const CityContext = createContext<CityContextValue | null>(null);
@@ -20,7 +28,9 @@ export function CityProvider({
   children: ReactNode;
   initialCity?: string;
 }) {
-  const { city, setCity } = useCitySelector(initialCity || undefined);
+  const { city, setCity, signals, resolved } = useCitySelector(
+    initialCity || undefined,
+  );
 
   const setCityByName = (name: string) => {
     const found = SERBIAN_CITIES.find(
@@ -31,7 +41,16 @@ export function CityProvider({
   };
 
   return (
-    <CityContext.Provider value={{ city, cityName: city.name, setCity, setCityByName }}>
+    <CityContext.Provider
+      value={{
+        city,
+        cityName: city.name,
+        setCity,
+        setCityByName,
+        geoSignals: signals,
+        geoResolved: resolved,
+      }}
+    >
       {children}
     </CityContext.Provider>
   );

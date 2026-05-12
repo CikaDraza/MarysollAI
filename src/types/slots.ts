@@ -28,6 +28,11 @@ export interface SearchResult extends FlatSlot {
   fallbackLevel: number;
   hasVariants?: boolean; // true when service price differs by variant (min price shown)
   isSynthetic?: boolean; // true when slot was generated from working hours
+
+  // Phase 2 — slot origin tagging. Always present on slots that passed through
+  // makeSyntheticCandidates or makeRealCandidates. Optional for backward compat.
+  availabilityConfidence?: "calendar_verified" | "working_hours_only" | "synthetic_projection";
+  slotOrigins?: ("real" | "synthetic" | "nearby_city" | "relaxed_time" | "related_service")[];
 }
 
 export interface SearchApiResponse {

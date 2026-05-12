@@ -73,6 +73,7 @@ export function CalendarBlockView({ block, onAction }: Props) {
                 onSlotClick={(date, time) =>
                   onAction(`Zakaži mi termin ${date} u ${time}`)
                 }
+                onBookingSuccess={() => setView("list")}
               />
             ) : (
               <ClientBlockAppointments />

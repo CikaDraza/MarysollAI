@@ -106,7 +106,7 @@ function ClientAppointmentListItem({
 
 export default function ClientBlockAppointments() {
   const [page, setPage] = useState(1);
-  const { token } = useAuthActions();
+  const { token, user } = useAuthActions();
 
   const {
     data: response,
@@ -119,8 +119,10 @@ export default function ClientBlockAppointments() {
   });
 
   const appointments = useMemo(() => {
-    return response?.appointments || [];
-  }, [response]);
+    const all = response?.appointments || [];
+    if (user?.email) return all.filter((a) => a.clientEmail === user.email);
+    return all;
+  }, [response, user?.email]);
 
   const pagination = response?.pagination;
 

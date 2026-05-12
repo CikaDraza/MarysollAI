@@ -5,6 +5,7 @@ import { XMarkIcon, SparklesIcon } from "@heroicons/react/24/outline";
 import { LayoutEngine } from "@/components/layout/LayoutEngine";
 import { useWorkspace } from "@/context/landing/WorkspaceContext";
 import { useAIContext } from "@/context/landing/AIContext";
+import { useEffect, useRef } from "react";
 
 const BLOCK_LABELS: Record<string, string> = {
   AuthBlock: "Prijava",
@@ -24,8 +25,19 @@ const enterTransition = {
 export default function AIWorkspace() {
   const { activeBlock, dismissWorkspace } = useWorkspace();
   const { sendMessage, sendToOrchestrator } = useAIContext();
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Scroll workspace into view whenever a new block appears
+  useEffect(() => {
+    if (!activeBlock) return;
+    const timer = setTimeout(() => {
+      containerRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 300); // wait for enter animation to start
+    return () => clearTimeout(timer);
+  }, [activeBlock?.id]);
 
   return (
+    <div ref={containerRef} className="scroll-mt-4">
     <AnimatePresence mode="wait">
       {activeBlock && (
         <motion.div
@@ -144,5 +156,6 @@ export default function AIWorkspace() {
         </motion.div>
       )}
     </AnimatePresence>
+    </div>
   );
 }

@@ -1,4 +1,15 @@
 // components/chat-bus/AgentBridge.tsx
+//
+// Phase 1 — Deterministic handoff bridge.
+//
+// Previously: BOTH this component AND AIContext subscribed to "CALL_AGENT"
+// and acted in parallel — the user-visible race condition where Maria's
+// message and Claudia's stream appeared to fire simultaneously.
+//
+// Now: AgentBridge is the SINGLE owner of the handoff. It routes the event
+// through `handleMariaResponse` (lib/ai/orchestrator/ai-orchestrator) which
+// flips activeAgent state, persists payload to bookingFlow, then triggers
+// Claudia sequentially.
 "use client";
 
 import { ReactNode, useEffect, useRef } from "react";
@@ -8,6 +19,9 @@ import { useAuthActions } from "@/hooks/useAuthActions";
 import { ThreadItem } from "@/types/ai/chat-thread";
 import { Message as DeepSeekMessage } from "@/types/ai/deepseek";
 import { AgentType } from "@/types/ai/deepseek/agent-call";
+import { handleMariaResponse } from "@/lib/ai/orchestrator/ai-orchestrator";
+import type { MariaTargetAgent } from "@/lib/ai/schemas/maria.schema";
+
 interface AgentBridgeProps {
   children: ReactNode;
 }
@@ -52,14 +66,14 @@ const getAgentTypeName = (type: AgentType | string): string => {
 export function AgentBridge({ children }: AgentBridgeProps) {
   const { user } = useAuthActions();
   const { askAI } = useAIQuery(user);
+  // Re-entrancy guard separate from orchestrator's `isTransitioning` — we
+  // also want to drop a duplicate "CALL_AGENT" arriving on the same tick.
   const isProcessingRef = useRef(false);
-  // ✅ Ref za trenutne auth podatke
   const authRef = useRef({
     isAuthenticated: !!user,
     userName: user?.name || "Gost",
   });
 
-  // ✅ Odmah ažuriraj auth ref
   useEffect(() => {
     authRef.current = {
       isAuthenticated: !!user,
@@ -74,8 +88,9 @@ export function AgentBridge({ children }: AgentBridgeProps) {
       isProcessingRef.current = true;
 
       try {
-        const { agentType, userMessage, history } = event.payload;
+        const { agentType, userMessage, history, handoffPayload } = event.payload;
 
+        // Smooth scroll to keep the new agent's first message in view.
         const mainContent = document.getElementById("main-content");
         if (mainContent) {
           mainContent.scrollTo({
@@ -84,19 +99,33 @@ export function AgentBridge({ children }: AgentBridgeProps) {
           });
         }
 
-        const originalUserQuery = history
-          ? findLastUserMessage(history)
-          : userMessage;
+        const originalUserQuery =
+          (history ? findLastUserMessage(history) : null) || userMessage;
         const convertedHistory = history
           ? convertDeepSeekHistoryToThreadItems(history)
           : [];
 
-        // ✅ Prosledi eksplicitne auth podatke
-        await askAI(originalUserQuery || userMessage, {
-          context: convertedHistory,
-          preserveHistory: true,
-          explicitAuth: authRef.current, // ✅ Ključno: trenutni auth podaci
-        });
+        // Route through the orchestrator. It owns the state transition; the
+        // invokeClaudia callback is awaited inside, so Maria's reply has
+        // already streamed into the thread by the time Claudia starts.
+        await handleMariaResponse(
+          {
+            type: "handoff",
+            message: "",
+            targetAgent: agentType as MariaTargetAgent,
+            payload: handoffPayload,
+          },
+          {
+            userMessage: originalUserQuery,
+            invokeClaudia: async () => {
+              await askAI(originalUserQuery, {
+                context: convertedHistory,
+                preserveHistory: true,
+                explicitAuth: authRef.current,
+              });
+            },
+          },
+        );
 
         chatEvents.emit({
           type: "AGENT_RESPONSE",
@@ -108,7 +137,7 @@ export function AgentBridge({ children }: AgentBridgeProps) {
           timestamp: Date.now(),
         });
       } catch (error) {
-        console.error("Agent bridge error:", error);
+        console.error("[AgentBridge] handoff failed:", error);
       } finally {
         isProcessingRef.current = false;
       }

@@ -7,6 +7,10 @@ import { useCityContext } from "./CityContext";
 import type { SearchResult } from "@/types/slots";
 
 interface SearchContextValue {
+  /** Phase 2.5C — flat results exposed so consumers can apply
+   * client-side ranking via rankSearchResults(). slotsByCity is kept
+   * for backward compatibility but is server-grouped (pre-ranking). */
+  results: SearchResult[];
   slotsByCity: CitySlots[];
   bestSlot: SearchResult | null;
   fallbackLevel: number;
@@ -26,7 +30,7 @@ export function SearchProvider({ children }: { children: ReactNode }) {
     subcategoryFilter,
   } = useFilters();
 
-  const { slotsByCity, bestSlot, fallbackLevel, isLoading } = useSearch({
+  const { results, slotsByCity, bestSlot, fallbackLevel, isLoading } = useSearch({
     city: cityName,
     category: category || undefined,
     date: dateFilter,
@@ -37,7 +41,9 @@ export function SearchProvider({ children }: { children: ReactNode }) {
   });
 
   return (
-    <SearchContext.Provider value={{ slotsByCity, bestSlot, fallbackLevel, isLoading }}>
+    <SearchContext.Provider
+      value={{ results, slotsByCity, bestSlot, fallbackLevel, isLoading }}
+    >
       {children}
     </SearchContext.Provider>
   );

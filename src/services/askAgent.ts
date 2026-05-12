@@ -2,11 +2,52 @@
 import { ThreadItem } from "@/types/ai/chat-thread";
 import OpenAI from "openai";
 import { fetchPlatformKnowledge } from "@/lib/ai/platform-knowledge";
+import type { CollectedBookingFields } from "@/lib/ai/booking-flow-state";
 
 const deepseek = new OpenAI({
   baseURL: "https://api.deepseek.com/v1",
   apiKey: process.env.DEEPSEEK_API_KEY_SYSTEM!,
 });
+
+// Phase 1.5 — Booking memory section.
+// Generated server-side from the snapshot the client forwards. Tells Claudia
+// which fields are already known so she doesn't re-ask, and which single field
+// to ask for next.
+function buildBookingMemorySection(
+  collected: CollectedBookingFields | undefined,
+): string {
+  if (!collected || Object.keys(collected).length === 0) {
+    return "";
+  }
+  const known: string[] = [];
+  if (collected.city) known.push(`grad: ${collected.city}`);
+  if (collected.service) known.push(`usluga: ${collected.service}`);
+  if (collected.salonName) known.push(`salon: ${collected.salonName}`);
+  if (collected.date) known.push(`datum: ${collected.date}`);
+  if (collected.time) known.push(`vreme: ${collected.time}`);
+
+  const required: Array<keyof CollectedBookingFields> = ["service", "city"];
+  const missing = required.filter((k) => !collected[k]);
+  const missingLabels = missing.map((k) =>
+    k === "city" ? "grad" : k === "service" ? "usluga" : k,
+  );
+
+  return `
+--------------------------------------------------
+# BOOKING MEMORY (već prikupljeno od korisnika)
+
+${known.length > 0 ? known.map((k) => `- ${k}`).join("\n") : "- (još uvek prazno)"}
+
+## NEDOSTAJE
+${missingLabels.length === 0 ? "Sve obavezno polje je prikupljeno — pređi na prikazivanje termina." : missingLabels.map((m) => `- ${m}`).join("\n")}
+
+## PRAVILA PAMĆENJA
+- NIKADA ne pitaj ponovo ono što je već prikupljeno gore.
+- Pitaj SAMO za PRVO sledeće nedostajuće polje (jedna kratka rečenica).
+- NIKADA ne postavljaj više pitanja u istom odgovoru. Loš primer: "Koji grad i usluga?". Dobar primer: "Za koji grad?".
+- Ako su sve obavezne stavke poznate, idi na AppointmentCalendarBlock sa popunjenim metadata-jem.
+`;
+}
 
 function buildClaudiaSystemPrompt(
   salonsText: string,
@@ -134,10 +175,18 @@ Blok sam učitava termine.
 --------------------------------------------------
 # SMART UX RULES
 
+## ZAKAZIVANJE (booking)
 Ako imaš i grad i uslugu → odmah AppointmentCalendarBlock
 Ako nedostaje grad → CityListBlock sa dostupnim gradovima
 Ako nedostaje usluga → postavi JEDNO pitanje
 Gost može da gleda slotove. Login tek pri finalnoj potvrdi.
+
+## MOJI TERMINI (appointments)
+Kada korisnik pita "moji termini", "šta sam zakazala", "zakazano", "reservations", "moje rezervacije", "mogu li da vidim moje termine", "da li mogu da vidim moje termine", "pogledaj moje termine", "da li mi je termin odobren", "status termina", "da li je termin potvrđen", "čekam potvrdu", "je li moj termin odobren":
+- Ako je PRIJAVLJEN → vrati CalendarBlock, metadata: { "mode": "list" }
+  Primer: {"messages":[{"role":"assistant","content":"Evo tvojih zakazanih termina.","attachToBlockType":"CalendarBlock"}],"layout":[{"type":"CalendarBlock","priority":1,"metadata":{"mode":"list"}}],"intent":{}}
+- Ako je GOST → vrati AuthBlock, metadata: { "mode": "login" }
+  Primer: {"messages":[{"role":"assistant","content":"Prijavi se da vidiš svoje termine.","attachToBlockType":"AuthBlock"}],"layout":[{"type":"AuthBlock","priority":1,"metadata":{"mode":"login"}}],"intent":{}}
 
 ## CENOVNIK FLOW
 
@@ -188,11 +237,13 @@ export async function askAgent(
   isAuthenticated: boolean,
   history: ThreadItem[],
   userName: string,
+  isBlockInteraction = false,
+  collectedBookingFields?: CollectedBookingFields,
 ) {
   const { salonsText, servicesText, citiesText, categoriesText } =
     await fetchPlatformKnowledge();
 
-  const systemPrompt = buildClaudiaSystemPrompt(
+  let systemPrompt = buildClaudiaSystemPrompt(
     salonsText,
     servicesText,
     citiesText,
@@ -200,6 +251,16 @@ export async function askAgent(
     isAuthenticated,
     userName,
   );
+
+  // Phase 1.5 — Inject booking memory so Claudia inherits Maria's payload
+  // and her own previously-collected fields. Empty when nothing has been
+  // gathered yet; in that case the regular SMART UX RULES apply.
+  systemPrompt += buildBookingMemorySection(collectedBookingFields);
+
+  if (isBlockInteraction) {
+    systemPrompt +=
+      "\n\n# BLOCK INTERACTION MODE\nKorisnik je kliknuo na blok. Odgovori SAMO kratkom instruktivnom porukom (1 rečenica). Postavi layout na prazan niz: []. Ne vraćaj nove blokove.";
+  }
 
   const deepseekHistory = history
     .filter((item) => item.type === "message")

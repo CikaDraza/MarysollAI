@@ -3,6 +3,7 @@ import { rateLimit } from "@/helpers/rate-limit";
 import { getRequestIP } from "@/helpers/request-ip";
 import { askAgent } from "@/services/askAgent";
 import { ThreadItem } from "@/types/ai/chat-thread";
+import type { CollectedBookingFields } from "@/lib/ai/booking-flow-state";
 import { NextResponse } from "next/server";
 
 export async function POST(req: Request) {
@@ -20,11 +21,20 @@ export async function POST(req: Request) {
 
   try {
     const body = await req.json();
-    const { message, isAuthenticated, history, userName } = body as {
+    const {
+      message,
+      isAuthenticated,
+      history,
+      userName,
+      isBlockInteraction,
+      bookingMemory,
+    } = body as {
       message: string;
       isAuthenticated: boolean;
       history: ThreadItem[];
       userName: string;
+      isBlockInteraction?: boolean;
+      bookingMemory?: CollectedBookingFields;
     };
 
     const stream = await askAgent(
@@ -32,6 +42,8 @@ export async function POST(req: Request) {
       isAuthenticated,
       history || [],
       userName,
+      isBlockInteraction ?? false,
+      bookingMemory,
     );
 
     // Vraćamo stream sa specijalnim headerima

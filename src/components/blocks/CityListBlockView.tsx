@@ -6,6 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import type { CityListBlockType } from "@/types/landing-block";
 import type { SearchApiResponse } from "@/types/slots";
 import { Reveal } from "@/components/motion/Reveal";
+import { bookingFlow } from "@/lib/ai/booking-flow-state";
 
 interface Props {
   block: CityListBlockType;
@@ -93,7 +94,12 @@ export default function CityListBlockView({ block, onActionComplete }: Props) {
           <Reveal key={`${city.name}-${i}`} delay={i * 0.05}>
             <CityCard
               city={city}
-              onPick={() => onActionComplete(`Izabrao sam grad: ${city.name}`)}
+              onPick={() => {
+                // Phase 2 Task 10 — hydrate bookingFlow from UI selection so
+                // the next Claudia turn won't re-ask for city.
+                bookingFlow.get().collect({ city: city.name });
+                onActionComplete(`Izabrao sam grad: ${city.name}`);
+              }}
             />
           </Reveal>
         ))}

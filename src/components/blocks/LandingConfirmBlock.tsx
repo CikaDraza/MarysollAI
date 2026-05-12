@@ -54,11 +54,11 @@ export default function LandingConfirmBlock({ block }: Props) {
           margin: "0 auto",
         }}
       >
-        <p
+        <h3
           style={{
             fontFamily: "var(--main-font)",
             fontWeight: 700,
-            fontSize: 12,
+            fontSize: 18,
             color: "var(--fg-3)",
             textTransform: "uppercase",
             letterSpacing: ".08em",
@@ -66,9 +66,16 @@ export default function LandingConfirmBlock({ block }: Props) {
           }}
         >
           Potvrda termina
-        </p>
+        </h3>
 
-        <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 18 }}>
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: 2,
+            marginBottom: 24,
+          }}
+        >
           <Row label="Usluga" value={serviceName} />
           {locationLabel && <Row label="Salon" value={locationLabel} />}
           <Row label="Datum" value={formatDatePretty(date)} />
@@ -79,15 +86,15 @@ export default function LandingConfirmBlock({ block }: Props) {
           onClick={handleConfirm}
           style={{
             width: "100%",
-            border: "none",
             cursor: "pointer",
             fontFamily: "var(--main-font)",
             fontWeight: 700,
             fontSize: 14,
             padding: "13px 0",
             borderRadius: 14,
-            background: "var(--secondary-color)",
-            color: "#fff",
+
+            border: "1px solid var(--secondary-color)",
+            color: "var(--secondary-color)",
             transition: "opacity 150ms",
           }}
         >
@@ -100,11 +107,32 @@ export default function LandingConfirmBlock({ block }: Props) {
 
 function Row({ label, value }: { label: string; value: string }) {
   return (
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-      <span style={{ fontFamily: "var(--main-font)", fontSize: 12, color: "var(--fg-3)", fontWeight: 500 }}>
+    <div
+      style={{
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        minHeight: 36,
+      }}
+    >
+      <span
+        style={{
+          fontFamily: "var(--main-font)",
+          fontSize: 12,
+          color: "var(--fg-3)",
+          fontWeight: 500,
+        }}
+      >
         {label}
       </span>
-      <span style={{ fontFamily: "var(--main-font)", fontSize: 13, color: "var(--fg-1)", fontWeight: 700 }}>
+      <span
+        style={{
+          fontFamily: "var(--main-font)",
+          fontSize: 14,
+          color: "var(--fg-1)",
+          fontWeight: 700,
+        }}
+      >
         {value}
       </span>
     </div>

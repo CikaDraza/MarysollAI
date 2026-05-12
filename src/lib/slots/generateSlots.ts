@@ -1,4 +1,90 @@
+// src/lib/slots/generateSlots.ts
+//
+// Phase 2 — Synthetic slot generation with arrival-feasibility gating.
+//
+// INVARIANTS:
+//   - `now` is always injected. Generation loops never call Date.now() internally.
+//   - Every candidate is evaluated through resolveArrivalFeasibility before emit.
+//   - Hard caps (SYNTHETIC_MAX_*) are enforced per-call AND per-day.
+//   - Generated slots always carry slotOrigins + availabilityConfidence tags.
+//   - Synthetic generation is a LAST RESORT — callers must only invoke this
+//     after confirming real availability returned zero viable candidates.
+
 import type { MappedSalon } from "@/lib/mappers/salonMapper";
+import {
+  resolveArrivalFeasibility,
+  type GeoConfidence,
+} from "@/lib/availability/arrivalFeasibility";
+
+// ── Hard caps — centralized, documented ──────────────────────────────────────
+// Change only with explicit platform decision. These prevent L6 explosion.
+
+/** Max synthetic slots emitted per calendar day in a single (salon × service) call. */
+export const SYNTHETIC_MAX_PER_DAY = 5;
+
+/** Max calendar days ahead to project synthetic slots.
+ * Was 14 — reduced to prevent unbounded future generation. */
+export const SYNTHETIC_MAX_LOOKAHEAD_DAYS = 3;
+
+/** Max total synthetic slots per (salon × service) call. */
+export const SYNTHETIC_MAX_TOTAL_PER_CALL = 20;
+
+/** Max total synthetic slots across ALL salons in a single findBestSlots L6 call.
+ * This is the global circuit breaker — prevents the 2520-slot explosion. */
+export const SYNTHETIC_GLOBAL_CAP = 60;
+
+// ── Types ──────────────────────────────────────────────────────────────────────
+
+export interface GeneratedSlot {
+  startTime: string; // "YYYY-MM-DDTHH:MM:00" Belgrade local-time (no TZ suffix)
+  endTime: string;
+  isSynthetic: boolean;
+  slotOrigins: ["synthetic"] | ["real"];
+  availabilityConfidence: "working_hours_only" | "synthetic_projection";
+}
+
+export interface SyntheticGenerationOptions {
+  /** Injected wall clock — never call Date.now() inside generation.
+   * Defaults to new Date() AT CALL ENTRY only (not inside loops). */
+  now?: Date;
+  daysAhead?: number;
+  serviceDuration?: number;
+  // Feasibility context — used to gate each slot
+  distanceKm?: number;
+  geoConfidence?: GeoConfidence;
+  cityMatch?: boolean;
+  // Hard cap overrides (default to SYNTHETIC_MAX_* constants)
+  maxPerDay?: number;
+  maxTotal?: number;
+  /**
+   * Availability context controls slot tagging:
+   * - "working_hours_only" (default): real salon + real working hours, no calendar data.
+   *   Emits isSynthetic=false, availabilityConfidence="working_hours_only", slotOrigins=["real"].
+   *   Valid for QuickAccess MVP.
+   * - "synthetic_projection": L6 last-resort fallback. Emits isSynthetic=true,
+   *   availabilityConfidence="synthetic_projection", slotOrigins=["synthetic"].
+   *   Blocked by QuickAccess policy.
+   */
+  context?: "working_hours_only" | "synthetic_projection";
+}
+
+export interface SyntheticGenerationDebug {
+  /** Total time-steps visited in generation loop (before any filter). */
+  generated: number;
+  /** Slots that passed feasibility and fit within caps. */
+  accepted: number;
+  /** Slots rejected by resolveArrivalFeasibility. */
+  rejectedByFeasibility: number;
+  /** True when generation was halted by a hard cap. */
+  capHit: boolean;
+}
+
+export interface SyntheticGenerationResult {
+  slots: GeneratedSlot[];
+  debug: SyntheticGenerationDebug;
+}
+
+// ── Internal helpers ──────────────────────────────────────────────────────────
 
 const DOW_TO_DAY: Record<number, string> = {
   0: "Nedelja",
@@ -11,7 +97,6 @@ const DOW_TO_DAY: Record<number, string> = {
 };
 
 function parseHoursRange(str: string): { openMin: number; closeMin: number } | null {
-  // Matches "09:00-20:00", "09:00 - 20:00", "9:00–20:00"
   const m = str.match(/(\d{1,2}):(\d{2})\s*[-–]\s*(\d{1,2}):(\d{2})/);
   if (!m) return null;
   return {
@@ -37,58 +122,70 @@ function belgradeDow(date: Date): number {
   return map[short] ?? date.getDay();
 }
 
-/** Current time in Europe/Belgrade as total minutes since midnight */
-function belgradeNowMinutes(): number {
+/** Current time as total minutes since midnight in Europe/Belgrade for a given Date. */
+function belgradeMinutesAt(date: Date): number {
   const timeStr = new Intl.DateTimeFormat("en-US", {
     timeZone: "Europe/Belgrade",
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
-  }).format(new Date());
+  }).format(date);
   const parts = timeStr.replace("24:", "00:").split(":");
   return parseInt(parts[0], 10) * 60 + parseInt(parts[1], 10);
 }
 
-export interface GeneratedSlot {
-  startTime: string; // "YYYY-MM-DDTHH:MM:00" local-time (no TZ suffix)
-  endTime: string;
-  isSynthetic: true;
-}
+// ── Public API ────────────────────────────────────────────────────────────────
 
 /**
- * Generates available time slots from a salon's working hours.
+ * Generate synthetic (workingHours-projected) slots for a single salon.
  *
- * Slot step equals serviceDuration — no overlapping slots for single-staff salons.
- * If serviceDuration is not provided, falls back to the first service on the salon
- * or 30 minutes as a last resort.
+ * Every candidate is evaluated through resolveArrivalFeasibility. Only
+ * feasible slots are emitted. Hard caps prevent L6 explosion.
  *
- * For today: first slot must start at least bufferMin (default 30) after now.
- * For future days: first slot starts at opening time.
+ * CALLERS: invoke only after confirming real availability is empty.
+ * This is a recovery layer, not a primary availability source.
  */
 export function generateSlotsFromWorkingHours(
   salon: MappedSalon,
-  options: {
-    daysAhead?: number;
-    serviceDuration?: number; // minutes; step and duration for each slot
-    bufferMin?: number;        // minimum gap from now for today's first slot
-  } = {},
-): GeneratedSlot[] {
-  const { daysAhead = 14, bufferMin = 30 } = options;
+  opts: SyntheticGenerationOptions = {},
+): SyntheticGenerationResult {
+  // Resolve `now` once at entry — never call Date.now() in loops
+  const now = opts.now ?? new Date();
 
-  // Resolve duration: explicit > first salon service > 30 min fallback
+  const daysAhead = Math.min(
+    opts.daysAhead ?? SYNTHETIC_MAX_LOOKAHEAD_DAYS,
+    SYNTHETIC_MAX_LOOKAHEAD_DAYS,
+  );
+
   const serviceDuration =
-    options.serviceDuration ??
+    opts.serviceDuration ??
     salon.services?.[0]?.duration ??
     30;
 
-  const step = Math.max(serviceDuration, 15); // never step less than 15 min
+  const step = Math.max(serviceDuration, 15);
+
+  const effectiveMaxPerDay = opts.maxPerDay ?? SYNTHETIC_MAX_PER_DAY;
+  const effectiveMaxTotal = opts.maxTotal ?? SYNTHETIC_MAX_TOTAL_PER_CALL;
 
   const result: GeneratedSlot[] = [];
-  const nowBelgradeMin = belgradeNowMinutes();
-  const todayBelgrade = belgradeDateStr(new Date());
+  const debug: SyntheticGenerationDebug = {
+    generated: 0,
+    accepted: 0,
+    rejectedByFeasibility: 0,
+    capHit: false,
+  };
+
+  const nowBelgradeMin = belgradeMinutesAt(now);
+  const todayBelgrade = belgradeDateStr(now);
 
   for (let d = 0; d < daysAhead; d++) {
-    const date = new Date();
+    if (debug.accepted >= effectiveMaxTotal) {
+      debug.capHit = true;
+      break;
+    }
+
+    // Build the candidate date by advancing from `now` — deterministic
+    const date = new Date(now.getTime());
     date.setDate(date.getDate() + d);
 
     const dow = belgradeDow(date);
@@ -101,23 +198,54 @@ export function generateSlotsFromWorkingHours(
 
     const dateStr = belgradeDateStr(date);
     const isToday = dateStr === todayBelgrade;
+    let perDayCount = 0;
 
     for (let m = range.openMin; m + serviceDuration <= range.closeMin; m += step) {
-      // For today: skip slots that can't be reached in time
-      if (isToday && m < nowBelgradeMin + bufferMin) continue;
+      if (debug.accepted >= effectiveMaxTotal) {
+        debug.capHit = true;
+        break;
+      }
+      if (perDayCount >= effectiveMaxPerDay) break;
+
+      // Skip obviously past times on today without running full feasibility
+      if (isToday && m <= nowBelgradeMin) continue;
 
       const hh = Math.floor(m / 60).toString().padStart(2, "0");
       const mm = (m % 60).toString().padStart(2, "0");
       const startTime = `${dateStr}T${hh}:${mm}:00`;
+      debug.generated++;
+
+      // Arrival feasibility gate — every slot must pass before emit
+      const feasibility = resolveArrivalFeasibility({
+        now,
+        slotStartTime: new Date(startTime),
+        distanceKm: opts.distanceKm,
+        geoConfidence: opts.geoConfidence,
+        cityMatch: opts.cityMatch,
+      });
+
+      if (!feasibility.feasible) {
+        debug.rejectedByFeasibility++;
+        continue;
+      }
 
       const endM = m + serviceDuration;
       const eh = Math.floor(endM / 60).toString().padStart(2, "0");
       const em = (endM % 60).toString().padStart(2, "0");
       const endTime = `${dateStr}T${eh}:${em}:00`;
 
-      result.push({ startTime, endTime, isSynthetic: true });
+      const isSyntheticProjection = (opts.context ?? "synthetic_projection") === "synthetic_projection";
+      result.push({
+        startTime,
+        endTime,
+        isSynthetic: isSyntheticProjection,
+        slotOrigins: isSyntheticProjection ? ["synthetic"] : ["real"],
+        availabilityConfidence: isSyntheticProjection ? "synthetic_projection" : "working_hours_only",
+      });
+      debug.accepted++;
+      perDayCount++;
     }
   }
 
-  return result;
+  return { slots: result, debug };
 }

@@ -2,21 +2,28 @@
 
 import { useMemo, useState } from "react";
 import { ClockIcon } from "@heroicons/react/24/outline";
-import type { MappedSalon } from "@/lib/mappers/salonMapper";
 import type { CitySlots } from "@/hooks/useSearch";
 import {
   CANONICAL_TO_SLUG,
   SLUG_TO_CANONICAL,
   type CategorySlug,
 } from "@/lib/intent/categoryMap";
-import { generateSlotsFromWorkingHours } from "@/lib/slots/generateSlots";
 import { stripDiacritics } from "@/lib/intent/parseIntent";
 import { useSalons } from "@/hooks/useSalons";
 import { useCityContext } from "@/context/landing/CityContext";
 import { useFilters } from "@/context/landing/FiltersContext";
 import { useSearchContext } from "@/context/landing/SearchContext";
 import { useBookingModal } from "@/context/landing/BookingModalContext";
-import type { FlatSlot } from "@/types/slots";
+import type { FlatSlot, SearchResult } from "@/types/slots";
+import { rankSearchResults } from "@/lib/search/rankSearchResults";
+import {
+  resolveFallbackPolicy,
+  applyFallbackPolicy,
+  type SearchIntent,
+} from "@/lib/availability/fallbackPolicy";
+import { formatDistance } from "@/lib/utils/distance";
+import { resolveSearchFallback } from "@/lib/search/searchFallback";
+import { trackSearchEvent } from "@/lib/search/searchAnalytics";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -52,6 +59,10 @@ export interface QuickSlot {
   servicePrice?: number;
   hasVariants?: boolean;
   isSynthetic?: boolean;
+  /** Phase 2.5D Task 7 — display distance. Raw km; rendered via formatDistance. */
+  distanceKm?: number;
+  /** Phase 2.5D Task 8 — slot came from fallback search (level > 1). */
+  fromFallback?: boolean;
 }
 
 interface CategoryGroup {
@@ -148,7 +159,7 @@ function formatPrice(
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function QuickAccess() {
-  const { cityName } = useCityContext();
+  const { cityName, geoResolved } = useCityContext();
   const {
     category,
     subcategoryFilter: subcategory,
@@ -157,11 +168,11 @@ export default function QuickAccess() {
     timeWindowEnd,
     handleCategoryPick,
   } = useFilters();
-  const { slotsByCity } = useSearchContext();
+  const { results, slotsByCity, fallbackLevel } = useSearchContext();
   const { openModal } = useBookingModal();
   const { data: salons = [], isLoading: loading } = useSalons(cityName);
 
-  const onPick = (slot: QuickSlot) => {
+  const onPick = (slot: QuickSlot, position: number) => {
     const flatSlot: FlatSlot = {
       salonId: slot.salonId,
       salonName: slot.salonName,
@@ -171,8 +182,38 @@ export default function QuickAccess() {
       startTime: slot.startTime,
       city: slot.city,
     };
+    // Phase 2.5D Task 3 — analytics on click + fallback conversion.
+    const slotId = `${slot.salonId}|${slot.startTime}|${slot.serviceId ?? ""}`;
+    trackSearchEvent({
+      type: "search.result_click",
+      slotId,
+      salonId: slot.salonId,
+      serviceId: slot.serviceId,
+      position,
+      fallbackLevel,
+      strategy: "quickaccess",
+    });
+    if (slot.fromFallback) {
+      trackSearchEvent({
+        type: "search.fallback_accepted",
+        level: fallbackLevel,
+        converted: true,
+        slotId,
+        salonId: slot.salonId,
+        serviceId: slot.serviceId,
+        strategy: "quickaccess",
+        city: slot.city,
+        service: slot.serviceName,
+      });
+    }
     openModal(flatSlot);
   };
+
+  // Phase 2.5D Task 2 — fallback metadata used to drive empty-state copy.
+  const fallbackInfo = useMemo(
+    () => resolveSearchFallback(fallbackLevel),
+    [fallbackLevel],
+  );
 
   const onCategoryPick = (slug: string) => handleCategoryPick(slug, cityName ?? "");
   const [activeServiceId, setActiveServiceId] = useState<string | null>(null);
@@ -184,137 +225,46 @@ export default function QuickAccess() {
     [salons, cityName],
   );
 
-  // All available slots for the city, sorted by time
+  // Phase 2.5D Task 1 — single dataset source.
+  // QuickAccess now consumes the SAME ranked results as BookingWidget.
+  // Local synthetic slot generation is removed: the search API (findBestSlots)
+  // already provides L6 synthetic slots when needed, so the data path is
+  // unified. citySalons is still used for the category-listing UI below —
+  // not for slot generation.
+  //
+  // Phase 3 — Policy enforcement. Apply consumer trust policy BEFORE converting
+  // to QuickSlot so that synthetic, nearby-city, and category-drift slots are
+  // structurally removed here, not in downstream UI conditionals.
   const allSlots = useMemo<QuickSlot[]>(() => {
-    const seen = new Set<string>();
-    const result: QuickSlot[] = [];
+    // Derive intent from active filters — determines maxFallbackLevel.
+    const intent: SearchIntent = category
+      ? cityName
+        ? { kind: "explicit_city_service" }
+        : { kind: "explicit_service" }
+      : { kind: "implicit_geo" };
 
-    function add(slot: QuickSlot) {
-      const key = `${slot.salonId}-${slot.startTime}-${slot.serviceId ?? ""}`;
-      if (seen.has(key)) return;
-      seen.add(key);
-      result.push(slot);
-    }
+    const policy = resolveFallbackPolicy("quickaccess", intent);
+    const policyFiltered = applyFallbackPolicy(results, policy);
 
-    // Source 1: real nextSlots from salon profiles
-    for (const salon of citySalons) {
-      for (const slot of salon.nextSlots) {
-        if (slotTooSoon(slot.startTime)) continue;
-        // Try id first, then rawId (_id) — platform may store serviceId as MongoDB _id
-        const svc =
-          salon.services.find((s) => s.id === slot.serviceId) ??
-          salon.services.find((s) => s.rawId === slot.serviceId);
-        add({
-          salonId: salon.id,
-          salonName: salon.name,
-          city: salon.city ?? cityName ?? "",
-          startTime: slot.startTime,
-          dateLabel: formatDateLabel(slot.startTime),
-          serviceId: slot.serviceId,
-          serviceName: svc?.name ?? "",
-          serviceCategory: resolveCategoryLabel(svc?.category ?? ""),
-          serviceDuration: svc?.duration,
-          servicePrice: svc?.price,
-          hasVariants: svc?.hasVariants,
-          isSynthetic: false,
-        });
-      }
-    }
-
-    // Source 2: synthetic slots for services not covered by real nextSlots.
-    // Runs for ALL salons — even those with real nextSlots, since those may
-    // have null serviceId (free slots) and wouldn't carry service info.
-    for (const salon of citySalons) {
-      const hours = salon.workingHours ?? {};
-      if (Object.keys(hours).length === 0) continue;
-
-      // Services already represented by real nextSlots (by id or rawId)
-      const coveredIds = new Set<string>();
-      for (const slot of salon.nextSlots) {
-        if (slot.serviceId) coveredIds.add(slot.serviceId);
-      }
-
-      const uncoveredSvcs = salon.services
-        .filter((svc) => !coveredIds.has(svc.id) && !coveredIds.has(svc.rawId))
-        .slice(0, 5);
-
-      if (uncoveredSvcs.length === 0 && salon.nextSlots.length > 0) continue;
-
-      if (uncoveredSvcs.length === 0) {
-        // No services at all — generate generic free slots
-        const gen = generateSlotsFromWorkingHours(salon, {
-          serviceDuration: 60,
-          daysAhead: 7,
-          bufferMin: BUFFER_MIN,
-        });
-        for (const g of gen.slice(0, 3)) {
-          add({
-            salonId: salon.id,
-            salonName: salon.name,
-            city: salon.city ?? cityName ?? "",
-            startTime: g.startTime,
-            dateLabel: formatDateLabel(g.startTime),
-            serviceId: null,
-            serviceName: "",
-            serviceCategory: "",
-            isSynthetic: true,
-          });
-        }
-      } else {
-        for (const svc of uncoveredSvcs) {
-          const gen = generateSlotsFromWorkingHours(salon, {
-            serviceDuration: svc.duration,
-            daysAhead: 7,
-            bufferMin: BUFFER_MIN,
-          });
-          for (const g of gen.slice(0, 2)) {
-            add({
-              salonId: salon.id,
-              salonName: salon.name,
-              city: salon.city ?? cityName ?? "",
-              startTime: g.startTime,
-              dateLabel: formatDateLabel(g.startTime),
-              serviceId: svc.id,
-              serviceName: svc.name,
-              serviceCategory: resolveCategoryLabel(svc.category),
-              serviceDuration: svc.duration,
-              servicePrice: svc.price,
-              hasVariants: svc.hasVariants,
-              isSynthetic: true,
-            });
-          }
-        }
-      }
-    }
-
-    // Source 3: slotsByCity from server search (filtered to user's city)
-    for (const group of slotsByCity ?? []) {
-      if (!cityMatches(group.city, cityName)) continue;
-      for (const s of group.slots) {
-        if (slotTooSoon(s.startTime)) continue;
-        const sCity = s.city || group.city;
-        if (!cityMatches(sCity, cityName)) continue;
-        add({
-          salonId: s.salonId,
-          salonName: s.salonName,
-          city: sCity,
-          startTime: s.startTime,
-          dateLabel: formatDateLabel(s.startTime),
-          serviceId: s.serviceId,
-          serviceName: s.serviceName,
-          serviceCategory: resolveCategoryLabel(
-            typeof s.category === "string" ? s.category : "",
-          ),
-          serviceDuration: s.serviceDuration,
-          servicePrice: s.price,
-          hasVariants: s.hasVariants ?? false,
-          isSynthetic: s.isSynthetic ?? false,
-        });
-      }
-    }
-
-    return result.sort((a, b) => a.startTime.localeCompare(b.startTime));
-  }, [citySalons, slotsByCity, cityName]);
+    return policyFiltered
+      .filter((r) => !slotTooSoon(r.startTime))
+      .map<QuickSlot>((r) => ({
+        salonId: r.salonId,
+        salonName: r.salonName,
+        city: r.city,
+        startTime: r.startTime,
+        dateLabel: r.dateLabel || formatDateLabel(r.startTime),
+        serviceId: r.serviceId,
+        serviceName: r.serviceName,
+        serviceCategory: resolveCategoryLabel(r.category ?? ""),
+        serviceDuration: r.serviceDuration,
+        servicePrice: r.price,
+        hasVariants: r.hasVariants ?? false,
+        isSynthetic: r.isSynthetic ?? false,
+        distanceKm: r.distanceKm,
+        fromFallback: (r.fallbackLevel ?? 0) > 1,
+      }));
+  }, [results, category, cityName]);
 
   // Filter slots to the searched category (when active)
   const categoryFilteredSlots = useMemo<QuickSlot[]>(() => {
@@ -351,14 +301,75 @@ export default function QuickAccess() {
     return byName.length > 0 ? byName : dateTimeFilteredSlots;
   }, [dateTimeFilteredSlots, subcategory]);
 
-  // Apply service filter if one is active
-  const displayedSlots = useMemo(() => {
-    if (activeServiceId) {
-      const filtered = subcategoryFilteredSlots.filter((s) => s.serviceId === activeServiceId);
-      if (filtered.length > 0) return filtered.slice(0, 3);
+  // Phase 2.5C Task 1 — unified ranking via rankSearchResults.
+  // Replaces local `sort(startTime)` + `.slice(0, 3)` with the same
+  // strategy-aware adapter BookingWidget uses. QuickSlot is shaped into
+  // SearchResult for transport; original QuickSlot kept by identity for
+  // SlotCard rendering (preserves servicePrice / serviceCategory / etc.).
+  const displayedSlots = useMemo<QuickSlot[]>(() => {
+    // 1. Service-filter narrowing (preserved behavior).
+    const filtered = activeServiceId
+      ? subcategoryFilteredSlots.filter((s) => s.serviceId === activeServiceId)
+      : subcategoryFilteredSlots;
+    const pool = filtered.length > 0 ? filtered : subcategoryFilteredSlots;
+
+    // 2. Adapt QuickSlot → SearchResult for ranking transport.
+    const identityKey = (qs: QuickSlot) =>
+      `${qs.salonId}|${qs.startTime}|${qs.serviceId ?? ""}`;
+    const bySource = new Map<string, QuickSlot>();
+    const slots: SearchResult[] = pool.map((qs) => {
+      const key = identityKey(qs);
+      bySource.set(key, qs);
+      return {
+        salonId: qs.salonId,
+        salonName: qs.salonName,
+        serviceId: qs.serviceId,
+        serviceName: qs.serviceName,
+        category: qs.serviceCategory,
+        startTime: qs.startTime,
+        city: qs.city,
+        // Phase 2.5D — preserve distance through the ranking step so
+        // SlotCard can render the badge and scoring sees it.
+        distanceKm: qs.distanceKm,
+        price: qs.servicePrice,
+        hasVariants: qs.hasVariants ?? false,
+        serviceDuration: qs.serviceDuration ?? 60,
+        dateLabel: qs.dateLabel,
+        timeLabel: qs.startTime.slice(11, 16),
+        relevanceScore: 0,
+        fallbackLevel,
+        isSynthetic: qs.isSynthetic,
+      };
+    });
+
+    // 3. Unified ranking. QuickAccess strategy applies max 5 results +
+    // service/salon/category diversity caps.
+    const ranked = rankSearchResults({
+      slots,
+      strategy: "quickaccess",
+      userLocation:
+        geoResolved.lat != null && geoResolved.lng != null
+          ? { lat: geoResolved.lat, lng: geoResolved.lng }
+          : undefined,
+      fallbackLevel,
+    });
+
+    // 4. Map back to QuickSlot for SlotCard rendering. Skip the rare case
+    // where a ranked entry can't be matched (shouldn't happen — fail open).
+    const out: QuickSlot[] = [];
+    for (const r of ranked.slots) {
+      const key = `${r.salonId}|${r.startTime}|${r.serviceId ?? ""}`;
+      const original = bySource.get(key);
+      if (original) out.push(original);
     }
-    return subcategoryFilteredSlots.slice(0, 3);
-  }, [subcategoryFilteredSlots, activeServiceId]);
+    return out;
+  }, [
+    subcategoryFilteredSlots,
+    activeServiceId,
+    geoResolved.lat,
+    geoResolved.lng,
+    fallbackLevel,
+  ]);
 
   // Category groups with services (from city salons only)
   const categoryGroups = useMemo<CategoryGroup[]>(() => {
@@ -463,14 +474,29 @@ export default function QuickAccess() {
               : `Termini u — ${displayCity}`}
           </p>
           <div className="ms-slots-row">
-            {displayedSlots.map((slot) => (
+            {displayedSlots.map((slot, i) => (
               <SlotCard
                 key={`${slot.salonId}-${slot.startTime}-${slot.serviceId ?? ""}`}
                 slot={slot}
-                onBook={() => onPick(slot)}
+                onBook={() => onPick(slot, i)}
               />
             ))}
           </div>
+          {/* Phase 2.5D Task 2 — show fallback hint when results came from a
+              relaxed search. resolveSearchFallback produces the wording. */}
+          {fallbackInfo.isExpanded && (
+            <p
+              style={{
+                fontFamily: "var(--main-font)",
+                fontSize: 12,
+                color: "var(--fg-3)",
+                marginTop: 12,
+                fontStyle: "italic",
+              }}
+            >
+              {fallbackInfo.userMessage}
+            </p>
+          )}
         </div>
       ) : category && SLUG_TO_CANONICAL[category as CategorySlug] ? (
         <CategoryNotFound
@@ -609,9 +635,32 @@ function SlotCard({ slot, onBook }: { slot: QuickSlot; onBook: () => void }) {
           fontWeight: 500,
           color: "var(--fg-3)",
           margin: "0 0 6px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 8,
         }}
       >
-        {slot.dateLabel}
+        <span>{slot.dateLabel}</span>
+        {(() => {
+          // Phase 2.5D Task 7 — distance badge in QuickAccess. Right-aligned
+          // alongside the date label, subtle and only when known.
+          const distLabel = formatDistance(slot.distanceKm);
+          if (!distLabel) return null;
+          return (
+            <span
+              title="Udaljenost"
+              style={{
+                fontWeight: 500,
+                color: "var(--fg-3)",
+                fontSize: 10,
+                opacity: 0.85,
+              }}
+            >
+              {distLabel}
+            </span>
+          );
+        })()}
       </p>
 
       {/* Time + city badge */}

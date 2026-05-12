@@ -1,9 +1,24 @@
 // src/components/layout/LayoutEngine.tsx
+//
+// Phase 1.5 — Render-time block dedupe.
+//
+// Previously: a lazy `useState(() => filter)` decided which blocks to render
+// once at mount. If parent re-rendered with new block props matching a type
+// already mounted elsewhere, this engine had no way to recognize it and
+// could re-mount. Now every render consults blockOrchestrator and:
+//   - If THIS engine instance owns the block → render
+//   - If ANOTHER engine owns it → focus and skip
+//   - If unowned → claim + render
 "use client";
 
+import { useEffect, useMemo, useRef } from "react";
 import { SparklesIcon } from "@heroicons/react/24/outline";
 import { BaseBlock, BlockTypes } from "@/types/landing-block";
 import { blockFactory } from "./blockFactory";
+import { blockOrchestrator } from "@/lib/ai/block-orchestrator";
+import { aiLog } from "@/lib/ai/debug-log";
+
+const log = aiLog("LAYOUT_ENGINE");
 
 const AI_FOLLOWUPS: Partial<Record<BlockTypes, string>> = {
   AppointmentCalendarBlock: "Preporuči mi slobodan termin za ovu nedelju",
@@ -28,19 +43,78 @@ export function LayoutEngine({
   onBlockAction,
   isLanding,
 }: Props) {
-  if (!blocks) return null;
-  const blocksArray = Array.isArray(blocks) ? blocks : [blocks];
+  const blocksArray = blocks ? (Array.isArray(blocks) ? blocks : [blocks]) : [];
 
-  if (blocksArray.length === 0) return null;
+  // Tracks the block types this LayoutEngine instance has claimed.
+  // We keep this in a ref so that the dedupe filter computed on every render
+  // can distinguish "ours" from "someone else's already-mounted block".
+  const ownedRef = useRef<Set<string>>(new Set());
+
+  // Render-time dedupe.
+  // Recomputed every render so when parent passes a new blocks array, blocks
+  // already open elsewhere are focused (and skipped) rather than re-mounted.
+  const toRender = useMemo<BaseBlock[]>(() => {
+    const result: BaseBlock[] = [];
+    const seenInThisPass = new Set<string>();
+
+    for (const b of blocksArray) {
+      // Dedupe within this render pass first (e.g. AI returned LoginBlock twice)
+      if (seenInThisPass.has(b.type)) continue;
+      seenInThisPass.add(b.type);
+
+      if (ownedRef.current.has(b.type)) {
+        // We already mounted it earlier — keep rendering it.
+        result.push(b);
+        continue;
+      }
+
+      if (blockOrchestrator.isBlockOpen(b.type)) {
+        // Mounted by another LayoutEngine instance. Focus + skip render.
+        log("dedupe.focus_existing", { type: b.type });
+        blockOrchestrator.focusBlock(b.type);
+        continue;
+      }
+
+      result.push(b);
+    }
+    return result;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [JSON.stringify(blocksArray.map((b) => `${b.type}:${b.id ?? ""}`))]);
+
+  // Claim ownership on mount, release on unmount.
+  useEffect(() => {
+    if (toRender.length === 0) return;
+    const claimed: string[] = [];
+    for (const b of toRender) {
+      if (!ownedRef.current.has(b.type)) {
+        blockOrchestrator.openBlock(b.type);
+        ownedRef.current.add(b.type);
+        claimed.push(b.type);
+        log("mount", { type: b.type });
+      }
+    }
+    return () => {
+      claimed.forEach((t) => {
+        blockOrchestrator.closeBlock(t);
+        ownedRef.current.delete(t);
+        log("unmount", { type: t });
+      });
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [toRender]);
+
+  if (toRender.length === 0) return null;
+
   return (
     <>
-      {blocksArray
+      {toRender
         .sort((a, b) => (a.priority || 0) - (b.priority || 0))
         .map((block) => {
           const followUp = AI_FOLLOWUPS[block.type];
           return (
             <div
               key={block.id || block.type}
+              data-block-type={block.type}
               className="animate-in zoom-in-95 duration-700"
             >
               {renderBeforeBlock && renderBeforeBlock(block.type)}
@@ -48,7 +122,6 @@ export function LayoutEngine({
               <div className="relative">
                 {blockFactory(block, onBlockAction ?? onMessageAction, isLanding)}
 
-                {/* AI follow-up chip — only when AI is wired and hint exists */}
                 {onMessageAction && followUp && (
                   <div
                     style={{
@@ -59,7 +132,16 @@ export function LayoutEngine({
                     }}
                   >
                     <button
-                      onClick={() => onMessageAction(followUp)}
+                      onClick={() => {
+                        // Task 10: AI follow-up chip dedupe — if the chip would
+                        // re-open a block already on screen, focus instead.
+                        if (blockOrchestrator.isBlockOpen(block.type)) {
+                          log("followup_chip.focus", { type: block.type });
+                          blockOrchestrator.focusBlock(block.type);
+                          return;
+                        }
+                        onMessageAction(followUp);
+                      }}
                       style={{
                         display: "inline-flex",
                         alignItems: "center",

@@ -6,7 +6,6 @@ import { AnimatePresence, motion } from "framer-motion";
 import { useEffect, useState } from "react";
 import LandingHeader from "./LandingHeader";
 import Hero from "./Hero";
-import TrustRow from "./TrustRow";
 import QuickAccess from "./QuickAccess";
 import BookingWidget from "./BookingWidget";
 import BookingModal from "./BookingModal";
@@ -14,6 +13,8 @@ import NotifyMeWidget from "./NotifyMeWidget";
 import StickyOffer from "./StickyOffer";
 import AIDrawer from "./AIDrawer";
 import AIWorkspace from "./AIWorkspace";
+import HomepagePreloader from "./HomepagePreloader";
+import SearchDebugPanel from "./SearchDebugPanel";
 import {
   LandingUIProvider,
   useLandingUI,
@@ -86,6 +87,14 @@ function LandingPageContent() {
         transition: `margin-right 280ms var(--ease-out)`,
       }}
     >
+      {/* Phase 2.5B — silent homepage preload. Renders nothing; warms
+          TanStack's cache so QuickAccess/BookingWidget mount with data. */}
+      <HomepagePreloader />
+
+      {/* Phase 2.5D — dev-only ranking observability. Renders nothing in
+          production. */}
+      <SearchDebugPanel />
+
       {/* Page gradient */}
       <div
         aria-hidden="true"
@@ -108,7 +117,6 @@ function LandingPageContent() {
       <div className="h-[72px]" aria-hidden="true" />
 
       <Hero />
-
       <main
         style={{
           maxWidth: 1240,
@@ -116,8 +124,6 @@ function LandingPageContent() {
           padding: "0 24px 120px",
         }}
       >
-        <TrustRow />
-
         {/* AI Workspace replaces QuickAccess when a block is active */}
         <WorkspaceSection />
 

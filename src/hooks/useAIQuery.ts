@@ -5,15 +5,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { AuthUser } from "@/types/auth-types";
 import { createThreadItems } from "@/lib/ai/createThreadItems";
 import { useChatHistory, setGlobalStreaming } from "./useChatHistory";
-import partialParse from "partial-json-parser";
 import { TextMessage } from "@/types/ai/ai.text-engine";
 import { BaseBlock } from "@/types/landing-block";
 import { ThreadItem } from "@/types/ai/chat-thread";
-
-interface PartialAIResponse {
-  messages?: Pick<TextMessage, "content">[];
-  layout?: unknown[];
-}
+import { bookingFlow } from "@/lib/ai/booking-flow-state";
+import {
+  parseClaudiaResponse,
+  extractStreamingText,
+} from "@/lib/ai/parseClaudiaResponse";
 
 interface AIResponseData {
   messages: TextMessage[];
@@ -28,11 +27,11 @@ interface PendingResponse {
 interface AskAIOptions {
   context?: ThreadItem[];
   preserveHistory?: boolean;
-  // ✅ Dodajemo eksplicitne auth podatke
   explicitAuth?: {
     isAuthenticated: boolean;
     userName: string;
   };
+  isBlockInteraction?: boolean;
 }
 
 export function useAIQuery(user?: AuthUser | null) {
@@ -151,6 +150,9 @@ export function useAIQuery(user?: AuthUser | null) {
       try {
         const historyToSend = options?.context || thread;
 
+        // Phase 1.5: forward bookingFlow snapshot so Claudia inherits memory.
+        const bookingMemory = bookingFlow.get().collected;
+
         const response = await fetch("/api/ai/conversation", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -159,6 +161,8 @@ export function useAIQuery(user?: AuthUser | null) {
             isAuthenticated,
             userName,
             history: historyToSend,
+            isBlockInteraction: options?.isBlockInteraction ?? false,
+            bookingMemory,
           }),
         });
 
@@ -175,27 +179,15 @@ export function useAIQuery(user?: AuthUser | null) {
           const chunk = decoder.decode(value, { stream: true });
           fullRaw += chunk;
 
-          try {
-            const partialData = partialParse(fullRaw) as PartialAIResponse;
-            targetTextRef.current =
-              partialData?.messages?.map((m) => m.content).join("\n\n") || "";
-          } catch (err: unknown) {
-            // Ignorišem parsiranje u toku stream-a
-          }
+          // Streaming partial-text extraction — never throws.
+          targetTextRef.current = extractStreamingText(fullRaw);
         }
 
-        const cleanRaw = fullRaw
-          .replace(/```json/g, "")
-          .replace(/```/g, "")
-          .trim();
-
-        const finalData = JSON.parse(cleanRaw) as AIResponseData;
-        if (finalData && Array.isArray(finalData.messages)) {
-          setPendingResponse({ query, data: finalData });
-          isNetworkDoneRef.current = true;
-        } else {
-          throw new Error("Invalid AI Response Format");
-        }
+        // Hardened parse: always returns a valid ClaudiaResponse, even on
+        // malformed JSON or empty stream. Caller doesn't need a try/catch.
+        const finalData = parseClaudiaResponse(fullRaw);
+        setPendingResponse({ query, data: finalData });
+        isNetworkDoneRef.current = true;
       } catch (err: unknown) {
         const errorMessage = err instanceof Error ? err.message : "Greška";
         setError(errorMessage);

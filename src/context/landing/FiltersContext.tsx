@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import { useRouter } from "next/navigation";
+import { trackSearchEvent } from "@/lib/search/searchAnalytics";
 
 interface FiltersContextValue {
   category: string;
@@ -45,6 +46,15 @@ export function FiltersProvider({
   const handleCategoryPick = useCallback(
     (slug: string, cityName: string) => {
       const next = category === slug ? "" : slug;
+      // Phase 2.5C Task 5 — service change analytics. Dedupes via the
+      // category !== next guard (skipped when value unchanged).
+      if (next !== category) {
+        trackSearchEvent({
+          type: "search.service_change",
+          service: next || "(cleared)",
+          from: category || undefined,
+        });
+      }
       setCategory(next);
       if (cityName && next) {
         router.push(`/${encodeURIComponent(cityName.toLowerCase())}/${next}`, {

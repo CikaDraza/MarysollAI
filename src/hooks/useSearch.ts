@@ -1,7 +1,10 @@
 // src/hooks/useSearch.ts
 "use client";
 import { useQuery } from "@tanstack/react-query";
+import { useEffect, useRef } from "react";
 import type { SearchApiResponse, SearchResult } from "@/types/slots";
+import { buildSearchQueryKey } from "@/lib/search/queryKey";
+import { trackSearchEvent } from "@/lib/search/searchAnalytics";
 
 export interface SearchParams {
   city?: string;
@@ -68,24 +71,9 @@ async function fetchSearch(params: SearchParams): Promise<SearchApiResponse> {
   return data;
 }
 
-function buildQueryKey(p: SearchParams) {
-  return [
-    "search",
-    p.city ?? "",
-    p.category ?? "",
-    p.subcategory ?? "",
-    p.date ?? "",
-    p.time ?? "",
-    p.timeWindowStart ?? "",
-    p.timeWindowEnd ?? "",
-    p.lat ?? "",
-    p.lng ?? "",
-  ];
-}
-
 export function useSearch(params: SearchParams = {}) {
   const query = useQuery<SearchApiResponse>({
-    queryKey: buildQueryKey(params),
+    queryKey: buildSearchQueryKey(params),
     queryFn: () => fetchSearch(params),
     staleTime: 1000 * 60 * 2, // 2 min — slots change frequently
     refetchOnWindowFocus: true,
@@ -94,11 +82,36 @@ export function useSearch(params: SearchParams = {}) {
 
   const data = query.data;
 
+  // Phase 2.5C Task 4 — Fallback acceptance analytics.
+  // When the search returns a fallback level > 1 (i.e. results came from a
+  // relaxed query), we instrument exposure. The `converted: false` event
+  // fires immediately; if the user later clicks a slot, that's tracked via
+  // the existing search.result_click event with the same fallbackLevel —
+  // analytics can correlate the two by session + fallbackLevel.
+  const lastTrackedLevel = useRef<number | null>(null);
+  const fallbackLevel = data?.fallbackLevel ?? 0;
+
+  useEffect(() => {
+    if (!data) return;
+    // Dedupe: skip when we've already tracked this exact level for this
+    // result set (avoid spamming on every refetch / window-focus).
+    if (lastTrackedLevel.current === fallbackLevel) return;
+    lastTrackedLevel.current = fallbackLevel;
+
+    if (fallbackLevel > 1) {
+      trackSearchEvent({
+        type: "search.fallback_accepted",
+        level: fallbackLevel,
+        converted: false,
+      });
+    }
+  }, [data, fallbackLevel]);
+
   return {
     results: data?.results ?? [],
     slotsByCity: (data?.slotsByCity ?? []) as CitySlots[],
     bestSlot: data?.bestSlot ?? null,
-    fallbackLevel: data?.fallbackLevel ?? 0,
+    fallbackLevel,
     totalSalons: data?.totalSalons ?? 0,
     debug: data?.debug,
     isLoading: query.isLoading,
