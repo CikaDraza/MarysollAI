@@ -18,6 +18,10 @@
 //     bounded results at 200 km, so this is consistent.
 //   - Final score is bounded to integer for stable sort + log readability.
 import { aiLog } from "@/lib/ai/debug-log";
+import {
+  getAvailabilityConfidenceScore,
+  type AvailabilityConfidence,
+} from "@/lib/availability/availabilityConfidence";
 
 const log = aiLog("SLOT_SCORE");
 
@@ -28,22 +32,20 @@ const log = aiLog("SLOT_SCORE");
  * Sum should be ~1 for intuition; small deviations are fine.
  *
  * Tuning notes:
- *   - distance dominant by design but not crushing (0.30 — was 0.50 in
- *     computeRelevance via raw subtraction).
- *   - rating + popularity together (0.30) can outrank a closer salon when
- *     significantly higher.
- *   - freshness (how soon is the slot) at 0.15 to reward "Danas/Sutra" without
- *     making "next week's slot at the rated salon" disappear.
+ *   - availabilityConfidence dominates by design. Booking UX must prefer
+ *     trustworthy availability over convenience.
+ *   - distance/rating/freshness still sort inside the same confidence tier.
  *   - testimonials separate from rating because they capture sentiment vs.
  *     numeric stars (some salons have one but not the other).
  */
 export const SEARCH_WEIGHTS = {
-  distance: 0.3,
-  popularity: 0.2,
-  rating: 0.15,
-  freshness: 0.15,
-  bookingFrequency: 0.1,
-  testimonials: 0.1,
+  availabilityConfidence: 0.82,
+  distance: 0.06,
+  popularity: 0.04,
+  rating: 0.03,
+  freshness: 0.03,
+  bookingFrequency: 0.01,
+  testimonials: 0.01,
 } as const;
 
 export type SearchWeights = Record<keyof typeof SEARCH_WEIGHTS, number>;
@@ -61,6 +63,8 @@ export interface SlotScoreInput {
   startTime: string;
   /** Haversine km from user to salon. Pass undefined when unknown. */
   distanceKm?: number;
+  /** Precomputed geo proximity score, normalized 0-1. Preferred over distanceKm. */
+  distanceScore?: number;
   /** Salon's average rating (0–5). */
   rating?: number;
   /** Popularity score 0–1 (caller normalizes from booking counts etc.). */
@@ -71,6 +75,9 @@ export interface SlotScoreInput {
   testimonials?: number;
   /** Optional fallback level — earlier levels score higher. */
   fallbackLevel?: number;
+  /** Data quality behind the slot availability. Trust is the primary signal. */
+  availabilityConfidence?: AvailabilityConfidence;
+  availabilityConfidenceScore?: number;
 }
 
 export interface SlotScoreResult {
@@ -112,6 +119,20 @@ function normalizeUnit(value: number | undefined): number {
   return value;
 }
 
+function normalizeAvailabilityConfidence(
+  confidence: SlotScoreInput["availabilityConfidence"],
+  confidenceScore?: number,
+): number {
+  if (typeof confidenceScore === "number" && Number.isFinite(confidenceScore)) {
+    if (confidenceScore <= 0) return 0;
+    if (confidenceScore >= 1) return 1;
+    return confidenceScore;
+  }
+  const score = getAvailabilityConfidenceScore(confidence);
+  if (score > 0) return score;
+  return 0.5;
+}
+
 // ── Core ──────────────────────────────────────────────────────────────────────
 
 /**
@@ -128,7 +149,11 @@ export function calculateSlotScore(
   const w: SearchWeights = { ...SEARCH_WEIGHTS, ...weights };
 
   const components: Record<keyof SearchWeights, number> = {
-    distance: normalizeDistance(input.distanceKm),
+    availabilityConfidence: normalizeAvailabilityConfidence(
+      input.availabilityConfidence,
+      input.availabilityConfidenceScore,
+    ),
+    distance: normalizeUnit(input.distanceScore ?? normalizeDistance(input.distanceKm)),
     popularity: normalizeUnit(input.popularity),
     rating: normalizeRating(input.rating),
     freshness: normalizeFreshness(input.startTime),

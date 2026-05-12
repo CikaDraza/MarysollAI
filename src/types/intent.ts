@@ -16,3 +16,16 @@ export interface ParsedIntent {
   intentType: IntentType;
   confidence: { city: number; category: number; time: number };
 }
+
+export interface StructuredBookingIntent {
+  city?: string;
+  service?: string;
+  category?: string;
+  dateMode?: "today" | "tomorrow" | "weekend" | "specific_date";
+  earliestTime?: string;
+  latestTime?: string;
+  maxDistanceKm?: number;
+  availabilityPreference?: "verified_only" | "prefer_verified" | "allow_fallback";
+  priceSensitivity?: "low" | "medium" | "high";
+  urgency?: "low" | "medium" | "high";
+}

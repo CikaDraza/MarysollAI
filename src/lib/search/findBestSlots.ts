@@ -29,6 +29,16 @@ import type { MappedSalon } from "@/lib/mappers/salonMapper";
 import type { NormalizedSearch } from "./normalizeSearch";
 import type { SearchResult } from "@/types/slots";
 import { todayInBelgrade, tomorrowInBelgrade } from "./normalizeSearch";
+import {
+  getAvailabilityConfidenceScore,
+  getAvailabilityType,
+  type AvailabilityConfidence,
+} from "@/lib/availability/availabilityConfidence";
+import {
+  generateVerifiedSlots,
+  type Appointment as AvailabilityAppointment,
+  type WorkingHours,
+} from "@/lib/availability/generateVerifiedSlots";
 
 // ── Related category map ──────────────────────────────────────────────────────
 
@@ -140,7 +150,7 @@ interface SlotCandidate {
   serviceName: string;
   isSynthetic: boolean;
   // Phase 2 — slot origin tagging
-  availabilityConfidence: "calendar_verified" | "working_hours_only" | "synthetic_projection";
+  availabilityConfidence: AvailabilityConfidence;
   slotOrigins: ("real" | "synthetic" | "nearby_city" | "relaxed_time" | "related_service")[];
 }
 
@@ -170,6 +180,21 @@ interface MakeCandidatesOpts {
    * "synthetic_projection" (default) → L6 last-resort. isSynthetic=true. Blocked by QuickAccess policy.
    */
   workingHoursContext?: "working_hours_only" | "synthetic_projection";
+  /** Date used for calendar-verified generation from appointments. */
+  requestedDate?: string;
+}
+
+function readSalonAppointments(salon: PlatformSalon): AvailabilityAppointment[] {
+  const raw = salon.appointments;
+  if (!Array.isArray(raw)) return [];
+  return raw.filter(
+    (app): app is AvailabilityAppointment =>
+      app != null &&
+      typeof app === "object" &&
+      typeof (app as AvailabilityAppointment).date === "string" &&
+      typeof (app as AvailabilityAppointment).time === "string" &&
+      typeof (app as AvailabilityAppointment).status === "string",
+  );
 }
 
 function makeCandidates(
@@ -211,6 +236,45 @@ function makeCandidates(
         availabilityConfidence: "calendar_verified",
         slotOrigins: ["real"],
       });
+    }
+
+    // ── Verified free slots from workingHours + appointments ────────────────
+    const appointments = readSalonAppointments(salon);
+    if (!useSynthetic && opts.requestedDate && salon.workingHours && appointments.length > 0) {
+      const services = salon.services ?? [];
+      for (const svc of services) {
+        const svcRaw = svc as Record<string, unknown>;
+        const svcVars = Array.isArray(svcRaw.variants)
+          ? (svcRaw.variants as { duration?: number }[])
+          : [];
+        const variantDurs = svcVars.map((v) => v.duration ?? 0).filter((d) => d > 0);
+        const duration =
+          svcRaw.type === "variant" && variantDurs.length > 0
+            ? Math.min(...variantDurs)
+            : (svc.duration ?? 60);
+
+        const verifiedSlots = generateVerifiedSlots({
+          workingHours: salon.workingHours as WorkingHours,
+          appointments,
+          date: opts.requestedDate,
+          requestedDuration: duration,
+        });
+
+        for (const slot of verifiedSlots) {
+          candidates.push({
+            salon,
+            startTime: slot.startTime,
+            endTime: slot.endTime,
+            serviceId: svc.id ?? svc._id ?? null,
+            service: svc,
+            category: resolveServiceCategory(svc),
+            serviceName: svc.name,
+            isSynthetic: false,
+            availabilityConfidence: "calendar_verified",
+            slotOrigins: ["real"],
+          });
+        }
+      }
     }
 
     // ── Synthetic recovery (last resort — only runs when useSynthetic=true) ──
@@ -431,6 +495,8 @@ function toSearchResult(
     // SearchResult extras
     salonSlug: c.salon.slug,
     salonLogo: c.salon.logo,
+    salonLat: c.salon.lat,
+    salonLng: c.salon.lng,
     verified: c.salon.verified as boolean | undefined,
     rating: c.salon.rating as number | undefined,
     website: c.salon.website as string | undefined,
@@ -443,6 +509,8 @@ function toSearchResult(
     fallbackLevel,
     isSynthetic: c.isSynthetic,
     availabilityConfidence: c.availabilityConfidence,
+    availabilityConfidenceScore: getAvailabilityConfidenceScore(c.availabilityConfidence),
+    availabilityType: getAvailabilityType(c.availabilityConfidence),
     slotOrigins,
   };
 }
@@ -651,7 +719,7 @@ export function findBestSlots(
   const limit = params.limit;
   const nowMs = now.getTime();
 
-  const allCandidates = makeCandidates(salons, false);
+  const allCandidates = makeCandidates(salons, false, { requestedDate: params.date });
 
   // MVP augmentation: for same-city salons with workingHours but no calendar slots,
   // generate working_hours_only candidates. These are tagged isSynthetic=false and
@@ -668,6 +736,7 @@ export function findBestSlots(
     preferredCity: params.cityDisplay,
     maxSyntheticTotal: 30, // lower cap — augmentation only, not recovery
     workingHoursContext: "working_hours_only",
+    requestedDate: params.date,
   };
   const workingHoursCandidates = makeCandidates(sameCitySalons, true, workingHoursAugOpts);
 

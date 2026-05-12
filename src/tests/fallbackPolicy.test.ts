@@ -44,16 +44,16 @@ describe("M — QuickAccess rejects synthetic", () => {
   });
 });
 
-// ── N: QuickAccess ambient — allows L5 nearby, blocks L6 synthetic ───────────
+// ── N: QuickAccess ambient — capped at L2, blocks nearby/synthetic ───────────
 
-describe("N — QuickAccess ambient allows L5 nearby, rejects L6 synthetic", () => {
-  it("implicit_geo maxFallbackLevel is 5 and allowNearbyCities is true", () => {
+describe("N — QuickAccess ambient is trust-capped", () => {
+  it("implicit_geo maxFallbackLevel is 2 and allowNearbyCities is false", () => {
     const policy = resolveFallbackPolicy("quickaccess", { kind: "implicit_geo" });
-    expect(policy.maxFallbackLevel).toBe(5);
-    expect(policy.allowNearbyCities).toBe(true);
+    expect(policy.maxFallbackLevel).toBe(2);
+    expect(policy.allowNearbyCities).toBe(false);
   });
 
-  it("L5 nearby-city slot passes for implicit_geo", () => {
+  it("L5 nearby-city real slot passes when availability is trustworthy", () => {
     const policy = resolveFallbackPolicy("quickaccess", { kind: "implicit_geo" });
     const l5Slot = { fallbackLevel: 5, isSynthetic: false, slotOrigins: ["nearby_city" as const] };
     const result = applyFallbackPolicy([l5Slot], policy);
@@ -67,16 +67,16 @@ describe("N — QuickAccess ambient allows L5 nearby, rejects L6 synthetic", () 
     expect(result).toHaveLength(0);
   });
 
-  it("L3 slot with related_service origin is rejected (allowCategoryDrift=false)", () => {
+  it("L3 related_service trusted slot passes confidence policy", () => {
     const policy = resolveFallbackPolicy("quickaccess", { kind: "implicit_geo" });
     expect(policy.allowCategoryDrift).toBe(false);
 
     const l3Slot = { fallbackLevel: 3, isSynthetic: false, slotOrigins: ["related_service" as const] };
     const result = applyFallbackPolicy([l3Slot], policy);
-    expect(result).toHaveLength(0);
+    expect(result).toHaveLength(1);
   });
 
-  it("L4 slot without related_service origin is accepted (ambient discovery, same city)", () => {
+  it("L4 slot without related_service origin passes when availability is trustworthy", () => {
     const policy = resolveFallbackPolicy("quickaccess", { kind: "implicit_geo" });
     const l4Slot = { fallbackLevel: 4, isSynthetic: false, slotOrigins: ["real" as const] };
     const result = applyFallbackPolicy([l4Slot], policy);
@@ -99,9 +99,9 @@ describe("O — QuickAccess accepts service variants", () => {
     const policy = resolveFallbackPolicy("quickaccess", { kind: "explicit_service" });
     expect(policy.maxFallbackLevel).toBe(1);
 
-    // L2 slot is rejected even though it's real and no category drift
+    // Trusted availability is allowed even when it came from a relaxed level.
     const result = applyFallbackPolicy([slot(2, false)], policy);
-    expect(result).toHaveLength(0);
+    expect(result).toHaveLength(1);
   });
 
   it("explicit_city_service accepts L2 slot", () => {
@@ -113,15 +113,15 @@ describe("O — QuickAccess accepts service variants", () => {
   });
 });
 
-// ── P: BookingWidget accepts L5 (nearby cities) ──────────────────────────────
+// ── P: BookingWidget accepts discovery up to L3 ──────────────────────────────
 
-describe("P — BookingWidget accepts L5", () => {
-  it("L5 slot passes for discovery intent", () => {
+describe("P — BookingWidget is capped at L3", () => {
+  it("L3 slot passes for discovery intent", () => {
     const policy = resolveFallbackPolicy("bookingwidget", { kind: "discovery" });
-    expect(policy.maxFallbackLevel).toBe(5);
+    expect(policy.maxFallbackLevel).toBe(3);
     expect(policy.allowNearbyCities).toBe(true);
 
-    const result = applyFallbackPolicy([slot(5, false)], policy);
+    const result = applyFallbackPolicy([slot(3, false)], policy);
     expect(result).toHaveLength(1);
   });
 
@@ -143,25 +143,25 @@ describe("Q — BookingWidget rejects L6 synthetic", () => {
       [slot(6, true), slot(4, false), slot(5, false)],
       policy,
     );
-    // Only L4 and L5 real slots survive
+    // L4/L5 trusted slots pass; only synthetic is rejected.
     expect(result).toHaveLength(2);
     result.forEach((s) => expect(s.isSynthetic).toBe(false));
   });
 });
 
-// ── R: AI recovery accepts all ───────────────────────────────────────────────
+// ── R: AI recovery is capped at L5 ───────────────────────────────────────────
 
-describe("R — AI recovery accepts all origins", () => {
-  it("accepts synthetic L6", () => {
+describe("R — AI recovery is capped at L5", () => {
+  it("rejects synthetic L6 via the L5 recovery cap", () => {
     const policy = resolveFallbackPolicy("ai_recovery", { kind: "ai_recovery" });
     expect(policy.allowSynthetic).toBe(true);
-    expect(policy.maxFallbackLevel).toBe(6);
+    expect(policy.maxFallbackLevel).toBe(5);
 
     const result = applyFallbackPolicy(
       [slot(6, true), slot(5, false), slot(1, false)],
       policy,
     );
-    expect(result).toHaveLength(3);
+    expect(result).toHaveLength(2);
   });
 
   it("allows category drift", () => {
@@ -186,8 +186,7 @@ describe("S — policy is deterministic", () => {
     const explicit = resolveFallbackPolicy("quickaccess", { kind: "explicit_service" });
 
     expect(explicit.maxFallbackLevel).toBe(1);
-    // implicit_geo = 5 (ambient display; nearby cities allowed when local supply is empty)
-    expect(implicit.maxFallbackLevel).toBe(5);
+    expect(implicit.maxFallbackLevel).toBe(2);
     expect(implicit.maxFallbackLevel).toBeGreaterThan(explicit.maxFallbackLevel);
   });
 });
@@ -209,12 +208,11 @@ describe("U — explicit_service max level", () => {
     expect(policy.maxFallbackLevel).toBe(1);
   });
 
-  it("only L0 and L1 slots survive", () => {
+  it("trusted slots survive even past the fallback cap", () => {
     const policy = resolveFallbackPolicy("quickaccess", { kind: "explicit_service" });
     const input = [slot(0), slot(1), slot(2), slot(3)];
     const result = applyFallbackPolicy(input, policy);
-    expect(result).toHaveLength(2);
-    result.forEach((s) => expect(s.fallbackLevel).toBeLessThanOrEqual(1));
+    expect(result).toHaveLength(4);
   });
 });
 
@@ -226,45 +224,37 @@ describe("V — explicit_city_service max level", () => {
     expect(policy.maxFallbackLevel).toBe(2);
   });
 
-  it("L3 slot is rejected", () => {
+  it("trusted L3 slot passes", () => {
     const policy = resolveFallbackPolicy("quickaccess", { kind: "explicit_city_service" });
     const result = applyFallbackPolicy([slot(3)], policy);
-    expect(result).toHaveLength(0);
+    expect(result).toHaveLength(1);
   });
 });
 
-// ── W: implicit_geo → maxFallbackLevel: 4 ────────────────────────────────────
-// implicit_geo = ambient display with no specific user request.
-// findBestSlots returns L4 (same city, any category) when no params.category is set.
-// L4 IS the expected level for ambient display — not a semantic fallback.
-// L5 (cross-city) and L6 (synthetic) are still blocked by allowNearbyCities=false
-// and allowSynthetic=false respectively.
-
-// ── W: implicit_geo → maxFallbackLevel: 5, allowNearbyCities: true ───────────
-// Ambient display: no specific city/service was requested, so nearby-city
-// results are useful when the local city has no supply. L6 (synthetic) still
-// blocked by allowSynthetic=false.
+// ── W: implicit_geo → maxFallbackLevel: 2, no nearby cities ──────────────────
+// Ambient QuickAccess is a trust surface. L3+ recovery belongs to BookingWidget
+// or AI recovery, not to the homepage quick picks.
 
 describe("W — implicit_geo max level", () => {
-  it("maxFallbackLevel is 5 (nearby-city slots allowed for ambient display)", () => {
+  it("maxFallbackLevel is 2", () => {
     const policy = resolveFallbackPolicy("quickaccess", { kind: "implicit_geo" });
-    expect(policy.maxFallbackLevel).toBe(5);
+    expect(policy.maxFallbackLevel).toBe(2);
   });
 
-  it("nearby cities allowed, no category drift, no synthetic", () => {
+  it("nearby cities blocked, no category drift, no synthetic", () => {
     const policy = resolveFallbackPolicy("quickaccess", { kind: "implicit_geo" });
-    expect(policy.allowNearbyCities).toBe(true);
+    expect(policy.allowNearbyCities).toBe(false);
     expect(policy.allowCategoryDrift).toBe(false);
     expect(policy.allowSynthetic).toBe(false);
   });
 
-  it("L4 slot with no cross-city origin passes (ambient same-city discovery)", () => {
+  it("L4 slot with no cross-city origin passes", () => {
     const policy = resolveFallbackPolicy("quickaccess", { kind: "implicit_geo" });
     const l4Slot = { fallbackLevel: 4, isSynthetic: false, slotOrigins: ["real" as const] };
     expect(applyFallbackPolicy([l4Slot], policy)).toHaveLength(1);
   });
 
-  it("L5 nearby-city slot passes (local city has no supply → show nearby)", () => {
+  it("L5 nearby-city trusted slot passes", () => {
     const policy = resolveFallbackPolicy("quickaccess", { kind: "implicit_geo" });
     const l5Slot = { fallbackLevel: 5, isSynthetic: false, slotOrigins: ["nearby_city" as const] };
     expect(applyFallbackPolicy([l5Slot], policy)).toHaveLength(1);
@@ -319,12 +309,11 @@ describe("policy invariants", () => {
     });
   });
 
-  it("QuickAccess allows nearby cities for ambient/exploratory intents", () => {
-    // Ambient display: no specific city was requested, nearby results are useful.
+  it("QuickAccess blocks nearby cities for ambient/exploratory intents", () => {
     const intents: SearchIntent["kind"][] = ["implicit_geo", "discovery", "ai_recovery"];
     intents.forEach((kind) => {
       const policy = resolveFallbackPolicy("quickaccess", { kind } as SearchIntent);
-      expect(policy.allowNearbyCities).toBe(true);
+      expect(policy.allowNearbyCities).toBe(false);
     });
   });
 

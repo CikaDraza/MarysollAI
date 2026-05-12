@@ -1,4 +1,5 @@
 import { Schema, model, models, Types } from "mongoose";
+import { APPOINTMENT_STATUS_VALUES } from "@/lib/availability/blockingStatuses";
 
 const servicesSchema = new Schema(
   {
@@ -47,15 +48,7 @@ const appointmentSchema = new Schema(
     note: String,
     status: {
       type: String,
-      enum: [
-        "pending",
-        "appointment_approved", // ✅
-        "appointment_rejected", // ✅
-        "appointment_rescheduled", // ✅
-        "appointment_cancelled", // ✅
-        "completed",
-        "no_show",
-      ],
+      enum: APPOINTMENT_STATUS_VALUES,
       default: "pending",
     },
     messages: [messageSchema],

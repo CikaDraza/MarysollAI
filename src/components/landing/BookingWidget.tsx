@@ -1,14 +1,15 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   CheckBadgeIcon,
   MapPinIcon,
   ClockIcon,
 } from "@heroicons/react/24/solid";
-import type { FlatSlot, SearchResult } from "@/types/slots";
+import type { SearchResult } from "@/types/slots";
 import { useCityContext } from "@/context/landing/CityContext";
 import { useSearchContext } from "@/context/landing/SearchContext";
+import { useFilters } from "@/context/landing/FiltersContext";
 import { useBookingModal } from "@/context/landing/BookingModalContext";
 import { formatDistance } from "@/lib/utils/distance";
 import {
@@ -19,56 +20,141 @@ import {
   resolveFallbackPolicy,
   applyFallbackPolicy,
 } from "@/lib/availability/fallbackPolicy";
+import {
+  buildBookingDiscoveryGroups,
+  bookingSlotId,
+  type BookingDiscoveryGroup,
+  type BookingDiscoveryMode,
+} from "@/lib/search/buildBookingDiscoveryGroups";
 import { trackSearchEvent } from "@/lib/search/searchAnalytics";
 
 /** Returns a human-readable section label for a city group. */
 function cityGroupLabel(
-  city: string,
+  group: BookingDiscoveryGroup,
   userCity: string | undefined,
-  fallbackLevel: number,
 ): string {
-  const isUserCity = userCity && city.toLowerCase() === userCity.toLowerCase();
+  if (group.title) return group.title;
 
-  if (isUserCity) return `Slobodni termini — ${city}`;
-  if (fallbackLevel <= 4) return `Bliski gradovi — ${city}`;
-  return `Popularno u Srbiji — ${city}`;
+  const isUserCity = userCity && group.city?.toLowerCase() === userCity.toLowerCase();
+  if (isUserCity) return `Slobodni termini — ${group.city}`;
+  return group.city ? `Termini u blizini — ${group.city}` : "Slobodni termini";
 }
 
 export default function BookingWidget() {
   const { cityName: userCity, geoResolved } = useCityContext();
   const { results, fallbackLevel, isLoading: loading } = useSearchContext();
+  const {
+    category,
+    subcategoryFilter,
+    dateFilter,
+    timeWindowStart,
+    timeWindowEnd,
+  } = useFilters();
   const { openModal: onBook } = useBookingModal();
 
-  // Phase 2.5C Task 2 — unified ranking. Replaces local grouping/sorting
-  // with the strategy-aware adapter. Output: 3 city rows × 5 slots/row,
-  // diversified per-salon, ordered by the same score-cascade everywhere.
-  //
-  // Phase 3 — Policy enforcement. BookingWidget is a discovery surface: max L5,
-  // allowNearbyCities=true, allowSynthetic=false. Filter applied before ranking
-  // so rankSearchResults never sees ineligible candidates.
+  // BookingWidget needs a broad, policy-safe marketplace pool. QuickAccess
+  // still gets its strict preview so the discovery rows can avoid repeating it.
   const ranked = useMemo(() => {
     const policy = resolveFallbackPolicy("bookingwidget", { kind: "discovery" });
     const eligible = applyFallbackPolicy(results, policy);
-    return rankSearchResults({
+    const userLocation =
+      geoResolved.lat != null && geoResolved.lng != null
+        ? { lat: geoResolved.lat, lng: geoResolved.lng }
+        : undefined;
+
+    const quickAccessPreview = rankSearchResults({
       slots: eligible,
-      strategy: "bookingwidget",
-      userLocation:
-        geoResolved.lat != null && geoResolved.lng != null
-          ? { lat: geoResolved.lat, lng: geoResolved.lng }
-          : undefined,
+      strategy: "quickaccess",
+      userLocation,
       fallbackLevel,
     });
+
+    const discoveryRanked = rankSearchResults({
+      slots: eligible,
+      strategy: "searchpage",
+      limit: 50,
+      userLocation,
+      fallbackLevel,
+    });
+
+    return {
+      ...discoveryRanked,
+      quickAccessSlotIds: quickAccessPreview.slots.map(bookingSlotId),
+    };
   }, [results, geoResolved.lat, geoResolved.lng, fallbackLevel]);
 
-  const groupedByCity = ranked.groupedByCity;
-  const hasAny = groupedByCity.some((g) => g.slots.length > 0);
+  const discoveryBuild = useMemo(() => {
+    const hasSearchIntent = Boolean(
+      userCity || category || subcategoryFilter || dateFilter || timeWindowStart != null || timeWindowEnd != null,
+    );
+    const hasGeo = geoResolved.lat != null && geoResolved.lng != null;
+    const mode: BookingDiscoveryMode =
+      fallbackLevel >= 3
+        ? "recovery"
+        : hasSearchIntent
+          ? "search"
+          : hasGeo
+            ? "geo_load"
+            : "initial_load";
+
+    return buildBookingDiscoveryGroups({
+      slots: ranked.slots,
+      quickAccessSlotIds: ranked.quickAccessSlotIds,
+      query: {
+        city: userCity,
+        category: category || undefined,
+        service: subcategoryFilter,
+        date: dateFilter,
+        timeWindowStart,
+        timeWindowEnd,
+      },
+      userCity,
+      userLocation: hasGeo
+        ? { lat: geoResolved.lat!, lng: geoResolved.lng! }
+        : undefined,
+      fallbackLevel,
+      mode,
+      recoveryState: {
+        exactMatchFound: fallbackLevel <= 2,
+        semanticMatchFound: fallbackLevel <= 3,
+        nearbyCityUsed: fallbackLevel >= 5,
+        relatedServiceUsed: fallbackLevel >= 3,
+        fallbackReason: ranked.fallback.label,
+      },
+    });
+    },
+    [
+      ranked.slots,
+      ranked.quickAccessSlotIds,
+      ranked.fallback.label,
+      geoResolved.lat,
+      geoResolved.lng,
+      userCity,
+      category,
+      subcategoryFilter,
+      dateFilter,
+      timeWindowStart,
+      timeWindowEnd,
+      fallbackLevel,
+    ],
+  );
+  const discoveryGroups = discoveryBuild.groups;
+  const bookingWidgetDebug = discoveryBuild.debug;
+  const hasAny = discoveryGroups.some((g) => g.slots.length > 0);
+
+  useEffect(() => {
+    if (process.env.NODE_ENV !== "production") {
+      console.debug("[BOOKING_WIDGET_DEBUG]", bookingWidgetDebug);
+    }
+  }, [bookingWidgetDebug]);
 
   // Compute a friendly subtitle once
   const subtitle = useMemo(() => {
     if (!hasAny || loading) return null;
-    const cities = groupedByCity
+    const cities = discoveryGroups
       .filter((g) => g.slots.length > 0)
-      .map((g) => g.city);
+      .map((g) => g.city)
+      .filter((c): c is string => Boolean(c));
     if (cities.length === 0) return null;
     const hasUserCity =
       userCity && cities[0]?.toLowerCase() === userCity.toLowerCase();
@@ -78,7 +164,7 @@ export default function BookingWidget() {
     if (fallbackLevel >= 5) return "Prikazujemo termine iz popularnih gradova.";
     if (fallbackLevel >= 4) return "Prikazujemo termine iz gradova u blizini.";
     return null;
-  }, [hasAny, loading, groupedByCity, userCity, fallbackLevel]);
+  }, [hasAny, loading, discoveryGroups, userCity, fallbackLevel]);
 
   return (
     <section id="booking-widget" style={{ marginTop: 56 }}>
@@ -158,10 +244,10 @@ export default function BookingWidget() {
       )}
 
       {!loading &&
-        groupedByCity
+        discoveryGroups
           .filter((g) => g.slots.length > 0)
           .map((group) => (
-            <div key={group.city} style={{ marginBottom: 44 }}>
+            <div key={group.id} style={{ marginBottom: 44 }}>
               <h3
                 style={{
                   fontFamily: "var(--main-font)",
@@ -184,8 +270,20 @@ export default function BookingWidget() {
                     flexShrink: 0,
                   }}
                 />
-                {cityGroupLabel(group.city, userCity, fallbackLevel)}
+                {cityGroupLabel(group, userCity)}
               </h3>
+              {group.subtitle && (
+                <p
+                  style={{
+                    fontFamily: "var(--main-font)",
+                    fontSize: 13,
+                    color: "var(--fg-3)",
+                    margin: "-10px 0 16px 14px",
+                  }}
+                >
+                  {group.subtitle}
+                </p>
+              )}
 
               <div style={gridStyle}>
                 {group.slots.map((slot, i) => (

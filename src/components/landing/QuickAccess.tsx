@@ -20,7 +20,9 @@ import {
   resolveFallbackPolicy,
   applyFallbackPolicy,
   type SearchIntent,
+  type AvailabilityConfidence,
 } from "@/lib/availability/fallbackPolicy";
+import type { AvailabilityType } from "@/lib/availability/availabilityConfidence";
 import { formatDistance } from "@/lib/utils/distance";
 import { resolveSearchFallback } from "@/lib/search/searchFallback";
 import { trackSearchEvent } from "@/lib/search/searchAnalytics";
@@ -61,8 +63,14 @@ export interface QuickSlot {
   isSynthetic?: boolean;
   /** Phase 2.5D Task 7 — display distance. Raw km; rendered via formatDistance. */
   distanceKm?: number;
+  distanceScore?: number;
+  travelMinutesEstimate?: number;
+  mapsLink?: string;
   /** Phase 2.5D Task 8 — slot came from fallback search (level > 1). */
   fromFallback?: boolean;
+  availabilityConfidence?: AvailabilityConfidence;
+  availabilityConfidenceScore?: number;
+  availabilityType?: AvailabilityType;
 }
 
 interface CategoryGroup {
@@ -261,7 +269,13 @@ export default function QuickAccess() {
         servicePrice: r.price,
         hasVariants: r.hasVariants ?? false,
         isSynthetic: r.isSynthetic ?? false,
+        availabilityConfidence: r.availabilityConfidence,
+        availabilityConfidenceScore: r.availabilityConfidenceScore,
+        availabilityType: r.availabilityType,
         distanceKm: r.distanceKm,
+        distanceScore: r.distanceScore,
+        travelMinutesEstimate: r.travelMinutesEstimate,
+        mapsLink: r.mapsLink,
         fromFallback: (r.fallbackLevel ?? 0) > 1,
       }));
   }, [results, category, cityName]);
@@ -331,6 +345,9 @@ export default function QuickAccess() {
         // Phase 2.5D — preserve distance through the ranking step so
         // SlotCard can render the badge and scoring sees it.
         distanceKm: qs.distanceKm,
+        distanceScore: qs.distanceScore,
+        travelMinutesEstimate: qs.travelMinutesEstimate,
+        mapsLink: qs.mapsLink,
         price: qs.servicePrice,
         hasVariants: qs.hasVariants ?? false,
         serviceDuration: qs.serviceDuration ?? 60,
@@ -339,10 +356,13 @@ export default function QuickAccess() {
         relevanceScore: 0,
         fallbackLevel,
         isSynthetic: qs.isSynthetic,
+        availabilityConfidence: qs.availabilityConfidence,
+        availabilityConfidenceScore: qs.availabilityConfidenceScore,
+        availabilityType: qs.availabilityType,
       };
     });
 
-    // 3. Unified ranking. QuickAccess strategy applies max 5 results +
+    // 3. Unified ranking. QuickAccess strategy applies max 3 results +
     // service/salon/category diversity caps.
     const ranked = rankSearchResults({
       slots,

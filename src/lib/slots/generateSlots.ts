@@ -15,6 +15,9 @@ import {
   resolveArrivalFeasibility,
   type GeoConfidence,
 } from "@/lib/availability/arrivalFeasibility";
+import {
+  getAvailabilityConfidenceScore,
+} from "@/lib/availability/availabilityConfidence";
 
 // ── Hard caps — centralized, documented ──────────────────────────────────────
 // Change only with explicit platform decision. These prevent L6 explosion.
@@ -41,6 +44,8 @@ export interface GeneratedSlot {
   isSynthetic: boolean;
   slotOrigins: ["synthetic"] | ["real"];
   availabilityConfidence: "working_hours_only" | "synthetic_projection";
+  availabilityConfidenceScore: number;
+  availabilityType: "working_hours" | "synthetic";
 }
 
 export interface SyntheticGenerationOptions {
@@ -235,12 +240,17 @@ export function generateSlotsFromWorkingHours(
       const endTime = `${dateStr}T${eh}:${em}:00`;
 
       const isSyntheticProjection = (opts.context ?? "synthetic_projection") === "synthetic_projection";
+      const availabilityConfidence = isSyntheticProjection
+        ? "synthetic_projection"
+        : "working_hours_only";
       result.push({
         startTime,
         endTime,
         isSynthetic: isSyntheticProjection,
         slotOrigins: isSyntheticProjection ? ["synthetic"] : ["real"],
-        availabilityConfidence: isSyntheticProjection ? "synthetic_projection" : "working_hours_only",
+        availabilityConfidence,
+        availabilityConfidenceScore: getAvailabilityConfidenceScore(availabilityConfidence),
+        availabilityType: isSyntheticProjection ? "synthetic" : "working_hours",
       });
       debug.accepted++;
       perDayCount++;

@@ -1,3 +1,8 @@
+import type {
+  AvailabilityConfidence,
+  AvailabilityType,
+} from "@/lib/availability/availabilityConfidence";
+
 export interface FlatSlot {
   salonId: string;
   salonName: string;
@@ -7,6 +12,9 @@ export interface FlatSlot {
   startTime: string; // ISO
   city: string;
   distanceKm?: number;
+  distanceScore?: number;
+  travelMinutesEstimate?: number;
+  mapsLink?: string;
   price?: number;
 }
 
@@ -15,6 +23,8 @@ export interface SearchResult extends FlatSlot {
   salonSlug?: string;
   salonAddress?: string;
   salonLogo?: string;
+  salonLat?: number;
+  salonLng?: number;
   verified?: boolean;
   rating?: number;
   website?: string;
@@ -31,7 +41,9 @@ export interface SearchResult extends FlatSlot {
 
   // Phase 2 — slot origin tagging. Always present on slots that passed through
   // makeSyntheticCandidates or makeRealCandidates. Optional for backward compat.
-  availabilityConfidence?: "calendar_verified" | "working_hours_only" | "synthetic_projection";
+  availabilityConfidence?: AvailabilityConfidence;
+  availabilityConfidenceScore?: number;
+  availabilityType?: AvailabilityType;
   slotOrigins?: ("real" | "synthetic" | "nearby_city" | "relaxed_time" | "related_service")[];
 }
 

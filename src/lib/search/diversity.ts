@@ -27,6 +27,8 @@ export interface DiversityRules {
   maxPerCategory?: number;
   /** Max slots in the same city. 0 = no cap. */
   maxPerCity?: number;
+  /** Max slots with the same exact startTime. 0 = no cap. */
+  maxPerStartTime?: number;
 }
 
 /** Identity key for slot — used when serviceId is null. */
@@ -54,8 +56,15 @@ export function diversifySorted(
   const maxService = rules.maxPerService ?? 0;
   const maxCategory = rules.maxPerCategory ?? 0;
   const maxCity = rules.maxPerCity ?? 0;
+  const maxStartTime = rules.maxPerStartTime ?? 0;
 
-  if (maxSalon === 0 && maxService === 0 && maxCategory === 0 && maxCity === 0) {
+  if (
+    maxSalon === 0 &&
+    maxService === 0 &&
+    maxCategory === 0 &&
+    maxCity === 0 &&
+    maxStartTime === 0
+  ) {
     return slots;
   }
 
@@ -63,6 +72,7 @@ export function diversifySorted(
   const serviceCounts = new Map<string, number>();
   const categoryCounts = new Map<string, number>();
   const cityCounts = new Map<string, number>();
+  const startTimeCounts = new Map<string, number>();
 
   const accepted: SearchResult[] = [];
   const deferred: SearchResult[] = [];
@@ -70,6 +80,7 @@ export function diversifySorted(
   for (const s of slots) {
     const sCat = s.category ?? "";
     const sCity = s.city ?? "";
+    const sStartTime = s.startTime ?? "";
 
     const overSalon = maxSalon > 0 && (salonCounts.get(s.salonId) ?? 0) >= maxSalon;
     const overService =
@@ -78,8 +89,12 @@ export function diversifySorted(
       maxCategory > 0 && sCat && (categoryCounts.get(sCat) ?? 0) >= maxCategory;
     const overCity =
       maxCity > 0 && sCity && (cityCounts.get(sCity) ?? 0) >= maxCity;
+    const overStartTime =
+      maxStartTime > 0 &&
+      sStartTime &&
+      (startTimeCounts.get(sStartTime) ?? 0) >= maxStartTime;
 
-    if (overSalon || overService || overCategory || overCity) {
+    if (overSalon || overService || overCategory || overCity || overStartTime) {
       deferred.push(s);
       continue;
     }
@@ -88,6 +103,9 @@ export function diversifySorted(
     serviceCounts.set(serviceKey(s), (serviceCounts.get(serviceKey(s)) ?? 0) + 1);
     if (sCat) categoryCounts.set(sCat, (categoryCounts.get(sCat) ?? 0) + 1);
     if (sCity) cityCounts.set(sCity, (cityCounts.get(sCity) ?? 0) + 1);
+    if (sStartTime) {
+      startTimeCounts.set(sStartTime, (startTimeCounts.get(sStartTime) ?? 0) + 1);
+    }
     accepted.push(s);
   }
 

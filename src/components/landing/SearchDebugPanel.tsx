@@ -18,6 +18,7 @@ import {
 import {
   resolveFallbackPolicy,
   applyFallbackPolicy,
+  evaluateFallbackPolicy,
 } from "@/lib/availability/fallbackPolicy";
 
 const isProd = process.env.NODE_ENV === "production";
@@ -42,8 +43,16 @@ export default function SearchDebugPanel() {
   // Compute a snapshot ranking so the panel shows what consumers actually see.
   // Deliberately cheap: we just take results as-is and feed through the
   // adapter to capture rankingMeta. Reuses the same code path as real consumers.
+  const debugPolicy = resolveFallbackPolicy("quickaccess", { kind: "implicit_geo" });
+  const policyPassed = applyFallbackPolicy(results, debugPolicy);
+  const policyRejected = results.length - policyPassed.length;
+  const policyDecisions = results.map((slot) => ({
+    slot,
+    decision: evaluateFallbackPolicy(slot, debugPolicy),
+  }));
+
   const ranked = rankSearchResults({
-    slots: results,
+    slots: policyPassed,
     strategy: "quickaccess",
     userLocation:
       geoResolved.lat != null && geoResolved.lng != null
@@ -57,11 +66,6 @@ export default function SearchDebugPanel() {
   const diversityDeferred = ranked.slots.filter(
     (s: RankedSlot) => s.rankingMeta.diversityApplied,
   ).length;
-
-  // Phase 3 — policy snapshot (quickaccess implicit_geo for debug view)
-  const debugPolicy = resolveFallbackPolicy("quickaccess", { kind: "implicit_geo" });
-  const policyPassed = applyFallbackPolicy(results, debugPolicy);
-  const policyRejected = results.length - policyPassed.length;
 
   // Origin breakdown across all results
   const originCounts = results.reduce(
@@ -90,6 +94,23 @@ export default function SearchDebugPanel() {
       return acc;
     },
     { calendar_verified: 0, working_hours_only: 0, synthetic_projection: 0 },
+  );
+
+  const policyCounts = policyDecisions.reduce(
+    (acc, item) => {
+      const conf = item.slot.availabilityConfidence;
+      if (item.decision.accepted && conf === "calendar_verified") acc.accepted_verified++;
+      else if (item.decision.accepted && conf === "working_hours_only") acc.accepted_working_hours++;
+      else if (!item.decision.accepted && conf === "synthetic_projection") acc.rejected_synthetic++;
+      else if (!item.decision.accepted && item.decision.reason === "invalid_confidence") acc.rejected_invalid++;
+      return acc;
+    },
+    {
+      accepted_verified: 0,
+      accepted_working_hours: 0,
+      rejected_synthetic: 0,
+      rejected_invalid: 0,
+    },
   );
 
   return (
@@ -209,6 +230,10 @@ export default function SearchDebugPanel() {
           <div style={{ opacity: 0.6 }}>policy rejected (QA/implicit_geo)</div>
           <StatRow label="rejected total" value={policyRejected} />
           <StatRow label="passed" value={policyPassed.length} />
+          <StatRow label="accepted_verified" value={policyCounts.accepted_verified} />
+          <StatRow label="accepted_working_hours" value={policyCounts.accepted_working_hours} />
+          <StatRow label="rejected_synthetic" value={policyCounts.rejected_synthetic} />
+          <StatRow label="rejected_invalid" value={policyCounts.rejected_invalid} />
 
           {top3.length > 0 && (
             <>
@@ -228,6 +253,16 @@ export default function SearchDebugPanel() {
                     {s.rankingMeta.score}
                   </span>{" "}
                   · {s.salonName.slice(0, 14)} · {s.timeLabel}
+                  {typeof s.distanceKm === "number" ? ` · ${s.distanceKm}km` : ""}
+                  {typeof s.distanceScore === "number" ? ` · ds:${s.distanceScore.toFixed(2)}` : ""}
+                  {typeof s.travelMinutesEstimate === "number" ? ` · ${s.travelMinutesEstimate}min` : ""}
+                  {s.availabilityConfidence ? ` · ${s.availabilityConfidence}` : ""}
+                  {typeof s.availabilityConfidenceScore === "number"
+                    ? ` · acs:${s.availabilityConfidenceScore.toFixed(2)}`
+                    : ""}
+                  {s.availabilityType ? ` · ${s.availabilityType}` : ""}
+                  {` · policy:${evaluateFallbackPolicy(s, debugPolicy).accepted ? "yes" : "no"}`}
+                  {` · reason:${evaluateFallbackPolicy(s, debugPolicy).reason}`}
                   {s.fromFallback ? " · ↩" : ""}
                   {s.rankingMeta.diversityApplied ? " · div" : ""}
                 </div>

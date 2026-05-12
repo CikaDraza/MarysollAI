@@ -46,7 +46,9 @@ export interface IAppointment {
     | "appointment_approved"
     | "appointment_rejected"
     | "appointment_rescheduled"
-    | "appointment_cancelled";
+    | "appointment_cancelled"
+    | "completed"
+    | "no_show";
   messages: IMessage[];
   adminNotified: boolean;
   clientNotified: boolean;

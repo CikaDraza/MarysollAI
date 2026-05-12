@@ -17,6 +17,13 @@
 //   - allowCategoryDrift gates slotOrigins including "related_service".
 
 import type { SearchStrategy } from "@/lib/search/rankSearchResults";
+import type { AvailabilityConfidence } from "./availabilityConfidence";
+import {
+  canUseAsSyntheticFallback,
+  explainBookingWidgetPolicy,
+  explainQuickAccessPolicy,
+  hasTrustworthyAvailability,
+} from "./policies";
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
@@ -57,7 +64,18 @@ export interface PolicyFilterableSlot {
    *   "calendar_verified"    → always allowed.
    * When absent, isSynthetic===true is treated as "synthetic_projection" for backward compat.
    */
-  availabilityConfidence?: "calendar_verified" | "working_hours_only" | "synthetic_projection";
+  availabilityConfidence?: AvailabilityConfidence;
+}
+
+export interface PolicyDecision {
+  accepted: boolean;
+  reason:
+    | "none"
+    | "invalid_confidence"
+    | "synthetic_primary_surface"
+    | "fallback_level"
+    | "nearby_city"
+    | "category_drift";
 }
 
 /** Semantic origin of a slot — richer than bare fallbackLevel.
@@ -69,24 +87,20 @@ export type SlotOrigin =
   | "relaxed_time"     // real slot outside the requested time window
   | "related_service"; // real slot with a synonym / variant service match
 
-/** Availability confidence level of the underlying data source.
- * Populated in Phase 3 alongside SlotOrigin. */
-export type AvailabilityConfidence =
-  | "calendar_verified"    // real appointments + blocks resolved
-  | "working_hours_only"   // hours known, actual bookings unknown
-  | "synthetic_projection"; // fully generated, no real-world basis
+export type { AvailabilityConfidence } from "./availabilityConfidence";
 
 // ── Strategy defaults ─────────────────────────────────────────────────────────
 //
 // QuickAccess: trust surface. Small, high-confidence results only.
 //   - Never synthetic, never cross-city, never category drift.
-//   - maxFallbackLevel varies by intent (see QUICKACCESS_INTENT_OVERRIDES).
+//   - Capped at L2 for every intent. Empty is better than misleading.
 //
 // BookingWidget: discovery surface. Wider net, cross-city ok.
 //   - Synthetic still forbidden — showing "projected" slots as if confirmed
 //     undermines trust in a primary booking surface.
 //
-// ai_recovery: widest net. AI context signals recovery intent.
+// ai_recovery: wider net. AI context signals recovery intent, but still capped
+// at L5 so fully synthetic L6 projections stay out of search results.
 //
 // searchpage: full results. User is explicitly browsing.
 
@@ -100,7 +114,7 @@ const STRATEGY_DEFAULTS: Record<SearchStrategy, FallbackPolicy> = {
     allowRelaxedTime: true,
   },
   bookingwidget: {
-    maxFallbackLevel: 5,
+    maxFallbackLevel: 3,
     allowSynthetic: false,
     allowNearbyCities: true,
     allowCategoryDrift: false,
@@ -108,7 +122,7 @@ const STRATEGY_DEFAULTS: Record<SearchStrategy, FallbackPolicy> = {
     allowRelaxedTime: true,
   },
   ai_recovery: {
-    maxFallbackLevel: 6,
+    maxFallbackLevel: 5,
     allowSynthetic: true,
     allowNearbyCities: true,
     allowCategoryDrift: true,
@@ -125,23 +139,15 @@ const STRATEGY_DEFAULTS: Record<SearchStrategy, FallbackPolicy> = {
   },
 };
 
-// QuickAccess intent overrides — only quickaccess varies meaningfully by intent.
-//
-// implicit_geo / discovery / ai_recovery: ambient or exploratory display.
-//   No specific city or service was requested, so showing nearby-city results
-//   (L5) is appropriate — better to show something useful than an empty panel.
-//   L6 (synthetic) is still blocked by allowSynthetic=false.
-//
-// explicit_*: user named a specific service (or city + service).
-//   Trust surface rules apply strictly — same city only, exact service match.
-//   explicit_service → L1 max. explicit_city_service / explicit_full → L2 max.
+// QuickAccess intent overrides — all intents are capped at L2 because this is a
+// trust surface. AI recovery can be aggressive; QuickAccess cannot.
 const QUICKACCESS_INTENT_MAX_LEVEL: Record<SearchIntent["kind"], number> = {
-  implicit_geo: 5,
+  implicit_geo: 2,
   explicit_service: 1,
   explicit_city_service: 2,
   explicit_full: 2,
-  ai_recovery: 5,
-  discovery: 5,
+  ai_recovery: 2,
+  discovery: 2,
 };
 
 // Additional per-intent policy overrides beyond maxFallbackLevel.
@@ -149,10 +155,6 @@ const QUICKACCESS_INTENT_MAX_LEVEL: Record<SearchIntent["kind"], number> = {
 const QUICKACCESS_INTENT_OVERRIDES: Partial<
   Record<SearchIntent["kind"], Partial<FallbackPolicy>>
 > = {
-  // Ambient / exploratory — nearby cities ok (no specific city was requested).
-  implicit_geo: { allowNearbyCities: true },
-  discovery:    { allowNearbyCities: true },
-  ai_recovery:  { allowNearbyCities: true },
   // explicit_* intents: no override — base quickaccess defaults apply
   // (allowNearbyCities=false, allowCategoryDrift=false).
 };
@@ -195,22 +197,45 @@ export function applyFallbackPolicy<T extends PolicyFilterableSlot>(
   slots: T[],
   policy: FallbackPolicy,
 ): T[] {
-  return slots.filter((slot) => {
-    if (slot.fallbackLevel > policy.maxFallbackLevel) return false;
+  const primary = slots.filter((slot) => evaluateFallbackPolicy(slot, policy).accepted);
+  if (primary.length > 0) return primary;
 
-    if (!policy.allowSynthetic) {
-      const conf = slot.availabilityConfidence;
-      // Primary gate: explicit confidence field.
-      if (conf === "synthetic_projection") return false;
-      // Backward compat: no confidence field but isSynthetic=true → treat as synthetic_projection.
-      if (!conf && slot.isSynthetic === true) return false;
-      // "working_hours_only" and "calendar_verified" pass through.
+  return [];
+}
+
+export function evaluateFallbackPolicy(
+  slot: PolicyFilterableSlot,
+  policy: FallbackPolicy,
+): PolicyDecision {
+  if (policy.allowSynthetic && canUseAsSyntheticFallback(slot)) {
+    if (slot.fallbackLevel > policy.maxFallbackLevel) {
+      return { accepted: false, reason: "fallback_level" };
     }
+    return { accepted: true, reason: "none" };
+  }
 
-    const origins = slot.slotOrigins ?? [];
-    if (!policy.allowNearbyCities && origins.includes("nearby_city")) return false;
-    if (!policy.allowCategoryDrift && origins.includes("related_service")) return false;
+  const surfaceDecision =
+    policy.allowNearbyCities || policy.maxFallbackLevel === 3
+      ? explainBookingWidgetPolicy(slot)
+      : explainQuickAccessPolicy(slot);
 
-    return true;
-  });
+  if (!surfaceDecision.accepted) return surfaceDecision;
+
+  // Confidence is the primary MVP trust gate. Trusted availability stays
+  // displayable even when it came from a relaxed fallback level such as L4.
+  if (hasTrustworthyAvailability(slot)) return { accepted: true, reason: "none" };
+
+  const origins = slot.slotOrigins ?? [];
+  if (!policy.allowNearbyCities && origins.includes("nearby_city")) {
+    return { accepted: false, reason: "nearby_city" };
+  }
+  if (!policy.allowCategoryDrift && origins.includes("related_service")) {
+    return { accepted: false, reason: "category_drift" };
+  }
+
+  if (slot.fallbackLevel > policy.maxFallbackLevel) {
+    return { accepted: false, reason: "fallback_level" };
+  }
+
+  return { accepted: true, reason: "none" };
 }

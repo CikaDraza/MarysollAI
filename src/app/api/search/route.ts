@@ -24,6 +24,11 @@ import { fetchCategories } from "@/lib/search/fetchCategories";
 import { findBestSlots, pickDiverseSlots } from "@/lib/search/findBestSlots";
 import { SERBIAN_CITIES, haversineKm, CITY_POPULARITY } from "@/lib/cities";
 import { stripDiacritics } from "@/lib/intent/parseIntent";
+import { enrichGeoSignals } from "@/lib/search/enrichGeoSignals";
+import {
+  getAvailabilityConfidenceScore,
+  getAvailabilityType,
+} from "@/lib/availability/availabilityConfidence";
 import type { SearchApiResponse, SearchResult } from "@/types/slots";
 
 const MONTHS_SR = [
@@ -63,6 +68,8 @@ function toSearchResult(
     price: (r.service?.price ?? 0) > 0 ? (r.service!.price as number) : undefined,
     salonSlug: r.salon.slug ?? undefined,
     salonLogo: r.salon.logo ?? undefined,
+    salonLat: r.salon.lat ?? undefined,
+    salonLng: r.salon.lng ?? undefined,
     serviceDuration: r.service?.duration ?? undefined,
     endTime: r.slot.endTime,
     dateLabel: formatDateLabel(startTime, today, tomorrow),
@@ -70,6 +77,21 @@ function toSearchResult(
     relevanceScore: 1000 - (r.fallbackLevel || 0) * 100,
     fallbackLevel: r.fallbackLevel || 0,
     isSynthetic: false,
+    availabilityConfidence: "calendar_verified",
+    availabilityConfidenceScore: getAvailabilityConfidenceScore("calendar_verified"),
+    availabilityType: getAvailabilityType("calendar_verified"),
+    slotOrigins: ["real"],
+  };
+}
+
+function geoReference(params: {
+  lat?: number;
+  lng?: number;
+  cityRef?: { lat: number; lng: number };
+}): { lat?: number; lng?: number } {
+  return {
+    lat: params.lat ?? params.cityRef?.lat,
+    lng: params.lng ?? params.cityRef?.lng,
   };
 }
 
@@ -211,16 +233,23 @@ export async function GET(req: Request): Promise<NextResponse> {
       if (filtered.length > 0) results = filtered;
     }
 
+    const geoRef = geoReference(params);
+    const geoResults = enrichGeoSignals({
+      slots: results,
+      userLat: geoRef.lat,
+      userLng: geoRef.lng,
+    });
+
     const slotsByCity = groupAndSortByCityPriority(
-      results,
+      geoResults,
       params.cityDisplay,
       params.cityRef,
     );
 
     const response: SearchApiResponse = {
-      results,
+      results: geoResults,
       slotsByCity,
-      bestSlot: results[0] ?? null,
+      bestSlot: geoResults[0] ?? null,
       fallbackLevel: platformResponse.fallbackLevel,
       totalSalons: (platformResponse.debug["salonsFound"] as number) ?? 0,
       debug: {
@@ -232,7 +261,7 @@ export async function GET(req: Request): Promise<NextResponse> {
             ? `${params.timeWindowStart}:00–${params.timeWindowEnd}:00`
             : null,
         timezone: "Europe/Belgrade",
-        totalSlotsFound: results.length,
+        totalSlotsFound: geoResults.length,
         fallbackUsed: platformResponse.fallbackLabel,
         platform: platformResponse.debug,
       },
@@ -328,16 +357,23 @@ export async function GET(req: Request): Promise<NextResponse> {
     }
   }
 
+  const geoRef = geoReference(params);
+  const geoResults = enrichGeoSignals({
+    slots: allResults,
+    userLat: geoRef.lat,
+    userLng: geoRef.lng,
+  });
+
   const slotsByCity = groupAndSortByCityPriority(
-    allResults,
+    geoResults,
     params.cityDisplay,
     params.cityRef,
   );
 
   const response: SearchApiResponse = {
-    results: allResults,
+    results: geoResults,
     slotsByCity,
-    bestSlot: allResults[0] ?? null,
+    bestSlot: geoResults[0] ?? null,
     fallbackLevel,
     totalSalons: salons.length,
     debug: {
@@ -349,7 +385,7 @@ export async function GET(req: Request): Promise<NextResponse> {
           ? `${params.timeWindowStart}:00–${params.timeWindowEnd}:00`
           : null,
       timezone: "Europe/Belgrade",
-      totalSlotsFound: allResults.length,
+      totalSlotsFound: geoResults.length,
       fallbackUsed: fallbackLabel,
     },
   };

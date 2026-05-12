@@ -30,6 +30,7 @@ import {
   type FallbackInfo,
 } from "./searchFallback";
 import { diversifySorted, type DiversityRules } from "./diversity";
+import { filterByRadius } from "./filterByRadius";
 import { aiLog } from "@/lib/ai/debug-log";
 
 const log = aiLog("RANKING");
@@ -57,6 +58,8 @@ export interface RankSearchInput {
   limit?: number;
   /** Override default scoring weights. Most callers shouldn't need this. */
   weights?: Partial<SearchWeights>;
+  /** Optional radius gate. Unknown-distance slots are preserved as last resort. */
+  maxDistanceKm?: number;
   /** Fallback level returned by findBestSlots (0–6). Optional. */
   fallbackLevel?: number;
   fallbackLabel?: string;
@@ -130,11 +133,11 @@ interface StrategyConfig {
 }
 
 const STRATEGY: Record<SearchStrategy, StrategyConfig> = {
-  // Top quick picks — variety dominates over depth. Per spec: max 2 from
-  // same salon in top 5, prefer service variety.
+  // Top quick picks — variety dominates over depth. Keep the visible set to
+  // one salon/service/start-time each whenever enough candidates exist.
   quickaccess: {
     defaultLimit: 3,
-    diversity: { maxPerSalon: 2, maxPerService: 2, maxPerCategory: 3 },
+    diversity: { maxPerSalon: 1, maxPerService: 1, maxPerCategory: 3, maxPerStartTime: 1 },
     groupByCity: false,
     maxCityGroups: 0,
     slotsPerCity: 0,
@@ -177,12 +180,33 @@ function toScoreInput(
   return {
     startTime: s.startTime,
     distanceKm: s.distanceKm ?? undefined,
+    distanceScore: s.distanceScore ?? undefined,
     rating: s.rating ?? undefined,
     fallbackLevel,
+    availabilityConfidence: s.availabilityConfidence,
+    availabilityConfidenceScore: s.availabilityConfidenceScore,
     // popularity / bookingFrequency / testimonials are not yet in SearchResult.
     // calculateSlotScore treats undefined as neutral (0.5) so today's behavior
     // is unchanged — this becomes a real signal once the platform exposes it.
   };
+}
+
+function exactSlotKey(s: SearchResult): string {
+  return `${s.salonId}|${s.startTime}|${s.serviceId ?? ""}`;
+}
+
+function dedupeExactSlots(slots: SearchResult[]): SearchResult[] {
+  const seen = new Set<string>();
+  const out: SearchResult[] = [];
+
+  for (const slot of slots) {
+    const key = exactSlotKey(slot);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(slot);
+  }
+
+  return out;
 }
 
 function groupByCity<T extends { city: string }>(
@@ -224,9 +248,13 @@ export function rankSearchResults(input: RankSearchInput): RankedSearchResult {
   const limit = input.limit ?? cfg.defaultLimit;
 
   // Defensive: filter out malformed inputs (Task 14 — safe recovery).
-  const safeSlots = (input.slots ?? []).filter(
+  const sanitized = dedupeExactSlots((input.slots ?? []).filter(
     (s) => s && typeof s.startTime === "string" && typeof s.salonId === "string",
-  );
+  ));
+  const safeSlots =
+    input.maxDistanceKm != null
+      ? filterByRadius({ slots: sanitized, maxDistanceKm: input.maxDistanceKm })
+      : sanitized;
 
   if (safeSlots.length === 0) {
     return {
@@ -286,17 +314,17 @@ export function rankSearchResults(input: RankSearchInput): RankedSearchResult {
   const isFromFallback = fallbackLevel > 1;
   const scoreByKey = new Map<string, number>();
   for (const x of scored) {
-    const key = `${x.slot.salonId}|${x.slot.startTime}|${x.slot.serviceId ?? ""}`;
+    const key = exactSlotKey(x.slot);
     scoreByKey.set(key, x.score);
   }
   const preDivIndex = new Map<string, number>();
   preDiv.forEach((s, i) => {
-    const key = `${s.salonId}|${s.startTime}|${s.serviceId ?? ""}`;
+    const key = exactSlotKey(s);
     preDivIndex.set(key, i);
   });
 
   function attachMeta(s: SearchResult, postIdx: number): RankedSlot {
-    const key = `${s.salonId}|${s.startTime}|${s.serviceId ?? ""}`;
+    const key = exactSlotKey(s);
     const score = scoreByKey.get(key) ?? 0;
     const preIdx = preDivIndex.get(key) ?? postIdx;
     return Object.assign({}, s, {

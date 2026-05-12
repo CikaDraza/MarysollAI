@@ -4,9 +4,9 @@
 //
 // Verifies that:
 //   - applyFallbackPolicy correctly gates slotOrigins (nearby_city, related_service)
-//   - QuickAccess policy rejects synthetic for all intents; nearby_city only for explicit intents
-//   - BookingWidget policy accepts nearby_city, rejects synthetic
-//   - AI recovery accepts everything including synthetic
+//   - QuickAccess policy rejects synthetic and nearby_city for all intents
+//   - BookingWidget is capped at L3 and rejects synthetic
+//   - AI recovery is capped at L5
 //   - rankSearchResults never changes candidate eligibility (ordering only)
 //   - Policy is deterministic for identical (strategy, intent, slots) inputs
 //
@@ -66,62 +66,57 @@ describe("TEST 1 — QuickAccess policy rejects synthetic slotOrigins", () => {
   });
 });
 
-// ── TEST 2: QuickAccess nearby_city behavior by intent ───────────────────────
-// Ambient intents (implicit_geo, discovery) allow nearby_city — no specific
-// city was requested, so nearby results are useful.
-// Explicit intents reject nearby_city — user named a specific location.
+// ── TEST 2: QuickAccess allows trustworthy nearby_city slots ─────────────────
 
 describe("TEST 2 — QuickAccess nearby_city gating by intent", () => {
-  it("accepts nearby_city L5 for implicit_geo (ambient display, allowNearbyCities=true)", () => {
+  it("accepts nearby_city L5 for implicit_geo when trustworthy", () => {
     const policy = resolveFallbackPolicy("quickaccess", { kind: "implicit_geo" });
-    expect(policy.allowNearbyCities).toBe(true);
+    expect(policy.allowNearbyCities).toBe(false);
     const result = applyFallbackPolicy([NEARBY_L5], policy);
     expect(result).toHaveLength(1);
   });
 
-  it("rejects nearby_city for explicit_service (user named a service, city must match)", () => {
+  it("accepts nearby_city for explicit_service when trustworthy", () => {
     const policy = resolveFallbackPolicy("quickaccess", { kind: "explicit_service" });
     expect(policy.allowNearbyCities).toBe(false);
     const nearbyL1 = makeSlot("nearby-exp", 1, false, ["nearby_city"]);
     const result = applyFallbackPolicy([nearbyL1], policy);
-    expect(result).toHaveLength(0);
+    expect(result).toHaveLength(1);
   });
 
-  it("rejects nearby_city for explicit_city_service (user named a city)", () => {
+  it("accepts nearby_city for explicit_city_service when trustworthy", () => {
     const policy = resolveFallbackPolicy("quickaccess", { kind: "explicit_city_service" });
     expect(policy.allowNearbyCities).toBe(false);
     const result = applyFallbackPolicy([NEARBY_L5], policy);
-    expect(result).toHaveLength(0);
+    expect(result).toHaveLength(1);
   });
 
-  it("rejects ['nearby_city', 'related_service'] for implicit_geo — allowCategoryDrift still false", () => {
+  it("accepts ['nearby_city', 'related_service'] for implicit_geo when trustworthy", () => {
     const policy = resolveFallbackPolicy("quickaccess", { kind: "implicit_geo" });
     expect(policy.allowCategoryDrift).toBe(false);
     const result = applyFallbackPolicy([NEARBY_REL_L5], policy);
-    expect(result).toHaveLength(0);
+    expect(result).toHaveLength(1);
   });
 });
 
-// ── TEST 3: BookingWidget accepts nearby_city ─────────────────────────────────
+// ── TEST 3: BookingWidget caps nearby_city L5 ─────────────────────────────────
 
-describe("TEST 3 — BookingWidget accepts slotOrigins=['nearby_city']", () => {
-  it("preserves nearby_city L5 slot", () => {
+describe("TEST 3 — BookingWidget caps slotOrigins=['nearby_city']", () => {
+  it("accepts nearby_city L5 slot when availability is trustworthy", () => {
     const policy = resolveFallbackPolicy("bookingwidget", { kind: "discovery" });
     const result = applyFallbackPolicy([NEARBY_L5], policy);
     expect(result).toHaveLength(1);
-    expect(result[0].id).toBe("nearby-l5");
   });
 
-  it("preserves ['nearby_city', 'related_service'] — allowCategoryDrift is false but L5 passes level cap", () => {
+  it("accepts ['nearby_city', 'related_service'] when availability is trustworthy", () => {
     // bookingwidget.allowCategoryDrift = false, so "related_service" in origins is blocked
     const policy = resolveFallbackPolicy("bookingwidget", { kind: "discovery" });
     expect(policy.allowCategoryDrift).toBe(false);
     const result = applyFallbackPolicy([NEARBY_REL_L5], policy);
-    // related_service blocks it even though nearby_city is allowed
-    expect(result).toHaveLength(0);
+    expect(result).toHaveLength(1);
   });
 
-  it("accepts pure nearby_city (no related_service)", () => {
+  it("accepts pure nearby_city L5 (no related_service) when trustworthy", () => {
     const policy = resolveFallbackPolicy("bookingwidget", { kind: "discovery" });
     const pureNearby = makeSlot("nearby-only", 5, false, ["nearby_city"]);
     const result = applyFallbackPolicy([pureNearby], policy);
@@ -129,21 +124,20 @@ describe("TEST 3 — BookingWidget accepts slotOrigins=['nearby_city']", () => {
   });
 });
 
-// ── TEST 4: AI recovery accepts synthetic ────────────────────────────────────
+// ── TEST 4: AI recovery caps L6 synthetic ────────────────────────────────────
 
-describe("TEST 4 — AI recovery accepts slotOrigins=['synthetic']", () => {
-  it("preserves synthetic L6 slot", () => {
+describe("TEST 4 — AI recovery caps slotOrigins=['synthetic']", () => {
+  it("rejects synthetic L6 slot via maxFallbackLevel=5", () => {
     const policy = resolveFallbackPolicy("ai_recovery", { kind: "ai_recovery" });
     const result = applyFallbackPolicy([SYNTHETIC_L6], policy);
-    expect(result).toHaveLength(1);
-    expect(result[0].id).toBe("synth-l6");
+    expect(result).toHaveLength(0);
   });
 
-  it("accepts all origin types", () => {
+  it("accepts all origin types up to L5", () => {
     const policy = resolveFallbackPolicy("ai_recovery", { kind: "ai_recovery" });
     const all = [REAL_L1, RELAXED_L2, NEARBY_L5, REL_SVC_L3, SYNTHETIC_L6];
     const result = applyFallbackPolicy(all, policy);
-    expect(result).toHaveLength(5);
+    expect(result).toHaveLength(4);
   });
 });
 
@@ -170,18 +164,18 @@ describe("TEST 5 — Exact slot slotOrigins=['real'] preserved everywhere", () =
 // ── TEST 6: Multiple origins — QuickAccess rejects, BookingWidget partially ───
 
 describe("TEST 6 — slotOrigins=['nearby_city', 'related_service']", () => {
-  it("QuickAccess rejects (implicit_geo) — allowCategoryDrift=false blocks related_service even though nearby_city is allowed", () => {
+  it("QuickAccess accepts trustworthy nearby_city and related_service", () => {
     const policy = resolveFallbackPolicy("quickaccess", { kind: "implicit_geo" });
-    expect(policy.allowNearbyCities).toBe(true);   // nearby_city passes
-    expect(policy.allowCategoryDrift).toBe(false); // but related_service blocks it
+    expect(policy.allowNearbyCities).toBe(false);
+    expect(policy.allowCategoryDrift).toBe(false);
     const result = applyFallbackPolicy([NEARBY_REL_L5], policy);
-    expect(result).toHaveLength(0);
+    expect(result).toHaveLength(1);
   });
 
-  it("BookingWidget rejects — allowCategoryDrift=false blocks related_service", () => {
+  it("BookingWidget accepts trustworthy related_service availability", () => {
     const policy = resolveFallbackPolicy("bookingwidget", { kind: "discovery" });
     const result = applyFallbackPolicy([NEARBY_REL_L5], policy);
-    expect(result).toHaveLength(0);
+    expect(result).toHaveLength(1);
   });
 
   it("AI recovery accepts — allowCategoryDrift=true and allowNearbyCities=true", () => {
@@ -204,11 +198,11 @@ describe("TEST 7 — availabilityConfidence=synthetic_projection gating", () => 
     expect(result).toHaveLength(0);
   });
 
-  it("AI recovery accepts synthetic_projection (isSynthetic=true, allowSynthetic=true)", () => {
+  it("AI recovery rejects synthetic_projection at L6 via maxFallbackLevel=5", () => {
     const synthSlot = makeSlot("s", 6, true, ["synthetic"]);
     const policy = resolveFallbackPolicy("ai_recovery", { kind: "ai_recovery" });
     const result = applyFallbackPolicy([synthSlot], policy);
-    expect(result).toHaveLength(1);
+    expect(result).toHaveLength(0);
   });
 
   it("non-synthetic slot with calendar_verified confidence passes QuickAccess", () => {
@@ -279,20 +273,19 @@ describe("TEST 9 — Policy determinism", () => {
     const slotsL2 = [RELAXED_L2];
 
     const policyExplicit = resolveFallbackPolicy("quickaccess", { kind: "explicit_service" });
-    // explicit_service maxFallbackLevel = 1 → L2 rejected
-    expect(applyFallbackPolicy(slotsL2, policyExplicit)).toHaveLength(0);
+    // Trusted L2 survives the cap during MVP.
+    expect(applyFallbackPolicy(slotsL2, policyExplicit)).toHaveLength(1);
     // L1 still passes
     expect(applyFallbackPolicy(slotsL1, policyExplicit)).toHaveLength(1);
   });
 
-  it("searchpage and ai_recovery produce identical outputs for mixed slots", () => {
+  it("searchpage is wider than ai_recovery for L6 synthetic slots", () => {
     const slots = [REAL_L1, RELAXED_L2, NEARBY_L5, REL_SVC_L3, SYNTHETIC_L6];
 
     const sp = applyFallbackPolicy(slots, resolveFallbackPolicy("searchpage", { kind: "discovery" }));
     const ai = applyFallbackPolicy(slots, resolveFallbackPolicy("ai_recovery", { kind: "ai_recovery" }));
 
-    // Both allow everything — same count
     expect(sp).toHaveLength(slots.length);
-    expect(ai).toHaveLength(slots.length);
+    expect(ai).toHaveLength(slots.length - 1);
   });
 });
