@@ -1,28 +1,31 @@
-// ai-landing/src/app/api/campaigns/[slug]/route.ts
-import { normalizeCampaignSlug } from "@/helpers/slugNormalizer";
 import { connectToDB } from "@/lib/db/mongodb";
+import { buildCampaignLookupQuery } from "@/lib/server/campaignLookup";
 import { NewsletterCampaign } from "@/models/NewsletterCampaign";
 import { NextResponse } from "next/server";
 
 export async function GET(
   _req: Request,
-  context: { params: Promise<{ slug: string[] }> }
+  context: { params: Promise<{ slug: string[] }> },
 ) {
-  await connectToDB();
-  const { slug } = await context.params;
-  const { slugId, fullPath } = normalizeCampaignSlug(slug);
-  const campaign = await NewsletterCampaign.findOne({
-    campaignType: "email-landing",
-    $or: [
-      { "landingPage.slug": fullPath },
-      { "landingPage.slug": `/${slugId}` },
-      { ctaSlug: `/newsletter/${slugId}` },
-    ],
-  }).lean();
+  try {
+    await connectToDB();
+    const { slug } = await context.params;
+    const campaign = await NewsletterCampaign.findOne(
+      buildCampaignLookupQuery(slug),
+    ).lean();
 
-  if (!campaign) {
-    return NextResponse.json({ error: "Not found" }, { status: 404 });
+    if (!campaign) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+
+    return NextResponse.json(campaign);
+  } catch (error) {
+    console.error("[api/campaigns/[...slug]] failed", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return NextResponse.json(
+      { error: "Campaign fetch failed" },
+      { status: 500 },
+    );
   }
-
-  return NextResponse.json(campaign);
 }

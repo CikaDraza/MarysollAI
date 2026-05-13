@@ -48,8 +48,10 @@ export interface Campaign {
 
 export interface INewsletterCampaign {
   _id: string;
+  tenantId?: string;
   name: string;
   subject: string;
+  ctaSlug?: string;
   campaignType: "email-only" | "email-landing";
   landingPage?: LandingPageConfig;
   updatedAt: string;

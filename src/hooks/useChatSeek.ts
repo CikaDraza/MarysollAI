@@ -15,6 +15,8 @@ import {
   ChatSession,
 } from "@/types/ai/deepseek";
 import { UsageStats } from "@/types/ai/deepseek/usage";
+import type { SearchResult } from "@/types/slots";
+import type { AiBookingState } from "@/types/aiBooking";
 
 interface UseChatWithAIOptions {
   sessionId?: string;
@@ -63,6 +65,9 @@ export function useChatSeek(
   const [showUsage, setShowUsage] = useState(false);
 
   const abortControllerRef = useRef<AbortController | null>(null);
+  const lastOfferedSlotsRef = useRef<SearchResult[]>([]);
+  const selectedSlotRef = useRef<SearchResult | undefined>(undefined);
+  const aiBookingStateRef = useRef<AiBookingState | undefined>(undefined);
   const queryClient = useQueryClient();
 
   const currentSession = currentSessionId
@@ -198,6 +203,9 @@ export function useChatSeek(
               role,
               content,
             })),
+            lastOfferedSlots: lastOfferedSlotsRef.current,
+            selectedSlot: selectedSlotRef.current,
+            aiBookingState: aiBookingStateRef.current,
           }),
           signal: controller.signal,
         });
@@ -208,6 +216,15 @@ export function useChatSeek(
         }
 
         const data = await response.json();
+        if (Array.isArray(data.slots) && data.slots.length > 0) {
+          lastOfferedSlotsRef.current = data.slots as SearchResult[];
+        }
+        if (data.selectedSlot) {
+          selectedSlotRef.current = data.selectedSlot as SearchResult;
+        }
+        if (data.aiBookingState) {
+          aiBookingStateRef.current = data.aiBookingState as AiBookingState;
+        }
         const rawContent: string = data.choices?.[0]?.message?.content ?? "{}";
 
         // Single canonical shape via Zod-validated parser. Server already
@@ -306,6 +323,9 @@ export function useChatSeek(
     if (currentSession) {
       updateSession(currentSession.id, { messages: [] });
     }
+    lastOfferedSlotsRef.current = [];
+    selectedSlotRef.current = undefined;
+    aiBookingStateRef.current = undefined;
     setUsage(null);
   }, [currentSession, updateSession]);
 
@@ -329,6 +349,9 @@ export function useChatSeek(
     }
     const newSession = createNewSession();
     setCurrentSessionId(newSession.id);
+    lastOfferedSlotsRef.current = [];
+    selectedSlotRef.current = undefined;
+    aiBookingStateRef.current = undefined;
     setUsage(null);
   }, [createNewSession]);
 

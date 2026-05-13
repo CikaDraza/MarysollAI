@@ -4,6 +4,7 @@ import { normalizeCampaignSlug } from "@/helpers/slugNormalizer";
 import { getCampaign } from "@/lib/server/getCampaign";
 import type { Metadata } from "next";
 import { cookies } from "next/headers";
+import { notFound } from "next/navigation";
 
 export async function generateMetadata({
   params,
@@ -21,9 +22,11 @@ export async function generateMetadata({
     description: seo?.description ?? "AI Generation web app",
     keywords: seo?.keywords,
     openGraph: {
-      title: seo.ogTitle,
-      description: seo.ogDescription,
-      images: [data?.landingPage.seo.ogImage],
+      title: seo?.ogTitle ?? seo?.title ?? "Marysoll Assistant AI",
+      description: seo?.ogDescription ?? seo?.description ?? "AI Generation web app",
+      images: data?.landingPage?.seo?.ogImage
+        ? [data.landingPage.seo.ogImage]
+        : undefined,
     },
   };
 }
@@ -42,6 +45,8 @@ export default async function Page({
   ]);
 
   const token = cookieStore.get("token")?.value ?? null;
+
+  if (!data) notFound();
 
   return <CampaignClientShell initialData={data} token={token} id={slugId} />;
 }

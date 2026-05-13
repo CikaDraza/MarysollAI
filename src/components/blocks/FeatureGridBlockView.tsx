@@ -6,10 +6,14 @@ export default function FeatureGridBlockView({
 }: {
   block: FeatureGridBlock;
 }) {
+  const features = Array.isArray(block.features) ? block.features : [];
+
+  if (features.length === 0) return null;
+
   return (
     <Reveal>
       <div className="mx-auto mt-10 grid max-w-2xl grid-cols-1 gap-x-8 gap-y-16 border-t border-gray-200 pt-10 sm:mt-16 sm:pt-16 lg:mx-0 lg:max-w-none lg:grid-cols-3">
-        {block.features.map((f, i) => (
+        {features.map((f, i) => (
           <article
             key={i}
             className="relative flex max-w-xl overflow-hidden p-3 shadow-sm rounded-md flex-col items-start justify-between"
@@ -40,9 +44,11 @@ export default function FeatureGridBlockView({
             </div>
             <div className="group relative grow">
               <h3 className="mt-3 text-lg/6 font-semibold text-gray-800 group-hover:text-gray-600">
-                {f.title}
+                {f.title ?? ""}
               </h3>
-              <p className="mt-5 text-sm/6 text-gray-600">{f.description}</p>
+              {f.description && (
+                <p className="mt-5 text-sm/6 text-gray-600">{f.description}</p>
+              )}
             </div>
           </article>
         ))}

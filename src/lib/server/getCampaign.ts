@@ -1,23 +1,24 @@
-// lib/server/getCampaign.ts
-import { normalizeCampaignSlug } from "@/helpers/slugNormalizer";
 import { NewsletterCampaign } from "@/models/NewsletterCampaign";
 import { cache } from "react";
 import { connectToDB } from "../db/mongodb";
+import { buildCampaignLookupQuery } from "./campaignLookup";
 
 export const getCampaign = cache(async (slug: string) => {
-  await connectToDB();
-  const { slugId, fullPath } = normalizeCampaignSlug(slug);
-  const campaign = await NewsletterCampaign.findOne({
-    campaignType: "email-landing",
-    $or: [
-      { "landingPage.slug": fullPath },
-      { "landingPage.slug": `/${slugId}` },
-      { ctaSlug: `/newsletter/${slugId}` },
-    ],
-  }).lean();
+  try {
+    await connectToDB();
+    const campaign = await NewsletterCampaign.findOne(
+      buildCampaignLookupQuery(slug),
+    ).lean();
 
-  if (!campaign) {
+    if (!campaign) {
+      return null;
+    }
+    return JSON.parse(JSON.stringify(campaign));
+  } catch (error) {
+    console.error("[getCampaign] failed", {
+      slug,
+      error: error instanceof Error ? error.message : String(error),
+    });
     return null;
   }
-  return JSON.parse(JSON.stringify(campaign));
 });

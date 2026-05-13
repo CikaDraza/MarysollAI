@@ -10,7 +10,7 @@ export default function HeroPrimaryBlockView({
 }) {
   return (
     <Reveal>
-      <div className="w-full">
+      <div className="w-7xl mx-auto">
         <div className="relative isolate px-6 pt-14 lg:px-8">
           <div
             aria-hidden="true"
@@ -27,7 +27,7 @@ export default function HeroPrimaryBlockView({
           <div className="mx-auto max-w-2xl py-32 sm:py-48 lg:py-56">
             <div className="text-center">
               <h1 className="text-5xl! font-semibold tracking-tight text-balance text-gray-900 sm:text-7xl">
-                {block.title}
+                {block.title ?? ""}
               </h1>
               {block.subtitle && (
                 <p className="mt-8 text-lg font-medium text-pretty text-gray-500 sm:text-xl/8">

@@ -95,7 +95,9 @@ function parseHourWord(value: string): number | undefined {
 
 function parseEarliestTime(text: string): string | undefined {
   const normalized = normalizeSemanticTerm(text);
-  const match = normalized.match(/(?:posle|poslije|nakon|iza)\s+([a-z0-9]+)/);
+  const match =
+    normalized.match(/(?:posle|poslije|nakon|iza)\s+([a-z0-9]+)/) ??
+    normalized.match(/\bu\s+([a-z0-9]+)(?:\s+casova|\s+sati)?/);
   const hour = match ? parseHourWord(match[1]) : undefined;
   if (hour == null) return undefined;
   return `${String(hour).padStart(2, "0")}:00`;

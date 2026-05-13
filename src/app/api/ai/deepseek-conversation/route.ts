@@ -7,7 +7,11 @@ import { extractBookingIntentFromConversation } from "@/lib/ai/extractBookingInt
 import { detectCityAvailabilityQuestion } from "@/lib/ai/detectCityAvailabilityQuestion";
 import { runBookingSearch } from "@/lib/search/runBookingSearch";
 import { buildBookingAssistantReply } from "@/lib/ai/buildBookingAssistantReply";
+import { detectSlotSelectionIntent } from "@/lib/ai/detectSlotSelectionIntent";
+import { detectBookingConfirmation } from "@/lib/ai/detectBookingConfirmation";
 import type { StructuredBookingIntent } from "@/types/intent";
+import type { SearchResult } from "@/types/slots";
+import type { AiBookingState } from "@/types/aiBooking";
 
 export const maxDuration = 60;
 export const dynamic = "force-dynamic";
@@ -36,6 +40,8 @@ function responseFromAssistant(params: {
   recoveryState?: unknown;
   slots?: unknown[];
   suggestions?: unknown[];
+  selectedSlot?: SearchResult;
+  aiBookingState?: AiBookingState;
   aiDebug?: Record<string, unknown>;
   error?: string;
 }) {
@@ -52,6 +58,8 @@ function responseFromAssistant(params: {
     recoveryState: params.recoveryState,
     slots: params.slots,
     suggestions: params.suggestions,
+    selectedSlot: params.selectedSlot,
+    aiBookingState: params.aiBookingState,
     aiDebug: params.aiDebug,
     error: params.error,
     choices: [{ message: { content: JSON.stringify(maria) } }],
@@ -77,6 +85,11 @@ function isAvailabilitySearchIntent(input: {
 function isRecoveredCityRejection(text: string): boolean {
   const normalized = text.toLowerCase();
   return /ne odgovara|ne pase|ne paše|ne zelim|ne želim|predaleko|nije mi ok|ne mogu u/.test(normalized);
+}
+
+function formatSelectedSlot(slot: SearchResult): string {
+  const price = slot.price ? ` Cena je ${slot.price.toLocaleString("sr-RS")} RSD.` : "";
+  return `Može. Izabrali ste ${slot.serviceName} ${slot.dateLabel.toLowerCase()} u ${slot.timeLabel} u ${slot.salonName}, ${slot.city}.${price} Da li želite da potvrdimo termin?`;
 }
 
 function buildMariaSystemPrompt(
@@ -222,12 +235,18 @@ export async function POST(req: Request) {
       userName = "Guest",
       userCity = "",
       language = "sr",
+      lastOfferedSlots = [],
+      selectedSlot,
+      aiBookingState,
     } = body as {
       messages: Pick<Message, "role" | "content">[];
       isAuthenticated?: boolean;
       userName?: string;
       userCity?: string;
       language?: string;
+      lastOfferedSlots?: SearchResult[];
+      selectedSlot?: SearchResult;
+      aiBookingState?: AiBookingState;
     };
     const conversationMessages = (messages ?? []).filter(
       (message): message is { role: "user" | "assistant"; content: string } =>
@@ -251,6 +270,66 @@ export async function POST(req: Request) {
       }).service;
     })();
 
+    const confirmation = detectBookingConfirmation({
+      userMessage: latestUserText,
+      previousState: aiBookingState,
+      selectedSlot,
+    });
+    if (confirmation.intent === "confirm_booking" && confirmation.selectedSlot) {
+      return responseFromAssistant({
+        message: "Odlično. Da završimo zakazivanje, potrebno mi je ime i kontakt telefon ili email.",
+        selectedSlot: confirmation.selectedSlot,
+        aiBookingState: "ready_to_book",
+        aiDebug: {
+          slotSelectionChecked: true,
+          slotSelectionMatched: true,
+          selectedSlotId: confirmation.selectedSlot.serviceId ?? confirmation.selectedSlot.serviceName,
+          slotSelectionConfidence: 1,
+          slotSelectionReason: "confirmation_after_slot_selected",
+          skippedSearchBecauseSlotSelected: true,
+          previousSlotsCount: lastOfferedSlots.length,
+          aiBookingState: "ready_to_book",
+          replyMode: "booking_confirmation",
+        },
+      });
+    }
+
+    const slotSelection = detectSlotSelectionIntent({
+      userMessage: latestUserText,
+      previousSlots: lastOfferedSlots,
+      previousIntent: extractedIntent,
+    });
+    if (slotSelection.isSlotSelection && slotSelection.selectedSlot) {
+      return responseFromAssistant({
+        message: formatSelectedSlot(slotSelection.selectedSlot),
+        intent: {
+          ...extractedIntent,
+          service: slotSelection.selectedSlot.serviceName,
+          requestedCity: slotSelection.selectedSlot.city,
+          city: slotSelection.selectedSlot.city,
+        },
+        selectedSlot: slotSelection.selectedSlot,
+        slots: [slotSelection.selectedSlot],
+        suggestions: [
+          { label: "Potvrdi termin", intent: "confirm_booking" },
+          { label: "Izaberi drugi termin", intent: "choose_another_slot" },
+          { label: "Prikaži još termina", intent: "show_more_slots" },
+        ],
+        aiBookingState: "awaiting_confirmation",
+        aiDebug: {
+          slotSelectionChecked: true,
+          slotSelectionMatched: true,
+          selectedSlotId: slotSelection.selectedSlot.serviceId ?? slotSelection.selectedSlot.serviceName,
+          slotSelectionConfidence: slotSelection.confidence,
+          slotSelectionReason: slotSelection.matchReason,
+          skippedSearchBecauseSlotSelected: true,
+          previousSlotsCount: lastOfferedSlots.length,
+          aiBookingState: "awaiting_confirmation",
+          replyMode: "slot_selected",
+        },
+      });
+    }
+
     if (isRecoveredCityRejection(latestUserText)) {
       return responseFromAssistant({
         message: "Razumem, nema problema. Da li želite da proverim drugi grad, drugo vreme ili neku drugu uslugu?",
@@ -263,6 +342,11 @@ export async function POST(req: Request) {
           effectiveCity: undefined,
           recoveryScenario: undefined,
           searchResultsCount: 0,
+          slotSelectionChecked: true,
+          slotSelectionMatched: false,
+          slotSelectionConfidence: slotSelection.confidence,
+          skippedSearchBecauseSlotSelected: false,
+          previousSlotsCount: lastOfferedSlots.length,
           replyMode: "recovered_city_rejected",
         },
       });
@@ -293,6 +377,12 @@ export async function POST(req: Request) {
           effectiveCity: searchResult.recoveryState?.effectiveCity,
           recoveryScenario: searchResult.recoveryState?.recoveryScenario,
           searchResultsCount: searchResult.results.length,
+          slotSelectionChecked: true,
+          slotSelectionMatched: false,
+          slotSelectionConfidence: slotSelection.confidence,
+          skippedSearchBecauseSlotSelected: false,
+          previousSlotsCount: lastOfferedSlots.length,
+          aiBookingState: "showing_options",
           replyMode: reply.replyMode,
         };
         if (process.env.NODE_ENV !== "production") {
@@ -304,6 +394,7 @@ export async function POST(req: Request) {
           recoveryState: searchResult.recoveryState,
           slots: reply.slots,
           suggestions: reply.suggestedActions ?? searchResult.suggestions,
+          aiBookingState: "showing_options",
           aiDebug,
         });
       } catch (error) {
@@ -317,6 +408,12 @@ export async function POST(req: Request) {
           effectiveCity: undefined,
           recoveryScenario: undefined,
           searchResultsCount: 0,
+          slotSelectionChecked: true,
+          slotSelectionMatched: false,
+          slotSelectionConfidence: slotSelection.confidence,
+          skippedSearchBecauseSlotSelected: false,
+          previousSlotsCount: lastOfferedSlots.length,
+          aiBookingState: "searching",
           replyMode: "search_error",
           errorReason: error instanceof Error ? error.message : String(error),
         };

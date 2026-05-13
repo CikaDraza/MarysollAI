@@ -4,7 +4,6 @@ import { HeroVisualBlock } from "@/types/landing-blocks";
 import { Reveal } from "../motion/Reveal";
 import Link from "next/link";
 import { motion, Variants } from "framer-motion";
-import Image from "next/image";
 
 // Varijante za kontejner koji drži slike
 const containerVariants: Variants = {
@@ -82,13 +81,11 @@ export default function HeroVisualBlockView({
                         variants={itemVariants}
                         className="h-64 w-44 overflow-hidden rounded-lg"
                       >
-                        <Image
-                          width={200}
-                          height={300}
-                          src={url}
-                          alt=""
-                          className="h-full w-full object-cover shadow-xl"
-                        />
+                          <img
+                            src={url}
+                            alt=""
+                            className="h-full w-full object-cover shadow-xl"
+                          />
                       </motion.div>
                     );
                   })}
@@ -102,13 +99,11 @@ export default function HeroVisualBlockView({
                         variants={itemVariants}
                         className="h-64 w-44 overflow-hidden rounded-lg"
                       >
-                        <Image
-                          width={200}
-                          height={300}
-                          src={url}
-                          alt=""
-                          className="h-full w-full object-cover shadow-xl"
-                        />
+                          <img
+                            src={url}
+                            alt=""
+                            className="h-full w-full object-cover shadow-xl"
+                          />
                       </motion.div>
                     );
                   })}
@@ -122,13 +117,11 @@ export default function HeroVisualBlockView({
                         variants={itemVariants}
                         className="h-64 w-44 overflow-hidden rounded-lg"
                       >
-                        <Image
-                          width={200}
-                          height={300}
-                          src={url}
-                          alt=""
-                          className="h-full w-full object-cover shadow-xl"
-                        />
+                          <img
+                            src={url}
+                            alt=""
+                            className="h-full w-full object-cover shadow-xl"
+                          />
                       </motion.div>
                     );
                   })}

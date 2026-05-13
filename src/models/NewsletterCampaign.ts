@@ -5,8 +5,10 @@ import { Schema, model, models } from "mongoose";
 
 const newsletterCampaignSchema = new Schema<INewsletterCampaign>(
   {
+    tenantId: { type: Schema.Types.ObjectId, index: true },
     name: { type: String, required: true },
     subject: { type: String, required: true },
+    ctaSlug: { type: String, index: true },
     campaignType: {
       type: String,
       enum: ["email-only", "email-landing"],
