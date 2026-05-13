@@ -3,9 +3,81 @@ import { NextResponse } from "next/server";
 import { Message } from "@/types/ai/deepseek";
 import { fetchPlatformKnowledge } from "@/lib/ai/platform-knowledge";
 import { parseMariaResponse } from "@/lib/ai/schemas/maria.schema";
+import { extractBookingIntentFromConversation } from "@/lib/ai/extractBookingIntentFromConversation";
+import { detectCityAvailabilityQuestion } from "@/lib/ai/detectCityAvailabilityQuestion";
+import { runBookingSearch } from "@/lib/search/runBookingSearch";
+import { buildBookingAssistantReply } from "@/lib/ai/buildBookingAssistantReply";
+import type { StructuredBookingIntent } from "@/types/intent";
 
 export const maxDuration = 60;
 export const dynamic = "force-dynamic";
+
+const AI_TIMEOUT_MS = 18_000;
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const id = setTimeout(() => reject(new Error(`${label} timeout`)), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(id);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(id);
+        reject(error);
+      },
+    );
+  });
+}
+
+function responseFromAssistant(params: {
+  message: string;
+  intent?: StructuredBookingIntent;
+  recoveryState?: unknown;
+  slots?: unknown[];
+  suggestions?: unknown[];
+  aiDebug?: Record<string, unknown>;
+  error?: string;
+}) {
+  const maria = {
+    type: "answer",
+    message: params.message,
+    targetAgent: "none",
+  };
+
+  return NextResponse.json({
+    ok: !params.error,
+    message: params.message,
+    intent: params.intent,
+    recoveryState: params.recoveryState,
+    slots: params.slots,
+    suggestions: params.suggestions,
+    aiDebug: params.aiDebug,
+    error: params.error,
+    choices: [{ message: { content: JSON.stringify(maria) } }],
+    usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+    model: "marysoll-search-orchestrator",
+  });
+}
+
+function isAvailabilitySearchIntent(input: {
+  latestUserText: string;
+  intent: StructuredBookingIntent;
+  detectedCityQuestion: boolean;
+}): boolean {
+  const normalized = input.latestUserText.toLowerCase();
+  return Boolean(
+    input.intent.service ||
+      input.intent.category ||
+      input.detectedCityQuestion ||
+      /termin|slobod|ima li|da li ima|imate|radite|masaz|masaž|sisanj|šišanj|fenir|nokti|smink|šmink/.test(normalized),
+  );
+}
+
+function isRecoveredCityRejection(text: string): boolean {
+  const normalized = text.toLowerCase();
+  return /ne odgovara|ne pase|ne paše|ne zelim|ne želim|predaleko|nije mi ok|ne mogu u/.test(normalized);
+}
 
 function buildMariaSystemPrompt(
   salonsText: string,
@@ -157,6 +229,106 @@ export async function POST(req: Request) {
       userCity?: string;
       language?: string;
     };
+    const conversationMessages = (messages ?? []).filter(
+      (message): message is { role: "user" | "assistant"; content: string } =>
+        (message.role === "user" || message.role === "assistant") &&
+        typeof message.content === "string",
+    );
+    const latestUserText =
+      [...conversationMessages].reverse().find((message) => message.role === "user")?.content ?? "";
+    const cityQuestion = detectCityAvailabilityQuestion(latestUserText);
+    const extractedIntent = extractBookingIntentFromConversation({
+      messages: conversationMessages,
+      currentCity: userCity || undefined,
+    });
+    const previousServiceIntent = (() => {
+      const previousUsers = conversationMessages
+        .filter((message) => message.role === "user")
+        .slice(0, -1);
+      return extractBookingIntentFromConversation({
+        messages: previousUsers,
+        currentCity: userCity || undefined,
+      }).service;
+    })();
+
+    if (isRecoveredCityRejection(latestUserText)) {
+      return responseFromAssistant({
+        message: "Razumem, nema problema. Da li želite da proverim drugi grad, drugo vreme ili neku drugu uslugu?",
+        intent: extractedIntent,
+        aiDebug: {
+          extractedIntent,
+          previousServiceIntent,
+          detectedCityQuestion: cityQuestion.detected,
+          requestedCity: extractedIntent.requestedCity,
+          effectiveCity: undefined,
+          recoveryScenario: undefined,
+          searchResultsCount: 0,
+          replyMode: "recovered_city_rejected",
+        },
+      });
+    }
+
+    if (
+      isAvailabilitySearchIntent({
+        latestUserText,
+        intent: extractedIntent,
+        detectedCityQuestion: cityQuestion.detected,
+      })
+    ) {
+      try {
+        const searchResult = await withTimeout(
+          runBookingSearch(extractedIntent),
+          AI_TIMEOUT_MS,
+          "booking search",
+        );
+        const reply = buildBookingAssistantReply({
+          intent: extractedIntent,
+          searchResult,
+        });
+        const aiDebug = {
+          extractedIntent,
+          previousServiceIntent,
+          detectedCityQuestion: cityQuestion.detected,
+          requestedCity: searchResult.recoveryState?.requestedCity,
+          effectiveCity: searchResult.recoveryState?.effectiveCity,
+          recoveryScenario: searchResult.recoveryState?.recoveryScenario,
+          searchResultsCount: searchResult.results.length,
+          replyMode: reply.replyMode,
+        };
+        if (process.env.NODE_ENV !== "production") {
+          console.debug("[AI_SEARCH_ORCHESTRATOR]", aiDebug);
+        }
+        return responseFromAssistant({
+          message: reply.text,
+          intent: extractedIntent,
+          recoveryState: searchResult.recoveryState,
+          slots: reply.slots,
+          suggestions: reply.suggestedActions ?? searchResult.suggestions,
+          aiDebug,
+        });
+      } catch (error) {
+        const message =
+          "Trenutno ne mogu pouzdano da proverim termine. Pokušajte ponovo za trenutak.";
+        const aiDebug = {
+          extractedIntent,
+          previousServiceIntent,
+          detectedCityQuestion: cityQuestion.detected,
+          requestedCity: extractedIntent.requestedCity,
+          effectiveCity: undefined,
+          recoveryScenario: undefined,
+          searchResultsCount: 0,
+          replyMode: "search_error",
+          errorReason: error instanceof Error ? error.message : String(error),
+        };
+        console.error("[AI_SEARCH_ORCHESTRATOR_ERROR]", aiDebug);
+        return responseFromAssistant({
+          message,
+          intent: extractedIntent,
+          aiDebug,
+          error: aiDebug.errorReason,
+        });
+      }
+    }
 
     const { salonsText, servicesText, citiesText, categoriesText } =
       await fetchPlatformKnowledge();
@@ -172,7 +344,7 @@ export async function POST(req: Request) {
       language,
     );
 
-    const response = await fetch(
+    const response = await withTimeout(fetch(
       "https://api.deepseek.com/v1/chat/completions",
       {
         method: "POST",
@@ -192,15 +364,16 @@ export async function POST(req: Request) {
           response_format: { type: "json_object" },
         }),
       },
-    );
+    ), AI_TIMEOUT_MS, "deepseek");
 
     if (!response.ok) {
       const error = await response.json();
       console.error("DeepSeek API error:", error);
-      return NextResponse.json(
-        { error: error.error?.message || "DeepSeek API error" },
-        { status: response.status },
-      );
+      return responseFromAssistant({
+        message: "Trenutno ne mogu da završim odgovor. Pokušajte ponovo za trenutak.",
+        error: error.error?.message || "DeepSeek API error",
+        aiDebug: { replyMode: "deepseek_error", errorReason: error.error?.message || "DeepSeek API error" },
+      });
     }
 
     const data = await response.json();
@@ -214,15 +387,28 @@ export async function POST(req: Request) {
       data.choices[0].message.content = JSON.stringify(normalized);
     }
 
-    return NextResponse.json(data);
+    return NextResponse.json({
+      ok: true,
+      message: normalized.message,
+      choices: data.choices,
+      usage: data.usage,
+      model: data.model,
+      aiDebug: {
+        extractedIntent,
+        previousServiceIntent,
+        detectedCityQuestion: cityQuestion.detected,
+        replyMode: "deepseek_router",
+      },
+    });
   } catch (error) {
     console.error("Error in deepseek-conversation API:", error);
-    return NextResponse.json(
-      {
-        error:
-          error instanceof Error ? error.message : "Internal server error",
+    return responseFromAssistant({
+      message: "Nešto je zapelo, ali nisam izgubila razgovor. Pokušajte ponovo.",
+      error: error instanceof Error ? error.message : "Internal server error",
+      aiDebug: {
+        replyMode: "route_error",
+        errorReason: error instanceof Error ? error.message : String(error),
       },
-      { status: 500 },
-    );
+    });
   }
 }

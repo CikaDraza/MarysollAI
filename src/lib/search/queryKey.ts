@@ -21,6 +21,9 @@ export interface SearchQueryKeyInput {
   city?: string;
   category?: string;
   subcategory?: string;
+  query?: string;
+  service?: string;
+  routeCategory?: string;
   date?: string;
   time?: string;
   timeWindowStart?: number;
@@ -55,5 +58,8 @@ export function buildSearchQueryKey(
     input.timeWindowEnd ?? EMPTY,
     input.lat ?? EMPTY,
     input.lng ?? EMPTY,
+    input.query ?? EMPTY,
+    input.service ?? EMPTY,
+    input.routeCategory ?? EMPTY,
   ];
 }

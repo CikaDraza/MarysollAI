@@ -10,8 +10,10 @@ import type { ParsedIntent } from "@/types/intent";
 import { useLandingUI } from "@/context/landing/LandingUIContext";
 import { useCityContext } from "@/context/landing/CityContext";
 import { useFilters } from "@/context/landing/FiltersContext";
+import { useSearchContext } from "@/context/landing/SearchContext";
 import { useWorkspace } from "@/context/landing/WorkspaceContext";
 import { SERBIAN_CITIES } from "@/lib/cities";
+import { normalizeSearchIntent } from "@/lib/search/normalizeSearchIntent";
 import TrustRow from "./TrustRow";
 
 export interface SearchParams {
@@ -20,6 +22,7 @@ export interface SearchParams {
   date: string;
   time?: string;
   subcategory?: string;
+  query?: string;
   timeWindowStart?: number;
   timeWindowEnd?: number;
 }
@@ -102,7 +105,12 @@ export default function Hero() {
     setSubcategoryFilter,
     setTimeWindowStart,
     setTimeWindowEnd,
+    searchQuery,
+    setSearchQuery,
+    resetSearchFilters,
+    applySearchSuggestion,
   } = useFilters();
+  const { suggestions } = useSearchContext();
   const { dismissWorkspace } = useWorkspace();
 
   const defaultCity = cityName;
@@ -117,6 +125,7 @@ export default function Hero() {
         if (found) setCity(found);
       }
       setCategory(params.category);
+      setSearchQuery(params.query ?? params.subcategory ?? "");
       setDateFilter(params.date || undefined);
       setTimeFilter(params.time);
       setSubcategoryFilter(params.subcategory);
@@ -132,9 +141,10 @@ export default function Hero() {
       setSubcategoryFilter,
       setTimeWindowStart,
       setTimeWindowEnd,
+      setSearchQuery,
     ],
   );
-  const [value, setValue] = useState("");
+  const [value, setValue] = useState(searchQuery);
   const [focused, setFocused] = useState(false);
   const [placeholderIdx, setIdx] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -143,6 +153,10 @@ export default function Hero() {
   const [error, setError] = useState<string | null>(null);
   const [geoLoading, setGeoLoading] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setValue(searchQuery);
+  }, [searchQuery]);
 
   // Rotate placeholder every ~3 s
   useEffect(() => {
@@ -155,7 +169,10 @@ export default function Hero() {
 
   const submit = useCallback(async () => {
     const q = value.trim();
-    if (!q || loading) return;
+    if (!q || loading) {
+      if (!q) resetSearchFilters();
+      return;
+    }
 
     setLoading(true);
     setError(null);
@@ -190,6 +207,7 @@ export default function Hero() {
         date: intent.date ?? todayStr(),
         time,
         subcategory: intent.subcategoryKey ?? undefined,
+        query: q,
         timeWindowStart,
         timeWindowEnd,
       });
@@ -198,14 +216,38 @@ export default function Hero() {
         .getElementById("quick-access")
         ?.scrollIntoView({ behavior: "smooth" });
     } catch {
-      setError("Nešto nije u redu. Pokušaj ponovo.");
+      const fallbackIntent = normalizeSearchIntent({ rawQuery: q, city: defaultCity });
+      setSearchQuery(q);
+      onSearch({
+        city: "",
+        category: fallbackIntent.categoryKey ?? "",
+        date: todayStr(),
+        subcategory: fallbackIntent.shouldSearchCategoryBucket ? undefined : q,
+        query: q,
+      });
+      setInterp(
+        fallbackIntent.canonicalCategory
+          ? `${fallbackIntent.canonicalCategory} u ${defaultCity}`
+          : `Pretraga: ${q}`,
+      );
+      setError(null);
     } finally {
       setLoading(false);
     }
-  }, [value, loading, defaultCity, onSearch]);
+  }, [value, loading, defaultCity, onSearch, resetSearchFilters, setSearchQuery]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") void submit();
+  };
+
+  const handleInputChange = (next: string) => {
+    setValue(next);
+    if (next === "") {
+      setInterp(null);
+      setIntentBadge(null);
+      setError(null);
+      resetSearchFilters();
+    }
   };
 
   const handleGeo = () => {
@@ -370,7 +412,7 @@ export default function Hero() {
                 className="hero-smart-input"
                 placeholder={PLACEHOLDERS[placeholderIdx]}
                 value={value}
-                onChange={(e) => setValue(e.target.value)}
+                onChange={(e) => handleInputChange(e.target.value)}
                 onFocus={() => setFocused(true)}
                 onBlur={() => setTimeout(() => setFocused(false), 120)}
                 onKeyDown={handleKeyDown}
@@ -474,6 +516,43 @@ export default function Hero() {
                     {error}
                   </span>
                 )}
+              </div>
+            )}
+
+            {suggestions.length > 0 && (
+              <div className="hero-intent-chips" style={{ marginTop: 12 }}>
+                {suggestions.map((suggestion) => (
+                  <button
+                    key={`${suggestion.label}-${suggestion.reason}`}
+                    type="button"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => {
+                      applySearchSuggestion(suggestion);
+                      if (suggestion.city) {
+                        const found = SERBIAN_CITIES.find(
+                          (x) => x.name.toLowerCase() === suggestion.city!.toLowerCase(),
+                        );
+                        if (found) setCity(found);
+                      }
+                      document
+                        .getElementById("booking-widget")
+                        ?.scrollIntoView({ behavior: "smooth" });
+                    }}
+                    style={{
+                      border: "1px solid var(--border, #e5e7eb)",
+                      background: "var(--surface)",
+                      borderRadius: 999,
+                      padding: "6px 12px",
+                      fontFamily: "var(--main-font)",
+                      fontSize: 12,
+                      fontWeight: 600,
+                      color: "var(--fg-2)",
+                      cursor: "pointer",
+                    }}
+                  >
+                    {suggestion.label}
+                  </button>
+                ))}
               </div>
             )}
           </div>

@@ -26,6 +26,7 @@ import {
   type BookingDiscoveryGroup,
   type BookingDiscoveryMode,
 } from "@/lib/search/buildBookingDiscoveryGroups";
+import { SLUG_TO_CANONICAL, type CategorySlug } from "@/lib/intent/categoryMap";
 import { trackSearchEvent } from "@/lib/search/searchAnalytics";
 
 /** Returns a human-readable section label for a city group. */
@@ -42,10 +43,16 @@ function cityGroupLabel(
 
 export default function BookingWidget() {
   const { cityName: userCity, geoResolved } = useCityContext();
-  const { results, fallbackLevel, isLoading: loading } = useSearchContext();
+  const {
+    results,
+    fallbackLevel,
+    recoveryState,
+    isLoading: loading,
+  } = useSearchContext();
   const {
     category,
     subcategoryFilter,
+    searchQuery,
     dateFilter,
     timeWindowStart,
     timeWindowEnd,
@@ -56,7 +63,12 @@ export default function BookingWidget() {
   // still gets its strict preview so the discovery rows can avoid repeating it.
   const ranked = useMemo(() => {
     const policy = resolveFallbackPolicy("bookingwidget", { kind: "discovery" });
-    const eligible = applyFallbackPolicy(results, policy);
+    const shouldTrustEffectiveCity =
+      recoveryState?.recoveryScenario === "exact_in_nearest_city" ||
+      recoveryState?.recoveryScenario === "related_in_nearest_city";
+    const eligible = shouldTrustEffectiveCity
+      ? results.filter((slot) => slot.isSynthetic !== true)
+      : applyFallbackPolicy(results, policy);
     const userLocation =
       geoResolved.lat != null && geoResolved.lng != null
         ? { lat: geoResolved.lat, lng: geoResolved.lng }
@@ -81,11 +93,11 @@ export default function BookingWidget() {
       ...discoveryRanked,
       quickAccessSlotIds: quickAccessPreview.slots.map(bookingSlotId),
     };
-  }, [results, geoResolved.lat, geoResolved.lng, fallbackLevel]);
+  }, [results, geoResolved.lat, geoResolved.lng, fallbackLevel, recoveryState?.recoveryScenario]);
 
   const discoveryBuild = useMemo(() => {
     const hasSearchIntent = Boolean(
-      userCity || category || subcategoryFilter || dateFilter || timeWindowStart != null || timeWindowEnd != null,
+      searchQuery || category || subcategoryFilter || dateFilter || timeWindowStart != null || timeWindowEnd != null,
     );
     const hasGeo = geoResolved.lat != null && geoResolved.lng != null;
     const mode: BookingDiscoveryMode =
@@ -103,7 +115,7 @@ export default function BookingWidget() {
       query: {
         city: userCity,
         category: category || undefined,
-        service: subcategoryFilter,
+        service: searchQuery || subcategoryFilter,
         date: dateFilter,
         timeWindowStart,
         timeWindowEnd,
@@ -114,13 +126,7 @@ export default function BookingWidget() {
         : undefined,
       fallbackLevel,
       mode,
-      recoveryState: {
-        exactMatchFound: fallbackLevel <= 2,
-        semanticMatchFound: fallbackLevel <= 3,
-        nearbyCityUsed: fallbackLevel >= 5,
-        relatedServiceUsed: fallbackLevel >= 3,
-        fallbackReason: ranked.fallback.label,
-      },
+      recoveryState,
     });
     },
     [
@@ -130,17 +136,23 @@ export default function BookingWidget() {
       geoResolved.lat,
       geoResolved.lng,
       userCity,
+      searchQuery,
       category,
       subcategoryFilter,
       dateFilter,
       timeWindowStart,
       timeWindowEnd,
       fallbackLevel,
+      recoveryState,
     ],
   );
   const discoveryGroups = discoveryBuild.groups;
   const bookingWidgetDebug = discoveryBuild.debug;
   const hasAny = discoveryGroups.some((g) => g.slots.length > 0);
+  const recoveryMessage =
+    typeof recoveryState?.userMessage === "string"
+      ? recoveryState.userMessage
+      : null;
 
   useEffect(() => {
     if (process.env.NODE_ENV !== "production") {
@@ -228,7 +240,11 @@ export default function BookingWidget() {
               margin: "0 0 8px",
             }}
           >
-            Nema termina za ovu uslugu trenutno
+            {recoveryMessage?.split(". ")[0] ?? (
+              category
+                ? `Nema slobodnih termina za ${SLUG_TO_CANONICAL[category as CategorySlug] ?? category} u ${userCity}.`
+                : "Nismo prepoznali tačno ovu uslugu."
+            )}
           </p>
           <p
             style={{
@@ -238,7 +254,8 @@ export default function BookingWidget() {
               margin: 0,
             }}
           >
-            Promenite kategoriju, grad ili datum — ili pitajte asistenta.
+            {recoveryMessage?.split(". ").slice(1).join(". ") ||
+              "Pogledajte dostupne kategorije ispod."}
           </p>
         </div>
       )}

@@ -1,6 +1,7 @@
 // src/lib/search/buildBookingDiscoveryGroups.ts
 
 import type { SearchResult } from "@/types/slots";
+import type { SearchRecoveryState } from "@/types/searchRecovery";
 import type { RankedSlot } from "./rankSearchResults";
 
 export type BookingDiscoveryMode =
@@ -20,14 +21,6 @@ export type BookingDiscoveryGroupType =
   | "related_services"
   | "flexible_availability"
   | "ai_recovery";
-
-export interface SearchRecoveryState {
-  exactMatchFound: boolean;
-  semanticMatchFound: boolean;
-  nearbyCityUsed: boolean;
-  relatedServiceUsed: boolean;
-  fallbackReason?: string;
-}
 
 export interface BookingDiscoveryQuery {
   city?: string;
@@ -139,6 +132,49 @@ function hasSearchIntent(query: BookingDiscoveryQuery): boolean {
   );
 }
 
+function serviceLabel(query: BookingDiscoveryQuery): string {
+  return query.service || query.category || "uslugu";
+}
+
+function scenarioTitles(
+  recoveryState: Partial<SearchRecoveryState> | undefined,
+  query: BookingDiscoveryQuery,
+  fallbackCity: string | undefined,
+): [string, string, string] | null {
+  const city = recoveryState?.effectiveCity ?? fallbackCity;
+  const requestedCity = recoveryState?.requestedCity ?? fallbackCity;
+  const label = serviceLabel(query);
+  switch (recoveryState?.recoveryScenario) {
+    case "exact_in_requested_city":
+    case "exact_in_nearest_city":
+      return [
+        `Još termina za ${label} — ${city}`,
+        `Preporučeni saloni za ${label} — ${city}`,
+        `Slične usluge — ${city}`,
+      ];
+    case "related_in_requested_city":
+      return [
+        `Slične usluge — ${requestedCity}`,
+        `Preporučeni saloni — ${requestedCity}`,
+        `Popularno u kategoriji — ${requestedCity}`,
+      ];
+    case "related_in_nearest_city":
+      return [
+        `Najbliže dostupno — ${city}`,
+        `Preporučeni saloni — ${city}`,
+        `Slične usluge — ${city}`,
+      ];
+    case "discovery":
+      return [
+        "Najbliži slobodni termini",
+        "Popularno u blizini",
+        "Preporučeni saloni",
+      ];
+    default:
+      return null;
+  }
+}
+
 function hasTimeIntent(query: BookingDiscoveryQuery): boolean {
   return Boolean(
     query.date || query.timeWindowStart != null || query.timeWindowEnd != null,
@@ -149,7 +185,12 @@ function inferMode(
   input: BuildBookingDiscoveryGroupsInput,
 ): BookingDiscoveryMode {
   if (input.mode) return input.mode;
-  if (input.recoveryState?.fallbackReason || input.fallbackLevel >= 3)
+  if (
+    input.recoveryState?.recoveryScenario === "exact_in_nearest_city" ||
+    input.recoveryState?.recoveryScenario === "related_in_requested_city" ||
+    input.recoveryState?.recoveryScenario === "related_in_nearest_city" ||
+    input.fallbackLevel >= 3
+  )
     return "recovery";
   if (hasSearchIntent(input.query)) return "search";
   if (input.userLocation) return "geo_load";
@@ -296,7 +337,8 @@ export function buildBookingDiscoveryGroups(
   const groups: BookingDiscoveryGroup[] = [];
   const debugGroups: BookingWidgetDebug["groups"] = [];
 
-  const city = input.query.city ?? input.userCity;
+  const city = input.recoveryState?.effectiveCity ?? input.query.city ?? input.userCity;
+  const titles = scenarioTitles(input.recoveryState, input.query, city);
   const exactCitySlots = trustworthy.filter((slot) => sameCity(slot, city));
   const nearbyCitySlots = trustworthy.filter(
     (slot) => city && !sameCity(slot, city),
@@ -330,7 +372,7 @@ export function buildBookingDiscoveryGroups(
     add({
       id: "ai_recovery:best",
       type: "ai_recovery",
-      title: "Najbolji pronađeni termini",
+      title: titles?.[0] ?? "Najbolji pronađeni termini",
       slots: pickDiverse(sortedByPopular(trustworthy), 5, {
         avoidSlotIds: quickAccessIds,
         usedSlotKeys,
@@ -348,7 +390,7 @@ export function buildBookingDiscoveryGroups(
     add({
       id: "best_nearby",
       type: "best_nearby",
-      title: "Najbliži slobodni termini",
+      title: titles?.[0] ?? "Najbliži slobodni termini",
       slots: pickDiverse(bestNearbyPool, 5, {
         avoidSlotIds: quickAccessIds,
         usedSlotKeys,
@@ -365,13 +407,13 @@ export function buildBookingDiscoveryGroups(
     add({
       id: "exact_city",
       type: "exact_city",
-      title: serviceCity
+      title: titles?.[0] ?? (serviceCity
         ? `Najbolji rezultati u ${city}`
         : city
           ? `Najbolji termini - ${city}`
           : input.query.service
             ? `Najbolji termini za ${input.query.service}`
-            : "Najbolji slobodni termini",
+            : "Najbolji slobodni termini"),
       subtitle:
         exactPool.length === 0 && (input.query.category || input.query.service)
           ? "Ali pronašli smo najbliže dostupne opcije."
@@ -394,7 +436,7 @@ export function buildBookingDiscoveryGroups(
   }
 
   const row2Type =
-    mode === "recovery" || exactWeak || input.recoveryState?.relatedServiceUsed
+    mode === "recovery" || exactWeak || input.recoveryState?.relatedMatchFound
       ? "related_services"
       : "popular_services";
   add({
@@ -402,11 +444,11 @@ export function buildBookingDiscoveryGroups(
     type: row2Type,
     title:
       row2Type === "related_services"
-        ? city
+        ? titles?.[1] ?? (city
           ? `Slične usluge u ${city}`
-          : "Slične usluge"
+          : "Slične usluge")
         : city
-          ? `Popularno u blizini`
+          ? titles?.[1] ?? `Popularno u blizini`
           : "Popularne usluge",
     subtitle:
       row2Type === "related_services"
@@ -449,10 +491,10 @@ export function buildBookingDiscoveryGroups(
     type: row3Type,
     title:
       row3Type === "nearby_cities"
-        ? city
+        ? titles?.[2] ?? (city
           ? `U blizini ${city}`
-          : "Termini u blizini"
-        : "Preporučeni saloni",
+          : "Termini u blizini")
+        : titles?.[2] ?? "Preporučeni saloni",
     subtitle:
       row3Type === "nearby_cities"
         ? "Alternativni gradovi sa dostupnim terminima."

@@ -22,6 +22,7 @@ import {
 } from "@/lib/availability/fallbackPolicy";
 
 const isProd = process.env.NODE_ENV === "production";
+const DEBUG_PANEL_MAX_HEIGHT = "calc(100vh - 32px)";
 
 function StatRow({ label, value }: { label: string; value: string | number }) {
   return (
@@ -35,7 +36,11 @@ function StatRow({ label, value }: { label: string; value: string | number }) {
 export default function SearchDebugPanel() {
   const [open, setOpen] = useState(false);
   const { cityName, geoResolved } = useCityContext();
-  const { results, fallbackLevel, isLoading } = useSearchContext();
+  const { results, fallbackLevel, recoveryState, debug, isLoading } = useSearchContext();
+  const recoveryDebug =
+    debug && typeof debug.recoveryDebug === "object" && debug.recoveryDebug !== null
+      ? (debug.recoveryDebug as Record<string, unknown>)
+      : undefined;
 
   // Hide entirely in production — never ship debug UI.
   if (isProd) return null;
@@ -127,9 +132,13 @@ export default function SearchDebugPanel() {
         border: "1px solid rgba(168, 85, 247, 0.35)",
         borderRadius: 8,
         boxShadow: "0 8px 24px rgba(0, 0, 0, 0.4)",
-        maxWidth: 340,
+        width: "min(420px, calc(100vw - 24px))",
+        maxHeight: DEBUG_PANEL_MAX_HEIGHT,
         backdropFilter: "blur(6px)",
         pointerEvents: "auto",
+        display: "flex",
+        flexDirection: "column",
+        overflow: "hidden",
       }}
     >
       <button
@@ -148,6 +157,7 @@ export default function SearchDebugPanel() {
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",
+          flexShrink: 0,
         }}
       >
         <span>[SEARCH DEBUG]</span>
@@ -162,6 +172,10 @@ export default function SearchDebugPanel() {
             display: "flex",
             flexDirection: "column",
             gap: 4,
+            overflowY: "auto",
+            overscrollBehavior: "contain",
+            maxHeight: "calc(100vh - 76px)",
+            minHeight: 0,
           }}
         >
           <StatRow label="city" value={cityName || "—"} />
@@ -188,6 +202,26 @@ export default function SearchDebugPanel() {
           <StatRow label="results.length" value={results.length} />
           <StatRow label="fallback level" value={fallbackLevel} />
           <StatRow label="fallback label" value={ranked.fallback.label} />
+          {recoveryDebug && (
+            <>
+              <div style={{ borderTop: "1px dashed rgba(255,255,255,0.12)", margin: "6px 0" }} />
+              <div style={{ opacity: 0.6 }}>recoveryDebug</div>
+              <StatRow label="requestedCity" value={String(recoveryDebug.requestedCity ?? "—")} />
+              <StatRow label="effectiveCity" value={String(recoveryDebug.effectiveCity ?? "—")} />
+              <StatRow label="scenario" value={String(recoveryDebug.recoveryScenario ?? "—")} />
+              <StatRow label="exact requested" value={Number(recoveryDebug.exactRequestedCityCount ?? 0)} />
+              <StatRow label="related requested" value={Number(recoveryDebug.relatedRequestedCityCount ?? 0)} />
+              <StatRow label="exact other" value={Number(recoveryDebug.exactOtherCityCount ?? 0)} />
+              <StatRow label="related other" value={Number(recoveryDebug.relatedOtherCityCount ?? 0)} />
+              <StatRow label="selected" value={Number(recoveryDebug.selectedSlotsCount ?? 0)} />
+              <StatRow
+                label="city suggestions"
+                value={Array.isArray(recoveryState?.nearbyCitySuggestions)
+                  ? recoveryState.nearbyCitySuggestions.length
+                  : 0}
+              />
+            </>
+          )}
           <StatRow label="strategy" value={ranked.usedStrategy} />
           <StatRow
             label="ranked out / in"

@@ -1,8 +1,7 @@
 /**
  * GET /api/search
  *
- * If category is provided → delegates to platform /marketplace/search.
- * If no category → fetches ALL salons and runs findBestSlots (6-level fallback).
+ * Fetches salon profiles and runs findBestSlots (6-level fallback).
  *
  * City priority for national fallback: user city → nearby → CITY_POPULARITY order.
  * Slot diversity: max 2 slots per salon per city group.
@@ -12,77 +11,24 @@ import { NextResponse } from "next/server";
 import {
   platformClient,
   convertWorkingHours,
-  type PlatformSearchResult,
   type PlatformSalon,
 } from "@/lib/api/platformClient";
 import {
   normalizeSearch,
-  todayInBelgrade,
-  tomorrowInBelgrade,
 } from "@/lib/search/normalizeSearch";
 import { fetchCategories } from "@/lib/search/fetchCategories";
 import { findBestSlots, pickDiverseSlots } from "@/lib/search/findBestSlots";
 import { SERBIAN_CITIES, haversineKm, CITY_POPULARITY } from "@/lib/cities";
 import { stripDiacritics } from "@/lib/intent/parseIntent";
 import { enrichGeoSignals } from "@/lib/search/enrichGeoSignals";
+import { normalizeSearchIntent } from "@/lib/search/normalizeSearchIntent";
 import {
-  getAvailabilityConfidenceScore,
-  getAvailabilityType,
-} from "@/lib/availability/availabilityConfidence";
+  buildSearchSuggestions,
+} from "@/lib/search/buildSearchSuggestions";
+import { normalizeSemanticTerm } from "@/lib/search/serviceSemanticMap";
+import { resolveSearchRecoveryScenario } from "@/lib/search/resolveSearchRecoveryScenario";
 import type { SearchApiResponse, SearchResult } from "@/types/slots";
-
-const MONTHS_SR = [
-  "jan", "feb", "mar", "apr", "maj", "jun",
-  "jul", "avg", "sep", "okt", "nov", "dec",
-];
-const DAYS_SR = ["Ned", "Pon", "Uto", "Sre", "Čet", "Pet", "Sub"];
-
-function formatTimeLabel(iso: string): string {
-  return iso.slice(11, 16);
-}
-
-function formatDateLabel(iso: string, today: string, tomorrow: string): string {
-  const dateStr = iso.slice(0, 10);
-  if (dateStr === today) return "Danas";
-  if (dateStr === tomorrow) return "Sutra";
-  const [y, mo, dd] = dateStr.split("-").map(Number);
-  const d = new Date(y, mo - 1, dd);
-  return `${DAYS_SR[d.getDay()]}, ${dd}. ${MONTHS_SR[d.getMonth()]}`;
-}
-
-function toSearchResult(
-  r: PlatformSearchResult,
-  today: string,
-  tomorrow: string,
-): SearchResult {
-  const startTime = r.slot.startTime;
-  return {
-    salonId: r.salon.id,
-    salonName: r.salon.name,
-    serviceId: r.service?.id ?? null,
-    serviceName: r.service?.name ?? "Slobodan termin",
-    category: r.service?.slug ?? "",
-    startTime,
-    city: r.salon.city,
-    distanceKm: r.distanceKm ?? undefined,
-    price: (r.service?.price ?? 0) > 0 ? (r.service!.price as number) : undefined,
-    salonSlug: r.salon.slug ?? undefined,
-    salonLogo: r.salon.logo ?? undefined,
-    salonLat: r.salon.lat ?? undefined,
-    salonLng: r.salon.lng ?? undefined,
-    serviceDuration: r.service?.duration ?? undefined,
-    endTime: r.slot.endTime,
-    dateLabel: formatDateLabel(startTime, today, tomorrow),
-    timeLabel: formatTimeLabel(startTime),
-    relevanceScore: 1000 - (r.fallbackLevel || 0) * 100,
-    fallbackLevel: r.fallbackLevel || 0,
-    isSynthetic: false,
-    availabilityConfidence: "calendar_verified",
-    availabilityConfidenceScore: getAvailabilityConfidenceScore("calendar_verified"),
-    availabilityType: getAvailabilityType("calendar_verified"),
-    slotOrigins: ["real"],
-  };
-}
+import type { SearchRecoveryState } from "@/types/searchRecovery";
 
 function geoReference(params: {
   lat?: number;
@@ -150,15 +96,116 @@ function groupAndSortByCityPriority(
   });
 }
 
+function sameCityName(a: string | undefined, b: string | undefined): boolean {
+  if (!a || !b) return false;
+  return stripDiacritics(a).toLowerCase() === stripDiacritics(b).toLowerCase();
+}
+
+function slotCategoryMatches(slot: SearchResult, category?: string): boolean {
+  if (!category) return false;
+  return normalizeSemanticTerm(slot.category) === normalizeSemanticTerm(category);
+}
+
+function slotServiceMatches(slot: SearchResult, candidates: string[]): boolean {
+  const service = normalizeSemanticTerm(slot.serviceName);
+  return candidates.some((candidate) => {
+    const normalized = normalizeSemanticTerm(candidate);
+    return normalized.length > 0 && service.includes(normalized);
+  });
+}
+
+function partitionRecoverySlots(params: {
+  slots: SearchResult[];
+  requestedCity: string;
+  intent: ReturnType<typeof normalizeSearchIntent>;
+}): {
+  exactRequestedCitySlots: SearchResult[];
+  relatedRequestedCitySlots: SearchResult[];
+  exactOtherCitySlots: SearchResult[];
+  relatedOtherCitySlots: SearchResult[];
+} {
+  const exactCandidates = [
+    params.intent.originalQuery,
+    ...params.intent.serviceCandidates.filter((term) =>
+      params.intent.normalizedQuery
+        ? normalizeSemanticTerm(term).includes(params.intent.normalizedQuery) ||
+          params.intent.normalizedQuery.includes(normalizeSemanticTerm(term))
+        : false,
+    ),
+  ].filter(Boolean);
+
+  const relatedCandidates = params.intent.serviceCandidates;
+
+  const isExact = (slot: SearchResult) => {
+    if (params.intent.shouldSearchCategoryBucket) {
+      return slotCategoryMatches(slot, params.intent.categoryKey);
+    }
+    return slotServiceMatches(slot, exactCandidates);
+  };
+
+  const isRelated = (slot: SearchResult) => {
+    if (isExact(slot)) return false;
+    if (params.intent.categoryKey && slotCategoryMatches(slot, params.intent.categoryKey)) return true;
+    return slotServiceMatches(slot, relatedCandidates);
+  };
+
+  const exactRequestedCitySlots: SearchResult[] = [];
+  const relatedRequestedCitySlots: SearchResult[] = [];
+  const exactOtherCitySlots: SearchResult[] = [];
+  const relatedOtherCitySlots: SearchResult[] = [];
+
+  for (const slot of params.slots) {
+    const inRequestedCity = sameCityName(slot.city, params.requestedCity);
+    if (isExact(slot)) {
+      if (inRequestedCity) exactRequestedCitySlots.push(slot);
+      else exactOtherCitySlots.push(slot);
+    } else if (isRelated(slot)) {
+      if (inRequestedCity) relatedRequestedCitySlots.push(slot);
+      else relatedOtherCitySlots.push(slot);
+    }
+  }
+
+  if (params.intent.queryType === "empty" || params.intent.queryType === "city_only") {
+    return {
+      exactRequestedCitySlots: params.slots.filter((slot) => sameCityName(slot.city, params.requestedCity)),
+      relatedRequestedCitySlots: [],
+      exactOtherCitySlots: params.slots.filter((slot) => !sameCityName(slot.city, params.requestedCity)),
+      relatedOtherCitySlots: [],
+    };
+  }
+
+  return {
+    exactRequestedCitySlots,
+    relatedRequestedCitySlots,
+    exactOtherCitySlots,
+    relatedOtherCitySlots,
+  };
+}
+
 export async function GET(req: Request): Promise<NextResponse> {
   const { searchParams } = new URL(req.url);
 
   const categories = await fetchCategories();
+  const rawQuery =
+    searchParams.get("query") ??
+    searchParams.get("q") ??
+    searchParams.get("service") ??
+    searchParams.get("subcategory") ??
+    "";
+  const intent = normalizeSearchIntent({
+    rawQuery,
+    city: searchParams.get("city") ?? undefined,
+    category: searchParams.get("category") ?? undefined,
+    service: searchParams.get("service") ?? searchParams.get("subcategory") ?? undefined,
+    routeCategory: searchParams.get("routeCategory") ?? undefined,
+  });
 
   const params = normalizeSearch({
     city: searchParams.get("city") ?? undefined,
-    category: searchParams.get("category") ?? undefined,
-    subcategory: searchParams.get("subcategory") ?? undefined,
+    category: intent.categoryKey ?? searchParams.get("category") ?? undefined,
+    subcategory: intent.shouldSearchCategoryBucket
+      ? undefined
+      : (searchParams.get("subcategory") ?? searchParams.get("service") ?? rawQuery ?? undefined),
     date: searchParams.get("date") ?? undefined,
     time: searchParams.get("time") ?? undefined,
     timeWindowStart: searchParams.get("timeWindowStart") ?? undefined,
@@ -166,6 +213,12 @@ export async function GET(req: Request): Promise<NextResponse> {
     lat: searchParams.get("lat") ?? undefined,
     lng: searchParams.get("lng") ?? undefined,
     limit: searchParams.get("limit") ?? undefined,
+    rawQuery,
+    serviceCandidates: intent.shouldUseSemanticExpansion
+      ? intent.serviceCandidates
+      : intent.normalizedQuery
+        ? [intent.originalQuery]
+        : undefined,
     categories,
   });
 
@@ -175,6 +228,7 @@ export async function GET(req: Request): Promise<NextResponse> {
     city: params.cityDisplay,
     category: params.category ?? null,
     canonicalCategory: params.canonicalCategory ?? null,
+    intent,
     date: params.date,
     time:
       params.timeWindowStart != null
@@ -185,95 +239,8 @@ export async function GET(req: Request): Promise<NextResponse> {
     limit: params.limit,
   });
 
-  const today = todayInBelgrade();
-  const tomorrow = tomorrowInBelgrade();
-
   // ─────────────────────────────────────────────────────────────────
-  // 1. Category provided → use platform /marketplace/search
-  // ─────────────────────────────────────────────────────────────────
-  if (params.category) {
-    let platformResponse;
-    try {
-      platformResponse = await platformClient.searchSlots({
-        category: params.category,
-        city: params.cityDisplay,
-        date: params.date,
-        time:
-          params.requestedHour != null
-            ? `${String(params.requestedHour).padStart(2, "0")}:00`
-            : undefined,
-        lat: params.lat,
-        lng: params.lng,
-        limit: params.limit,
-      });
-    } catch (err) {
-      console.error("[/api/search] platform error:", err);
-      return NextResponse.json(
-        {
-          results: [],
-          slotsByCity: [],
-          bestSlot: null,
-          fallbackLevel: 0,
-          totalSalons: 0,
-          debug: { error: String(err) },
-        } satisfies SearchApiResponse,
-        { status: 502 },
-      );
-    }
-
-    let results: SearchResult[] = platformResponse.results.map((r) =>
-      toSearchResult(r, today, tomorrow),
-    );
-
-    // Client-side subcategory filter (platform /marketplace/search has no subcategory param)
-    if (params.subcategoryNorm && results.length > 0) {
-      const filtered = results.filter((r) =>
-        stripDiacritics(r.serviceName).toLowerCase().includes(params.subcategoryNorm!),
-      );
-      if (filtered.length > 0) results = filtered;
-    }
-
-    const geoRef = geoReference(params);
-    const geoResults = enrichGeoSignals({
-      slots: results,
-      userLat: geoRef.lat,
-      userLng: geoRef.lng,
-    });
-
-    const slotsByCity = groupAndSortByCityPriority(
-      geoResults,
-      params.cityDisplay,
-      params.cityRef,
-    );
-
-    const response: SearchApiResponse = {
-      results: geoResults,
-      slotsByCity,
-      bestSlot: geoResults[0] ?? null,
-      fallbackLevel: platformResponse.fallbackLevel,
-      totalSalons: (platformResponse.debug["salonsFound"] as number) ?? 0,
-      debug: {
-        normalizedCity: params.cityDisplay,
-        normalizedCategory: params.category ?? null,
-        searchDate: params.date,
-        timeWindow:
-          params.timeWindowStart != null
-            ? `${params.timeWindowStart}:00–${params.timeWindowEnd}:00`
-            : null,
-        timezone: "Europe/Belgrade",
-        totalSlotsFound: geoResults.length,
-        fallbackUsed: platformResponse.fallbackLabel,
-        platform: platformResponse.debug,
-      },
-    };
-
-    return NextResponse.json(response, {
-      headers: { "Cache-Control": "no-store" },
-    });
-  }
-
-  // ─────────────────────────────────────────────────────────────────
-  // 2. No category → fetch ALL salons + 6-level fallback engine
+  // Fetch salons + 6-level fallback engine
   // ─────────────────────────────────────────────────────────────────
   let salons: PlatformSalon[] = [];
   try {
@@ -363,20 +330,77 @@ export async function GET(req: Request): Promise<NextResponse> {
     userLat: geoRef.lat,
     userLng: geoRef.lng,
   });
+  const recoveryPartitions = partitionRecoverySlots({
+    slots: geoResults,
+    requestedCity: params.cityDisplay,
+    intent,
+  });
+  const scenario = resolveSearchRecoveryScenario({
+    requestedCity: params.cityDisplay,
+    normalizedIntent: intent,
+    ...recoveryPartitions,
+    userLocation:
+      geoRef.lat != null && geoRef.lng != null
+        ? { lat: geoRef.lat, lng: geoRef.lng }
+        : params.cityRef
+          ? { lat: params.cityRef.lat, lng: params.cityRef.lng }
+          : undefined,
+  });
+  const selectedResults = scenario.selectedSlots;
 
   const slotsByCity = groupAndSortByCityPriority(
-    geoResults,
-    params.cityDisplay,
+    selectedResults,
+    scenario.recoveryState.effectiveCity ?? params.cityDisplay,
     params.cityRef,
   );
+  const recoveryState = scenario.recoveryState;
+  const suggestions = buildSearchSuggestions({
+    query: rawQuery,
+    city: recoveryState.effectiveCity ?? params.cityDisplay,
+    results: selectedResults,
+    discovery: geoResults,
+    recoveryState,
+    intent,
+  });
 
   const response: SearchApiResponse = {
-    results: geoResults,
+    results: selectedResults,
+    discovery: geoResults,
     slotsByCity,
-    bestSlot: geoResults[0] ?? null,
+    suggestions,
+    recoveryState,
+    bestSlot: selectedResults[0] ?? null,
     fallbackLevel,
     totalSalons: salons.length,
     debug: {
+      intent: {
+        queryType: intent.queryType,
+        canonicalCategory: intent.canonicalCategory ?? null,
+        serviceCandidates: intent.serviceCandidates,
+        categoryCandidates: intent.categoryCandidates,
+        categoryBucketUsed: intent.shouldSearchCategoryBucket,
+      },
+      recovery: {
+        exactCityCount: recoveryPartitions.exactRequestedCitySlots.length,
+        semanticCityCount: recoveryPartitions.relatedRequestedCitySlots.length,
+        relatedCityCount: recoveryPartitions.relatedRequestedCitySlots.length,
+        nearbyExactCount: recoveryPartitions.exactOtherCitySlots.length,
+        nearbySemanticCount: recoveryPartitions.relatedOtherCitySlots.length,
+        finalSelectedCount: selectedResults.length,
+        emptyReason: selectedResults.length === 0 ? fallbackLabel : null,
+      },
+      recoveryDebug: {
+        requestedCity: recoveryState.requestedCity,
+        effectiveCity: recoveryState.effectiveCity,
+        recoveryScenario: recoveryState.recoveryScenario,
+        exactRequestedCityCount: recoveryPartitions.exactRequestedCitySlots.length,
+        relatedRequestedCityCount: recoveryPartitions.relatedRequestedCitySlots.length,
+        exactOtherCityCount: recoveryPartitions.exactOtherCitySlots.length,
+        relatedOtherCityCount: recoveryPartitions.relatedOtherCitySlots.length,
+        selectedSlotsCount: selectedResults.length,
+        nearbyCitySuggestions: recoveryState.nearbyCitySuggestions,
+        userMessage: recoveryState.userMessage,
+      },
       normalizedCity: params.cityDisplay,
       normalizedCategory: params.category ?? null,
       searchDate: params.date,

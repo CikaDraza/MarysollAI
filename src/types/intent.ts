@@ -19,8 +19,10 @@ export interface ParsedIntent {
 
 export interface StructuredBookingIntent {
   city?: string;
+  requestedCity?: string;
   service?: string;
   category?: string;
+  queryType?: "empty" | "city_only" | "category" | "service" | "service_and_city" | "unknown";
   dateMode?: "today" | "tomorrow" | "weekend" | "specific_date";
   earliestTime?: string;
   latestTime?: string;

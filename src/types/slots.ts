@@ -2,6 +2,7 @@ import type {
   AvailabilityConfidence,
   AvailabilityType,
 } from "@/lib/availability/availabilityConfidence";
+import type { SearchRecoveryState } from "@/types/searchRecovery";
 
 export interface FlatSlot {
   salonId: string;
@@ -50,6 +51,16 @@ export interface SearchResult extends FlatSlot {
 export interface SearchApiResponse {
   results: SearchResult[];
   slotsByCity: { city: string; slots: SearchResult[] }[];
+  discovery?: SearchResult[];
+  suggestions?: {
+    label: string;
+    query: string;
+    city?: string;
+    category?: string;
+    service?: string;
+    reason: string;
+  }[];
+  recoveryState?: SearchRecoveryState;
   bestSlot: SearchResult | null;
   fallbackLevel: number;
   totalSalons: number;

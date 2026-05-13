@@ -26,6 +26,7 @@ import type { AvailabilityType } from "@/lib/availability/availabilityConfidence
 import { formatDistance } from "@/lib/utils/distance";
 import { resolveSearchFallback } from "@/lib/search/searchFallback";
 import { trackSearchEvent } from "@/lib/search/searchAnalytics";
+import { SERBIAN_CITIES } from "@/lib/cities";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -167,7 +168,7 @@ function formatPrice(
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function QuickAccess() {
-  const { cityName, geoResolved } = useCityContext();
+  const { cityName, setCity, geoResolved } = useCityContext();
   const {
     category,
     subcategoryFilter: subcategory,
@@ -176,7 +177,7 @@ export default function QuickAccess() {
     timeWindowEnd,
     handleCategoryPick,
   } = useFilters();
-  const { results, slotsByCity, fallbackLevel } = useSearchContext();
+  const { results, slotsByCity, fallbackLevel, recoveryState } = useSearchContext();
   const { openModal } = useBookingModal();
   const { data: salons = [], isLoading: loading } = useSalons(cityName);
 
@@ -252,7 +253,12 @@ export default function QuickAccess() {
       : { kind: "implicit_geo" };
 
     const policy = resolveFallbackPolicy("quickaccess", intent);
-    const policyFiltered = applyFallbackPolicy(results, policy);
+    const shouldTrustEffectiveCity =
+      recoveryState?.recoveryScenario === "exact_in_nearest_city" ||
+      recoveryState?.recoveryScenario === "related_in_nearest_city";
+    const policyFiltered = shouldTrustEffectiveCity
+      ? results.filter((slot) => slot.isSynthetic !== true)
+      : applyFallbackPolicy(results, policy);
 
     return policyFiltered
       .filter((r) => !slotTooSoon(r.startTime))
@@ -278,7 +284,7 @@ export default function QuickAccess() {
         mapsLink: r.mapsLink,
         fromFallback: (r.fallbackLevel ?? 0) > 1,
       }));
-  }, [results, category, cityName]);
+  }, [results, category, cityName, recoveryState?.recoveryScenario]);
 
   // Filter slots to the searched category (when active)
   const categoryFilteredSlots = useMemo<QuickSlot[]>(() => {
@@ -418,7 +424,8 @@ export default function QuickAccess() {
     );
   }, [citySalons]);
 
-  const displayCity = cityName || displayedSlots[0]?.city || "";
+  const displayCity =
+    recoveryState?.effectiveCity || cityName || displayedSlots[0]?.city || "";
   const hasSlots = displayedSlots.length > 0;
   const hasData =
     !loading && (citySalons.length > 0 || (slotsByCity?.length ?? 0) > 0);
@@ -476,6 +483,19 @@ export default function QuickAccess() {
         </div>
       ) : hasSlots ? (
         <div style={{ marginBottom: 40 }}>
+          {recoveryState?.userMessage && (
+            <p
+              style={{
+                fontFamily: "var(--main-font)",
+                fontSize: 13,
+                color: "var(--fg-2)",
+                margin: "0 0 12px",
+                textAlign: "left",
+              }}
+            >
+              {recoveryState.userMessage}
+            </p>
+          )}
           <p
             style={{
               fontFamily: "var(--main-font)",
@@ -502,9 +522,47 @@ export default function QuickAccess() {
               />
             ))}
           </div>
+          {recoveryState?.nearbyCitySuggestions &&
+            recoveryState.nearbyCitySuggestions.length > 0 && (
+              <div
+                style={{
+                  display: "flex",
+                  flexWrap: "wrap",
+                  gap: 8,
+                  marginTop: 12,
+                }}
+              >
+                {recoveryState.nearbyCitySuggestions.map((suggestion) => (
+                  <button
+                    key={suggestion.city}
+                    type="button"
+                    onClick={() => {
+                      const city = SERBIAN_CITIES.find(
+                        (item) => item.name === suggestion.city,
+                      );
+                      if (city) setCity(city);
+                    }}
+                    style={{
+                      border: "1px solid var(--border, #e5e7eb)",
+                      background: "var(--surface)",
+                      borderRadius: 999,
+                      padding: "5px 10px",
+                      fontFamily: "var(--main-font)",
+                      fontSize: 12,
+                      fontWeight: 600,
+                      color: "var(--fg-2)",
+                      cursor: "pointer",
+                    }}
+                  >
+                    {suggestion.city} {suggestion.count}{" "}
+                    {suggestion.count === 1 ? "termin" : "termina"}
+                  </button>
+                ))}
+              </div>
+            )}
           {/* Phase 2.5D Task 2 — show fallback hint when results came from a
               relaxed search. resolveSearchFallback produces the wording. */}
-          {fallbackInfo.isExpanded && (
+          {fallbackInfo.isExpanded && !recoveryState?.userMessage && (
             <p
               style={{
                 fontFamily: "var(--main-font)",

@@ -17,6 +17,8 @@ export interface NormalizedSearch {
   category?: CategorySlug;
   canonicalCategory?: string; // "Nokti", "Masaža" — for matching platform DB values
   subcategoryNorm?: string; // diacritics stripped
+  serviceCandidateNorms?: string[]; // deterministic semantic expansion terms
+  rawQuery?: string;
   date: string; // YYYY-MM-DD in Europe/Belgrade
   requestedHour?: number;
   timeWindowStart?: number; // hour (inclusive lower bound, requestedHour - 1)
@@ -155,6 +157,8 @@ export function normalizeSearch(params: {
   lat?: string | number;
   lng?: string | number;
   limit?: string | number;
+  rawQuery?: string;
+  serviceCandidates?: string[];
   categories?: PlatformCategory[];
 }): NormalizedSearch {
   const today = todayInBelgrade();
@@ -197,6 +201,13 @@ export function normalizeSearch(params: {
   const subcategoryNorm = params.subcategory
     ? stripDiacritics(params.subcategory.trim())
     : undefined;
+  const serviceCandidateNorms = [
+    ...new Set(
+      (params.serviceCandidates ?? [])
+        .map((term) => stripDiacritics(term.trim()).toLowerCase())
+        .filter(Boolean),
+    ),
+  ];
 
   const lat =
     params.lat !== undefined && params.lat !== ""
@@ -217,6 +228,8 @@ export function normalizeSearch(params: {
     category: catNorm.slug,
     canonicalCategory: catNorm.canonical,
     subcategoryNorm,
+    serviceCandidateNorms,
+    rawQuery: params.rawQuery,
     date,
     requestedHour,
     timeWindowStart,

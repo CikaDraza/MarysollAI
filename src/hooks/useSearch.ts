@@ -10,6 +10,9 @@ export interface SearchParams {
   city?: string;
   category?: string;
   subcategory?: string;
+  query?: string;
+  service?: string;
+  routeCategory?: string;
   date?: string;
   time?: string;
   timeWindowStart?: number;
@@ -30,6 +33,9 @@ async function fetchSearch(params: SearchParams): Promise<SearchApiResponse> {
   if (params.city) qs.set("city", params.city);
   if (params.category) qs.set("category", params.category);
   if (params.subcategory) qs.set("subcategory", params.subcategory);
+  if (params.query) qs.set("query", params.query);
+  if (params.service) qs.set("service", params.service);
+  if (params.routeCategory) qs.set("routeCategory", params.routeCategory);
   if (params.date) qs.set("date", params.date);
   if (params.time) qs.set("time", params.time);
   if (params.timeWindowStart != null)
@@ -109,10 +115,13 @@ export function useSearch(params: SearchParams = {}) {
 
   return {
     results: data?.results ?? [],
+    discovery: data?.discovery ?? [],
     slotsByCity: (data?.slotsByCity ?? []) as CitySlots[],
     bestSlot: data?.bestSlot ?? null,
     fallbackLevel,
     totalSalons: data?.totalSalons ?? 0,
+    suggestions: data?.suggestions ?? [],
+    recoveryState: data?.recoveryState,
     debug: data?.debug,
     isLoading: query.isLoading,
     isFetching: query.isFetching,

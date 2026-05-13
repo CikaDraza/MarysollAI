@@ -97,12 +97,17 @@ function matchesSubcategory(
   salon: PlatformSalon,
   subNorm: string,
   serviceId: string | null,
+  serviceCandidateNorms: string[] = [],
 ): boolean {
+  const candidates = [...new Set([subNorm, ...serviceCandidateNorms].filter(Boolean))];
   if (serviceId != null) {
-    return stripDiacritics(serviceName).includes(subNorm);
+    const normalizedServiceName = stripDiacritics(serviceName).toLowerCase();
+    return candidates.some((candidate) => normalizedServiceName.includes(candidate));
   }
   return (salon.services ?? []).some((sv) =>
-    stripDiacritics(sv.name).includes(subNorm),
+    candidates.some((candidate) =>
+      stripDiacritics(sv.name).toLowerCase().includes(candidate),
+    ),
   );
 }
 
@@ -124,6 +129,13 @@ function computeRelevance(
     if (diff === 0) score += 100;
     else if (diff <= 1) score += 60;
     else score -= diff * 10;
+  }
+
+  if (params.subcategoryNorm) {
+    const serviceName = stripDiacritics(_svc?.name ?? "").toLowerCase();
+    if (serviceName.includes(params.subcategoryNorm.toLowerCase())) {
+      score += 350;
+    }
   }
 
   if (distanceKm !== undefined) score -= Math.min(distanceKm * 2, 200);
@@ -639,13 +651,14 @@ function filterCandidates(
     }
 
     // Subcategory filter
-    if (params.subcategoryNorm) {
+    if (params.subcategoryNorm || (params.serviceCandidateNorms?.length ?? 0) > 0) {
       if (
         !matchesSubcategory(
           c.serviceName,
           c.salon,
-          params.subcategoryNorm,
+          params.subcategoryNorm ?? "",
           c.serviceId,
+          params.serviceCandidateNorms,
         )
       ) {
         return false;

@@ -12,6 +12,7 @@ import { trackSearchEvent } from "@/lib/search/searchAnalytics";
 
 interface FiltersContextValue {
   category: string;
+  initialCategory: string;
   setCategory: (v: string) => void;
   dateFilter: string | undefined;
   setDateFilter: (v: string | undefined) => void;
@@ -23,6 +24,15 @@ interface FiltersContextValue {
   setTimeWindowEnd: (v: number | undefined) => void;
   subcategoryFilter: string | undefined;
   setSubcategoryFilter: (v: string | undefined) => void;
+  searchQuery: string;
+  setSearchQuery: (v: string) => void;
+  resetSearchFilters: () => void;
+  applySearchSuggestion: (suggestion: {
+    query: string;
+    city?: string;
+    category?: string;
+    service?: string;
+  }) => void;
   handleCategoryPick: (slug: string, cityName: string) => void;
 }
 
@@ -42,6 +52,30 @@ export function FiltersProvider({
   const [timeWindowStart, setTimeWindowStart] = useState<number | undefined>(undefined);
   const [timeWindowEnd, setTimeWindowEnd] = useState<number | undefined>(undefined);
   const [subcategoryFilter, setSubcategoryFilter] = useState<string | undefined>(undefined);
+  const [searchQuery, setSearchQuery] = useState("");
+
+  const resetSearchFilters = useCallback(() => {
+    setSearchQuery("");
+    setSubcategoryFilter(undefined);
+    setDateFilter(undefined);
+    setTimeFilter(undefined);
+    setTimeWindowStart(undefined);
+    setTimeWindowEnd(undefined);
+    setCategory(initialCategory ?? "");
+  }, [initialCategory]);
+
+  const applySearchSuggestion = useCallback(
+    (suggestion: { query: string; city?: string; category?: string; service?: string }) => {
+      setSearchQuery(suggestion.query);
+      setCategory(suggestion.category ?? "");
+      setSubcategoryFilter(suggestion.service);
+      setDateFilter(undefined);
+      setTimeFilter(undefined);
+      setTimeWindowStart(undefined);
+      setTimeWindowEnd(undefined);
+    },
+    [],
+  );
 
   const handleCategoryPick = useCallback(
     (slug: string, cityName: string) => {
@@ -56,6 +90,8 @@ export function FiltersProvider({
         });
       }
       setCategory(next);
+      setSearchQuery("");
+      setSubcategoryFilter(undefined);
       if (cityName && next) {
         router.push(`/${encodeURIComponent(cityName.toLowerCase())}/${next}`, {
           scroll: false,
@@ -69,6 +105,7 @@ export function FiltersProvider({
     <FiltersContext.Provider
       value={{
         category,
+        initialCategory: initialCategory ?? "",
         setCategory,
         dateFilter,
         setDateFilter,
@@ -80,6 +117,10 @@ export function FiltersProvider({
         setTimeWindowEnd,
         subcategoryFilter,
         setSubcategoryFilter,
+        searchQuery,
+        setSearchQuery,
+        resetSearchFilters,
+        applySearchSuggestion,
         handleCategoryPick,
       }}
     >
