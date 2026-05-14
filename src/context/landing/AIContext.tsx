@@ -44,11 +44,29 @@ function deriveLegacyAgent(
   return "claudia-booking";
 }
 
+function isAuthIntentText(text: string): boolean {
+  return /\b(login|prijavi|prijavim|uloguj|registruj|registracija|nalog|lozink)\b/i.test(
+    text,
+  );
+}
+
 interface AIContextValue {
   unifiedThread: ThreadItem[];
   sendMessage: (q: string) => void;
+  invokeClaudia: (
+    q: string,
+    options?: {
+      context?: ThreadItem[];
+      preserveHistory?: boolean;
+      explicitAuth?: {
+        isAuthenticated: boolean;
+        userName: string;
+      };
+      handoffPayload?: Record<string, unknown>;
+    },
+  ) => Promise<void>;
   /** Routes directly to Claudia — use for block interaction callbacks. */
-  sendToOrchestrator: (q: string) => void;
+  sendToOrchestrator: (q: string, handoffPayload?: Record<string, unknown>) => void;
   clearChat: () => void;
   streamingText: string | undefined;
   isStreaming: boolean;
@@ -58,6 +76,7 @@ interface AIContextValue {
 }
 
 const AIContext = createContext<AIContextValue | null>(null);
+const INACTIVITY_TIMEOUT_MS = 60 * 60 * 1000;
 
 export function AIProvider({ children }: { children: ReactNode }) {
   const maria = useChatSeek();
@@ -120,27 +139,61 @@ export function AIProvider({ children }: { children: ReactNode }) {
     return all.map(({ _ts, ...rest }) => rest as ThreadItem);
   }, [maria.messages, claudia.thread]);
 
+  const lastInteractionAt = useMemo(() => {
+    for (let i = unifiedThread.length - 1; i >= 0; i--) {
+      const item = unifiedThread[i];
+      if (item.type === "message") return item.data.timestamp;
+    }
+    return 0;
+  }, [unifiedThread]);
+
+  const latestBlockType = useMemo(() => {
+    for (let i = unifiedThread.length - 1; i >= 0; i--) {
+      const item = unifiedThread[i];
+      if (item.type === "block") return item.data.type;
+    }
+    return null;
+  }, [unifiedThread]);
+
   const sendMessage = useCallback(
     (q: string) => {
+      if (
+        lastInteractionAt > 0 &&
+        Date.now() - lastInteractionAt > INACTIVITY_TIMEOUT_MS
+      ) {
+        maria.clearChat();
+        claudia.clearChat();
+        blockOrchestrator.clear();
+        resetAgentState();
+        activeAgentRef.current = "maria";
+      }
+
       // When Claudia is active, route directly to Claudia — never re-invoke Maria
       if (activeAgentRef.current === "maria") {
         void maria.sendMessage(q);
       } else {
+        if (latestBlockType === "AuthBlock" && isAuthIntentText(q)) {
+          blockOrchestrator.focusBlock("AuthBlock");
+          return;
+        }
         void claudia.askAI(q);
       }
     },
-    [maria, claudia],
+    [maria, claudia, lastInteractionAt, latestBlockType],
   );
 
   // Block interactions always go straight to Claudia with isBlockInteraction flag.
   // We flip the store directly (no orchestrator handoff needed — there's no
   // Maria response to sequence against here).
   const sendToOrchestrator = useCallback(
-    (q: string) => {
+    (q: string, handoffPayload?: Record<string, unknown>) => {
       if (activeAgentRef.current === "maria") {
         setActiveAgentInStore("claudia", "booking");
       }
-      void claudia.askAI(q, { isBlockInteraction: true });
+      void claudia.askAI(q, {
+        isBlockInteraction: !handoffPayload,
+        handoffPayload,
+      });
     },
     [claudia, setActiveAgentInStore],
   );
@@ -161,6 +214,7 @@ export function AIProvider({ children }: { children: ReactNode }) {
       value={{
         unifiedThread,
         sendMessage,
+        invokeClaudia: claudia.askAI,
         sendToOrchestrator,
         clearChat,
         streamingText: claudia.streamingText ?? undefined,

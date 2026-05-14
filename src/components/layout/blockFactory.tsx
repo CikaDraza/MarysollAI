@@ -20,7 +20,7 @@ import LandingConfirmBlock from "../blocks/LandingConfirmBlock";
 
 export function blockFactory(
   block: BaseBlock,
-  onMessageAction?: (m: string) => void,
+  onMessageAction?: (m: string, payload?: Record<string, unknown>) => void,
   isLanding?: boolean,
 ) {
   const safeOnAction =

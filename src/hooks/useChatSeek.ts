@@ -16,7 +16,12 @@ import {
 } from "@/types/ai/deepseek";
 import { UsageStats } from "@/types/ai/deepseek/usage";
 import type { SearchResult } from "@/types/slots";
-import type { AiBookingState } from "@/types/aiBooking";
+import type {
+  AiBookingContact,
+  AiBookingState,
+} from "@/types/aiBooking";
+import type { StructuredBookingIntent } from "@/types/intent";
+import type { SearchRecoveryState } from "@/types/searchRecovery";
 
 interface UseChatWithAIOptions {
   sessionId?: string;
@@ -53,6 +58,7 @@ interface UseChatWithAIReturn {
 
 const CHAT_SESSIONS_KEY = "chat_sessions";
 const MAX_SESSIONS = 10;
+const INACTIVITY_TIMEOUT_MS = 60 * 60 * 1000;
 
 export function useChatSeek(
   options: UseChatWithAIOptions = {},
@@ -68,6 +74,10 @@ export function useChatSeek(
   const lastOfferedSlotsRef = useRef<SearchResult[]>([]);
   const selectedSlotRef = useRef<SearchResult | undefined>(undefined);
   const aiBookingStateRef = useRef<AiBookingState | undefined>(undefined);
+  const lastIntentRef = useRef<StructuredBookingIntent | undefined>(undefined);
+  const lastRecoveryStateRef = useRef<SearchRecoveryState | undefined>(undefined);
+  const pendingContactRef = useRef<AiBookingContact | undefined>(undefined);
+  const lastActivityAtRef = useRef<number>(Date.now());
   const queryClient = useQueryClient();
 
   const currentSession = currentSessionId
@@ -138,6 +148,15 @@ export function useChatSeek(
     return newSession;
   }, []);
 
+  const resetBookingContext = useCallback(() => {
+    lastOfferedSlotsRef.current = [];
+    selectedSlotRef.current = undefined;
+    aiBookingStateRef.current = undefined;
+    lastIntentRef.current = undefined;
+    lastRecoveryStateRef.current = undefined;
+    pendingContactRef.current = undefined;
+  }, []);
+
   const updateSession = useCallback(
     (sessionId: string, updates: Partial<ChatSession>): void => {
       setSessions((prev: ChatSession[]) =>
@@ -177,10 +196,17 @@ export function useChatSeek(
       abortControllerRef.current = controller;
 
       try {
+        const now = Date.now();
+        const sessionIsStale =
+          !!currentSession &&
+          now - currentSession.updatedAt.getTime() > INACTIVITY_TIMEOUT_MS;
+
         let session = currentSession;
-        if (!session) {
+        if (!session || sessionIsStale) {
+          resetBookingContext();
           session = createNewSession();
         }
+        lastActivityAtRef.current = now;
 
         const userMessage: Message = {
           id: crypto.randomUUID(),
@@ -206,6 +232,9 @@ export function useChatSeek(
             lastOfferedSlots: lastOfferedSlotsRef.current,
             selectedSlot: selectedSlotRef.current,
             aiBookingState: aiBookingStateRef.current,
+            lastIntent: lastIntentRef.current,
+            lastRecoveryState: lastRecoveryStateRef.current,
+            pendingContact: pendingContactRef.current,
           }),
           signal: controller.signal,
         });
@@ -224,6 +253,15 @@ export function useChatSeek(
         }
         if (data.aiBookingState) {
           aiBookingStateRef.current = data.aiBookingState as AiBookingState;
+        }
+        if (data.intent) {
+          lastIntentRef.current = data.intent as StructuredBookingIntent;
+        }
+        if (data.recoveryState) {
+          lastRecoveryStateRef.current = data.recoveryState as SearchRecoveryState;
+        }
+        if (data.pendingContact) {
+          pendingContactRef.current = data.pendingContact as AiBookingContact;
         }
         const rawContent: string = data.choices?.[0]?.message?.content ?? "{}";
 
@@ -255,7 +293,7 @@ export function useChatSeek(
                 originalMessage: replyText,
                 userIntent: mariaResponse.targetAgent,
                 timestamp: Date.now(),
-                payload: (mariaResponse.payload ?? {}) as Record<string, string>,
+                payload: (mariaResponse.payload ?? {}) as Record<string, unknown>,
               }
             : null;
 
@@ -326,6 +364,10 @@ export function useChatSeek(
     lastOfferedSlotsRef.current = [];
     selectedSlotRef.current = undefined;
     aiBookingStateRef.current = undefined;
+    lastIntentRef.current = undefined;
+    lastRecoveryStateRef.current = undefined;
+    pendingContactRef.current = undefined;
+    lastActivityAtRef.current = Date.now();
     setUsage(null);
   }, [currentSession, updateSession]);
 
@@ -352,6 +394,10 @@ export function useChatSeek(
     lastOfferedSlotsRef.current = [];
     selectedSlotRef.current = undefined;
     aiBookingStateRef.current = undefined;
+    lastIntentRef.current = undefined;
+    lastRecoveryStateRef.current = undefined;
+    pendingContactRef.current = undefined;
+    lastActivityAtRef.current = Date.now();
     setUsage(null);
   }, [createNewSession]);
 

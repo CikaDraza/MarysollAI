@@ -16,6 +16,43 @@ function loadProfileSupplement(): { phone?: string; instagram?: string } {
   }
 }
 
+function findStringByKeys(value: unknown, keys: string[]): string | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const record = value as Record<string, unknown>;
+  for (const key of keys) {
+    const direct = record[key];
+    if (typeof direct === "string" && direct.trim()) return direct.trim();
+  }
+  for (const nested of Object.values(record)) {
+    if (nested && typeof nested === "object") {
+      const found = findStringByKeys(nested, keys);
+      if (found) return found;
+    }
+  }
+  return undefined;
+}
+
+function normalizeProfileContact(user: unknown): { phone?: string; instagram?: string } {
+  const phone = findStringByKeys(user, [
+    "phone",
+    "phoneNumber",
+    "mobile",
+    "mobilePhone",
+    "telephone",
+    "contactPhone",
+  ]);
+  const instagram = findStringByKeys(user, [
+    "instagram",
+    "instagramUsername",
+    "instagramHandle",
+    "contactInstagram",
+  ]);
+  return {
+    ...(phone ? { phone } : {}),
+    ...(instagram ? { instagram } : {}),
+  };
+}
+
 export function useAuthActions() {
   const queryClient = useQueryClient();
 
@@ -46,10 +83,7 @@ export function useAuthActions() {
     },
     onSuccess: (data) => {
       localStorage.setItem("assistant_token", data.token);
-      const supplement: { phone?: string; instagram?: string } = {};
-      const rawUser = data.user as AuthUser & { phone?: string; instagram?: string };
-      if (rawUser.phone) supplement.phone = rawUser.phone;
-      if (rawUser.instagram) supplement.instagram = rawUser.instagram;
+      const supplement = normalizeProfileContact(data.user);
       localStorage.setItem(PROFILE_KEY, JSON.stringify(supplement));
       const decoded = getUserFromToken(data.token);
       queryClient.setQueryData(["authUser"], decoded ? { ...decoded, ...supplement } : null);
@@ -71,7 +105,10 @@ export function useAuthActions() {
     },
     onSuccess: (data) => {
       localStorage.setItem("assistant_token", data.token);
-      queryClient.setQueryData(["authUser"], getUserFromToken(data.token));
+      const supplement = normalizeProfileContact(data.user);
+      localStorage.setItem(PROFILE_KEY, JSON.stringify(supplement));
+      const decoded = getUserFromToken(data.token);
+      queryClient.setQueryData(["authUser"], decoded ? { ...decoded, ...supplement } : null);
       toast.success("Uspešno ste se registrovali!");
     },
     onError: (error: AxiosError<{ error: string }>) => {

@@ -28,6 +28,7 @@ export async function POST(req: Request) {
       userName,
       isBlockInteraction,
       bookingMemory,
+      handoffPayload,
     } = body as {
       message: string;
       isAuthenticated: boolean;
@@ -35,6 +36,7 @@ export async function POST(req: Request) {
       userName: string;
       isBlockInteraction?: boolean;
       bookingMemory?: CollectedBookingFields;
+      handoffPayload?: Record<string, unknown>;
     };
 
     const stream = await askAgent(
@@ -44,6 +46,7 @@ export async function POST(req: Request) {
       userName,
       isBlockInteraction ?? false,
       bookingMemory,
+      handoffPayload,
     );
 
     // Vraćamo stream sa specijalnim headerima

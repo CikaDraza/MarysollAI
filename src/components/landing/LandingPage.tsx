@@ -26,11 +26,12 @@ import {
   SearchProvider,
   useSearchContext,
 } from "@/context/landing/SearchContext";
-import { AIProvider } from "@/context/landing/AIContext";
+import { AIProvider, useAIContext } from "@/context/landing/AIContext";
 import {
   WorkspaceProvider,
   useWorkspace,
 } from "@/context/landing/WorkspaceContext";
+import { AgentBridge } from "@/components/chat-bus/AgentBridge";
 
 const SIDEBAR_W = 500;
 
@@ -50,9 +51,11 @@ export default function LandingPage({
           <SearchProvider>
             <BookingModalProvider>
               <AIProvider>
-                <WorkspaceProvider>
-                  <LandingPageContent />
-                </WorkspaceProvider>
+                <LandingAgentBridge>
+                  <WorkspaceProvider>
+                    <LandingPageContent />
+                  </WorkspaceProvider>
+                </LandingAgentBridge>
               </AIProvider>
             </BookingModalProvider>
           </SearchProvider>
@@ -60,6 +63,11 @@ export default function LandingPage({
       </CityProvider>
     </LandingUIProvider>
   );
+}
+
+function LandingAgentBridge({ children }: { children: React.ReactNode }) {
+  const { invokeClaudia } = useAIContext();
+  return <AgentBridge claudiaAskAI={invokeClaudia}>{children}</AgentBridge>;
 }
 
 function LandingPageContent() {

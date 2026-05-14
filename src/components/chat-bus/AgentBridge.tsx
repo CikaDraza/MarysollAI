@@ -24,6 +24,18 @@ import type { MariaTargetAgent } from "@/lib/ai/schemas/maria.schema";
 
 interface AgentBridgeProps {
   children: ReactNode;
+  claudiaAskAI?: (
+    query: string,
+    options?: {
+      context?: ThreadItem[];
+      preserveHistory?: boolean;
+      explicitAuth?: {
+        isAuthenticated: boolean;
+        userName: string;
+      };
+      handoffPayload?: Record<string, unknown>;
+    },
+  ) => Promise<void>;
 }
 
 const convertDeepSeekHistoryToThreadItems = (
@@ -63,9 +75,10 @@ const getAgentTypeName = (type: AgentType | string): string => {
   return names[type as AgentType] || type;
 };
 
-export function AgentBridge({ children }: AgentBridgeProps) {
+export function AgentBridge({ children, claudiaAskAI }: AgentBridgeProps) {
   const { user } = useAuthActions();
-  const { askAI } = useAIQuery(user);
+  const { askAI: fallbackAskAI } = useAIQuery(user);
+  const askAI = claudiaAskAI ?? fallbackAskAI;
   // Re-entrancy guard separate from orchestrator's `isTransitioning` — we
   // also want to drop a duplicate "CALL_AGENT" arriving on the same tick.
   const isProcessingRef = useRef(false);
@@ -117,11 +130,12 @@ export function AgentBridge({ children }: AgentBridgeProps) {
           },
           {
             userMessage: originalUserQuery,
-            invokeClaudia: async () => {
+            invokeClaudia: async (_input, payload) => {
               await askAI(originalUserQuery, {
                 context: convertedHistory,
                 preserveHistory: true,
                 explicitAuth: authRef.current,
+                handoffPayload: payload,
               });
             },
           },

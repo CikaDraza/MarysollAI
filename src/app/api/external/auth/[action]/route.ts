@@ -21,6 +21,40 @@ function signedHeaders(body: string): Record<string, string> {
   };
 }
 
+async function fetchCurrentUserProfile(token: string): Promise<Record<string, unknown> | null> {
+  const candidates = [
+    "/marketplace/auth/me",
+    "/auth/me",
+    "/users/me",
+    "/profile",
+    "/me",
+  ];
+
+  for (const path of candidates) {
+    try {
+      const res = await fetch(`${MAIN_SITE_API}${path}`, {
+        method: "GET",
+        headers: platformHeaders({ Authorization: `Bearer ${token}` }),
+        signal: AbortSignal.timeout(2500),
+      });
+      const contentType = res.headers.get("content-type") ?? "";
+      if (!res.ok || !contentType.includes("application/json")) continue;
+      const data = (await res.json()) as Record<string, unknown>;
+      const profile =
+        (data.user as Record<string, unknown> | undefined) ??
+        (data.profile as Record<string, unknown> | undefined) ??
+        (data.client as Record<string, unknown> | undefined) ??
+        data;
+      if (profile && typeof profile === "object") return profile;
+    } catch {
+      // Optional profile enrichment only. Login must not fail if this endpoint
+      // does not exist on the main app.
+    }
+  }
+
+  return null;
+}
+
 export async function POST(
   req: Request,
   context: { params: Promise<{ action: string }> },
@@ -63,9 +97,20 @@ export async function POST(
       return NextResponse.json(data, { status: res.status });
     }
 
+    const token = (data as { token?: string }).token;
+    if (token && (data as { user?: unknown }).user) {
+      const profile = await fetchCurrentUserProfile(token);
+      if (profile) {
+        (data as { user: Record<string, unknown> }).user = {
+          ...((data as { user: Record<string, unknown> }).user ?? {}),
+          ...profile,
+        };
+      }
+    }
+
     const response = NextResponse.json(data);
 
-    response.cookies.set("token", (data as { token?: string }).token ?? "", {
+    response.cookies.set("token", token ?? "", {
       httpOnly: true,
       sameSite: "strict",
       secure: true,

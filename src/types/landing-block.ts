@@ -1,4 +1,5 @@
 // src/types/landing-block.ts
+import type { SearchResult } from "@/types/slots";
 
 export type BlockTypes =
   | "AuthBlock"
@@ -33,6 +34,7 @@ export interface BaseBlock {
     mode?: AuthMode | CalendarMode;
     service?: string;
     city?: string;
+    selectedSlot?: SearchResult;
   };
   query?: string;
 }
@@ -76,6 +78,7 @@ export interface AuthBlockType extends BaseBlock {
   type: "AuthBlock";
   metadata: BaseBlock["metadata"] & {
     mode?: AuthMode;
+    selectedSlot?: SearchResult;
   };
   defaultEmail: string;
 }

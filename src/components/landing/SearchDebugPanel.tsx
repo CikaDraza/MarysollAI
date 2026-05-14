@@ -124,7 +124,7 @@ export default function SearchDebugPanel() {
         position: "fixed",
         bottom: 12,
         right: 12,
-        zIndex: 9999,
+        zIndex: 50,
         fontFamily: "monospace",
         fontSize: 11,
         background: "rgba(15, 15, 20, 0.92)",

@@ -150,6 +150,7 @@ export default function AIWorkspace() {
                 onMessageAction={sendMessage}
                 onBlockAction={sendToOrchestrator}
                 isLanding
+                disableGlobalDedupe
               />
             </div>
           </motion.div>

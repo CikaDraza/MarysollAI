@@ -8,6 +8,10 @@ export interface AuthUser {
   isOnline?: boolean;
   phone?: string;
   instagram?: string;
+  phoneNumber?: string;
+  mobile?: string;
+  mobilePhone?: string;
+  instagramUsername?: string;
 }
 
 export interface LoginResponse {

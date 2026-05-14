@@ -54,10 +54,10 @@ const INITIAL: Message[] = [
 
 const CHIPS = [
   { label: "Najbliži salon", value: "Koji je meni najbliži salon?" },
-  { label: "Moji termini", value: "Šta sam zakazala?" },
-  { label: "Cenovnik", value: "Mogu da pogle dam cenovnik?" },
-  { label: "Otkaži termin", value: "Otkaži termin sutra" },
-  { label: "Kako zakazati termin", value: "Kako da zakažem termin?" },
+  { label: "Moji termini", value: "Mogu li da vidim moje termine?" },
+  { label: "Cenovnik", value: "Mogu li da vidim cenovnik?" },
+  { label: "Otkaži termin", value: "Želim da otkažem postojeći termin." },
+  { label: "Kako zakazati termin", value: "Kako mogu da zakažem termin?" },
 ];
 
 export default function AIDrawer() {

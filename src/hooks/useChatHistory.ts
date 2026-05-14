@@ -5,6 +5,15 @@ import { useParams } from "next/navigation";
 
 const STORAGE_KEY = process.env.NEXT_PUBLIC_STORAGE_KEY || "marysoll_chat_v2";
 const MAX_ITEMS = Number(process.env.NEXT_PUBLIC_MAX_ITEMS) || 10;
+const INACTIVITY_TIMEOUT_MS = 60 * 60 * 1000;
+
+function latestThreadTimestamp(items: ThreadItem[]): number {
+  for (let i = items.length - 1; i >= 0; i--) {
+    const item = items[i];
+    if (item.type === "message") return item.data.timestamp;
+  }
+  return 0;
+}
 
 const getInitialThread = (): ThreadItem[] => {
   if (typeof window === "undefined") return [];
@@ -19,6 +28,11 @@ const getInitialThread = (): ThreadItem[] => {
   if (saved) {
     try {
       const parsed = JSON.parse(saved);
+      const lastTs = Array.isArray(parsed) ? latestThreadTimestamp(parsed) : 0;
+      if (lastTs > 0 && Date.now() - lastTs > INACTIVITY_TIMEOUT_MS) {
+        localStorage.removeItem(storageKey);
+        return [];
+      }
       return parsed;
     } catch (e) {
       console.error("Greška pri parsiranju istorije:", e);

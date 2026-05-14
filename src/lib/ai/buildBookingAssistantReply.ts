@@ -10,7 +10,16 @@ export interface BookingAssistantReply {
     intent: StructuredBookingIntent;
   }>;
   slots?: SearchResult[];
-  replyMode: string;
+  replyMode:
+    | "initial_search"
+    | "refinement_search"
+    | "accepted_effective_city"
+    | "slot_selected"
+    | "awaiting_contact"
+    | "ready_to_book"
+    | "handoff_to_booking"
+    | "booking_created"
+    | "booking_failed";
 }
 
 function formatSlot(slot: SearchResult, index: number): string {
@@ -25,6 +34,7 @@ function serviceLabel(intent: StructuredBookingIntent): string {
 export function buildBookingAssistantReply(input: {
   intent: StructuredBookingIntent;
   searchResult: BookingSearchResult;
+  acceptedEffectiveCity?: boolean;
 }): BookingAssistantReply {
   const { intent, searchResult } = input;
   const recoveryState = searchResult.recoveryState as SearchRecoveryState | undefined;
@@ -39,7 +49,7 @@ export function buildBookingAssistantReply(input: {
       return {
         text: `Da, imamo ${service} u ${effectiveCity}.${slotText}`,
         slots,
-        replyMode: "exact_requested_city",
+        replyMode: input.acceptedEffectiveCity ? "accepted_effective_city" : "initial_search",
       };
     case "exact_in_nearest_city":
       return {
@@ -48,13 +58,13 @@ export function buildBookingAssistantReply(input: {
         suggestedActions: effectiveCity
           ? [{ label: `Prikaži termine u ${effectiveCity}`, intent: { ...intent, requestedCity: effectiveCity, city: effectiveCity } }]
           : undefined,
-        replyMode: "exact_nearest_city",
+        replyMode: "initial_search",
       };
     case "related_in_requested_city":
       return {
         text: `${recoveryState.userMessage ?? `Nemamo ${service} u ${requestedCity}, ali imamo slične usluge.`}${slotText}`,
         slots,
-        replyMode: "related_requested_city",
+        replyMode: "refinement_search",
       };
     case "related_in_nearest_city":
       return {
@@ -63,13 +73,13 @@ export function buildBookingAssistantReply(input: {
         suggestedActions: effectiveCity
           ? [{ label: `Prikaži slične termine u ${effectiveCity}`, intent: { ...intent, requestedCity: effectiveCity, city: effectiveCity } }]
           : undefined,
-        replyMode: "related_nearest_city",
+        replyMode: "refinement_search",
       };
     default:
       return {
         text: "Trenutno ne nalazim slobodne termine za tu uslugu. Mogu da proverim slične usluge ili drugi grad.",
         slots,
-        replyMode: "empty",
+        replyMode: "refinement_search",
       };
   }
 }

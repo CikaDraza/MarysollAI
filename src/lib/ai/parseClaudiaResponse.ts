@@ -27,7 +27,8 @@ export interface ClaudiaResponse {
 const SAFE_FALLBACK: ClaudiaResponse = {
   messages: [
     {
-      content: "Izvini, dogodila se greška. Pokušaj ponovo.",
+      content:
+        "Izvini, dogodila se greška. Hajde da krenemo ponovo: napiši koju uslugu želiš, u kom gradu i u koje vreme.",
       role: "assistant",
     } as TextMessage,
   ],

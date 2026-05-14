@@ -1,0 +1,370 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { POST } from "@/app/api/ai/deepseek-conversation/route";
+import { askAgent } from "@/services/askAgent";
+import { detectContactInfo } from "@/lib/ai/detectContactInfo";
+import { mergeIntentWithConversationContext } from "@/lib/ai/mergeIntentWithConversationContext";
+import { parseClaudiaResponse } from "@/lib/ai/parseClaudiaResponse";
+import { buildBookingAssistantReply } from "@/lib/ai/buildBookingAssistantReply";
+import type { SearchRecoveryState } from "@/types/searchRecovery";
+import type { SearchResult } from "@/types/slots";
+
+const selectedSlot: SearchResult = {
+  salonId: "salon-1",
+  salonName: "Shi Sham Frizerski Salon",
+  serviceId: "service-1",
+  serviceName: "Feniranje BLOWOUT/WAVES",
+  category: "hair",
+  startTime: "2026-05-14T14:45:00.000Z",
+  city: "Novi Sad",
+  price: 1500,
+  dateLabel: "Danas",
+  timeLabel: "14:45",
+  relevanceScore: 100,
+  fallbackLevel: 1,
+};
+
+async function postMaria(body: Record<string, unknown>) {
+  const response = await POST(
+    new Request("http://localhost/api/ai/deepseek-conversation", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  );
+  return response.json();
+}
+
+async function readStream(stream: ReadableStream<Uint8Array>): Promise<string> {
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  let full = "";
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) return full;
+    full += decoder.decode(value, { stream: true });
+  }
+}
+
+describe("AI workflow stabilization", () => {
+  it("detects contact from Serbian name and mobile number", () => {
+    expect(detectContactInfo({ userMessage: "Milica, 062201787" })).toEqual({
+      hasContactInfo: true,
+      name: "Milica",
+      phone: "062201787",
+      email: undefined,
+    });
+  });
+
+  it("keeps selected slot and moves confirmation to collecting_contact", async () => {
+    const data = await postMaria({
+      messages: [{ role: "user", content: "Da potvrđujem termin." }],
+      selectedSlot,
+      aiBookingState: "awaiting_confirmation",
+      lastOfferedSlots: [selectedSlot],
+    });
+
+    expect(data.aiBookingState).toBe("collecting_contact");
+    expect(data.selectedSlot).toMatchObject({
+      serviceName: selectedSlot.serviceName,
+      timeLabel: selectedSlot.timeLabel,
+    });
+    expect(data.aiDebug.replyMode).toBe("awaiting_contact");
+  });
+
+  it("returns booking handoff when selected slot receives contact info", async () => {
+    const data = await postMaria({
+      messages: [{ role: "user", content: "Milica, 062201787" }],
+      selectedSlot,
+      aiBookingState: "collecting_contact",
+      lastOfferedSlots: [selectedSlot],
+    });
+    const maria = JSON.parse(data.choices[0].message.content);
+
+    expect(data.aiBookingState).toBe("ready_to_book");
+    expect(data.aiDebug.skippedSearchReason).toBe("contact_for_selected_slot");
+    expect(data.aiDebug.replyMode).toBe("handoff_to_booking");
+    expect(maria.type).toBe("handoff");
+    expect(maria.targetAgent).toBe("booking");
+    expect(maria.payload).toMatchObject({
+      intent: "create_booking",
+      aiBookingState: "ready_to_book",
+      contact: { name: "Milica", phone: "062201787" },
+      selectedSlot: { serviceName: selectedSlot.serviceName },
+    });
+  });
+
+  it("does not trigger search for contact during booking completion", async () => {
+    const data = await postMaria({
+      messages: [{ role: "user", content: "Milica, 062201787" }],
+      selectedSlot,
+      aiBookingState: "awaiting_confirmation",
+      lastOfferedSlots: [selectedSlot],
+      lastIntent: { service: "feniranje", requestedCity: "Novi Sad" },
+    });
+
+    expect(data.model).toBe("marysoll-search-orchestrator");
+    expect(data.aiDebug.searchResultsCount).toBeUndefined();
+    expect(data.aiDebug.skippedSearchReason).toBe("contact_for_selected_slot");
+  });
+
+  it("routes login request to auth instead of repeating booking search", async () => {
+    const data = await postMaria({
+      messages: [{ role: "user", content: "Prijavi se" }],
+      selectedSlot,
+      aiBookingState: "ready_to_book",
+      lastOfferedSlots: [selectedSlot],
+      lastIntent: { service: "feniranje", requestedCity: "Novi Sad" },
+    });
+    const maria = JSON.parse(data.choices[0].message.content);
+
+    expect(data.aiDebug.skippedSearchReason).toBe("auth_intent_preflight");
+    expect(data.aiDebug.searchResultsCount).toBeUndefined();
+    expect(maria.type).toBe("handoff");
+    expect(maria.targetAgent).toBe("auth");
+    expect(maria.payload).toMatchObject({
+      intent: "login_for_booking",
+      selectedSlot: { serviceName: selectedSlot.serviceName },
+    });
+  });
+
+  it("routes bare login to auth even when previous intent was booking", async () => {
+    const data = await postMaria({
+      messages: [{ role: "user", content: "Prijavi se" }],
+      aiBookingState: "showing_options",
+      lastIntent: { service: "feniranje", requestedCity: "Novi Sad" },
+    });
+    const maria = JSON.parse(data.choices[0].message.content);
+
+    expect(data.aiDebug.skippedSearchReason).toBe("auth_intent_preflight");
+    expect(data.aiDebug.searchResultsCount).toBeUndefined();
+    expect(maria.type).toBe("handoff");
+    expect(maria.targetAgent).toBe("auth");
+    expect(maria.payload).toMatchObject({ intent: "login" });
+  });
+
+  it("routes appointments shortcut before preserved booking search intent", async () => {
+    const data = await postMaria({
+      messages: [{ role: "user", content: "Mogu li da vidim moje termine?" }],
+      aiBookingState: "showing_options",
+      lastIntent: { service: "feniranje", requestedCity: "Novi Sad" },
+    });
+    const maria = JSON.parse(data.choices[0].message.content);
+
+    expect(data.aiDebug.skippedSearchReason).toBe("appointments_intent_preflight");
+    expect(data.aiDebug.searchResultsCount).toBeUndefined();
+    expect(maria.type).toBe("handoff");
+    expect(maria.targetAgent).toBe("appointments");
+    expect(maria.payload).toMatchObject({ intent: "appointments" });
+  });
+
+  it("routes pricing shortcut before preserved booking search intent", async () => {
+    const data = await postMaria({
+      messages: [{ role: "user", content: "Mogu li da vidim cenovnik?" }],
+      aiBookingState: "showing_options",
+      lastIntent: { service: "feniranje", requestedCity: "Novi Sad" },
+    });
+    const maria = JSON.parse(data.choices[0].message.content);
+
+    expect(data.aiDebug.skippedSearchReason).toBe("prices_intent_preflight");
+    expect(data.aiDebug.searchResultsCount).toBeUndefined();
+    expect(maria.type).toBe("handoff");
+    expect(maria.targetAgent).toBe("prices");
+  });
+
+  it("answers booking help without triggering availability search", async () => {
+    const data = await postMaria({
+      messages: [{ role: "user", content: "Kako mogu da zakažem termin?" }],
+      aiBookingState: "showing_options",
+      lastIntent: { service: "feniranje", requestedCity: "Novi Sad" },
+    });
+    const maria = JSON.parse(data.choices[0].message.content);
+
+    expect(data.aiDebug.skippedSearchReason).toBe("booking_help_intent_preflight");
+    expect(maria.type).toBe("answer");
+    expect(data.message).toContain("Napiši koju uslugu želiš");
+  });
+
+  it("Claudia returns AuthBlock deterministically for login handoff", async () => {
+    const stream = await askAgent(
+      "Želim da se prijavim da bih nastavila zakazivanje ovog termina.",
+      false,
+      [],
+      "Gost",
+      false,
+      undefined,
+      { intent: "login_for_booking", selectedSlot },
+    );
+    const data = JSON.parse(await readStream(stream));
+
+    expect(data.messages[0]).toMatchObject({
+      content: "Prijavi se da nastavimo sa zakazivanjem.",
+      attachToBlockType: "AuthBlock",
+    });
+    expect(data.layout[0]).toMatchObject({
+      type: "AuthBlock",
+      metadata: {
+        mode: "login",
+        selectedSlot: { serviceName: selectedSlot.serviceName },
+      },
+    });
+  });
+
+  it("Claudia resumes booking after successful login", async () => {
+    const stream = await askAgent(
+      "USPEŠNA PRIJAVA. Nastavi zakazivanje termina.",
+      true,
+      [],
+      "Milica",
+      false,
+      undefined,
+      { intent: "resume_booking_after_login", selectedSlot },
+    );
+    const data = JSON.parse(await readStream(stream));
+
+    expect(data.messages[0]).toMatchObject({
+      content: "Uspešno si prijavljena. Nastavljamo sa zakazivanjem.",
+      attachToBlockType: "AppointmentCalendarBlock",
+    });
+    expect(data.layout[0]).toMatchObject({
+      type: "AppointmentCalendarBlock",
+      metadata: {
+        serviceName: selectedSlot.serviceName,
+        city: selectedSlot.city,
+        time: selectedSlot.timeLabel,
+        salonName: selectedSlot.salonName,
+      },
+    });
+  });
+
+  it("Claudia handles city selection payload without LLM fallback", async () => {
+    const stream = await askAgent(
+      "Izabrao sam grad: Novi Sad",
+      false,
+      [],
+      "Gost",
+      false,
+      { service: "Feniranje STRAIGHT", time: "13:00" },
+      { intent: "select_city", city: "Novi Sad", service: "Feniranje STRAIGHT" },
+    );
+    const data = JSON.parse(await readStream(stream));
+
+    expect(data.messages[0]).toMatchObject({
+      attachToBlockType: "AppointmentCalendarBlock",
+    });
+    expect(data.layout[0]).toMatchObject({
+      type: "AppointmentCalendarBlock",
+      metadata: {
+        service: "Feniranje STRAIGHT",
+        city: "Novi Sad",
+        time: "13:00",
+      },
+    });
+  });
+
+  it("Claudia preserves service when salon is selected", async () => {
+    const stream = await askAgent(
+      "Izabrao sam salon: Shi Sham Frizerski Salon [salonId:69] u Novi Sad",
+      false,
+      [],
+      "Gost",
+      false,
+      { service: "Feniranje STRAIGHT", city: "Novi Sad", time: "13:00" },
+      {
+        intent: "select_salon",
+        city: "Novi Sad",
+        service: "Feniranje STRAIGHT",
+        salonId: "69",
+        salonName: "Shi Sham Frizerski Salon",
+      },
+    );
+    const data = JSON.parse(await readStream(stream));
+
+    expect(data.messages[0].content).toContain("Feniranje STRAIGHT");
+    expect(data.layout[0]).toMatchObject({
+      type: "AppointmentCalendarBlock",
+      metadata: {
+        service: "Feniranje STRAIGHT",
+        city: "Novi Sad",
+        salonId: "69",
+        salonName: "Shi Sham Frizerski Salon",
+      },
+    });
+  });
+
+  it("fallback asks the user to restart the booking request with full details", () => {
+    const parsed = parseClaudiaResponse("");
+
+    expect(parsed.messages[0].content).toContain(
+      "napiši koju uslugu želiš, u kom gradu i u koje vreme",
+    );
+    expect(parsed.layout).toEqual([]);
+  });
+
+  it("preserves effective city and service after user accepts recovery city", () => {
+    const lastRecoveryState: SearchRecoveryState = {
+      requestedCity: "Beograd",
+      effectiveCity: "Novi Sad",
+      recoveryScenario: "exact_in_nearest_city",
+      exactMatchFound: true,
+      exactMatchInRequestedCity: false,
+      exactMatchInNearestCity: true,
+      relatedMatchFound: false,
+      relatedMatchInRequestedCity: false,
+      relatedMatchInNearestCity: false,
+      selectedCityHasResults: true,
+      nearbyCitySuggestions: [],
+      userMessage: "Nema feniranja u Beogradu.",
+    };
+
+    const merged = mergeIntentWithConversationContext({
+      latestUserText: "U redu, može u Novom Sadu.",
+      rawExtractedIntent: {},
+      lastIntent: { service: "feniranje", requestedCity: "Beograd", city: "Beograd" },
+      lastRecoveryState,
+    });
+
+    const reply = buildBookingAssistantReply({
+      intent: merged,
+      searchResult: {
+        results: [selectedSlot],
+        slotsByCity: [],
+        bestSlot: selectedSlot,
+        fallbackLevel: 1,
+        totalSalons: 1,
+        debug: {},
+        recoveryState: {
+          ...lastRecoveryState,
+          requestedCity: "Novi Sad",
+          effectiveCity: "Novi Sad",
+          recoveryScenario: "exact_in_requested_city",
+          exactMatchInRequestedCity: true,
+        },
+      },
+    });
+
+    expect(merged).toMatchObject({ service: "feniranje", requestedCity: "Novi Sad" });
+    expect(reply.text).not.toContain("Nema feniranja u Beogradu");
+  });
+
+  it("mounts AgentBridge on the landing page branch", () => {
+    const source = readFileSync(
+      path.join(process.cwd(), "src/components/landing/LandingPage.tsx"),
+      "utf8",
+    );
+
+    expect(source).toContain("<LandingAgentBridge>");
+    expect(source).toContain("<AgentBridge claudiaAskAI={invokeClaudia}>{children}</AgentBridge>");
+  });
+
+  it("uses contextual login request from booking modal", () => {
+    const source = readFileSync(
+      path.join(process.cwd(), "src/components/landing/BookingModal.tsx"),
+      "utf8",
+    );
+
+    expect(source).toContain(
+      "Želim da se prijavim da bih nastavila zakazivanje ovog termina.",
+    );
+    expect(source).not.toContain('sendMessage("Prijavi se")');
+  });
+});

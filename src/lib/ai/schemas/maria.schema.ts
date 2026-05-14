@@ -23,6 +23,9 @@ export const MariaPayloadSchema = z
     city: z.string().optional(),
     date: z.string().optional(),
     time: z.string().optional(),
+    selectedSlot: z.unknown().optional(),
+    contact: z.unknown().optional(),
+    aiBookingState: z.string().optional(),
   })
   .partial();
 export type MariaPayload = z.infer<typeof MariaPayloadSchema>;

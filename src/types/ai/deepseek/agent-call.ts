@@ -14,7 +14,7 @@ export interface AgentCallMetadata {
   originalMessage: string;
   userIntent: string;
   timestamp: number;
-  payload?: Record<string, string>;
+  payload?: Record<string, unknown>;
 }
 
 export interface AgentCallEvent {
@@ -24,7 +24,7 @@ export interface AgentCallEvent {
     userMessage: string;
     history: DeepSeekMessage[];
     sessionId?: string;
-    handoffPayload?: Record<string, string>;
+    handoffPayload?: Record<string, unknown>;
   };
   timestamp: number;
 }

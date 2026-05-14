@@ -32,6 +32,7 @@ interface AskAIOptions {
     userName: string;
   };
   isBlockInteraction?: boolean;
+  handoffPayload?: Record<string, unknown>;
 }
 
 export function useAIQuery(user?: AuthUser | null) {
@@ -149,6 +150,15 @@ export function useAIQuery(user?: AuthUser | null) {
 
       try {
         const historyToSend = options?.context || thread;
+        const suppressStreamingText =
+          options?.handoffPayload?.intent === "create_booking" ||
+          options?.handoffPayload?.intent === "resume_booking_after_login" ||
+          options?.handoffPayload?.intent === "select_city" ||
+          options?.handoffPayload?.intent === "select_salon" ||
+          options?.handoffPayload?.intent === "appointments" ||
+          options?.handoffPayload?.intent === "prices" ||
+          options?.handoffPayload?.intent === "login" ||
+          options?.handoffPayload?.intent === "login_for_booking";
 
         // Phase 1.5: forward bookingFlow snapshot so Claudia inherits memory.
         const bookingMemory = bookingFlow.get().collected;
@@ -163,6 +173,7 @@ export function useAIQuery(user?: AuthUser | null) {
             history: historyToSend,
             isBlockInteraction: options?.isBlockInteraction ?? false,
             bookingMemory,
+            handoffPayload: options?.handoffPayload,
           }),
         });
 
@@ -180,7 +191,9 @@ export function useAIQuery(user?: AuthUser | null) {
           fullRaw += chunk;
 
           // Streaming partial-text extraction — never throws.
-          targetTextRef.current = extractStreamingText(fullRaw);
+          if (!suppressStreamingText) {
+            targetTextRef.current = extractStreamingText(fullRaw);
+          }
         }
 
         // Hardened parse: always returns a valid ClaudiaResponse, even on

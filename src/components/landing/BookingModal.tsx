@@ -35,19 +35,30 @@ export default function BookingModal() {
   const onLoginRequest = () => {
     onClose();
     setDrawerOpen(true);
-    sendMessage("Prijavi se");
+    sendMessage("Želim da se prijavim da bih nastavila zakazivanje ovog termina.");
   };
   const [formName, setFormName] = useState("");
   const [formPhone, setFormPhone] = useState("");
   const [formInstagram, setFormInstagram] = useState("");
+  const [formError, setFormError] = useState("");
   const [loading, setLoading] = useState(false);
 
   // Pre-fill form when user loads (handles page-refresh case where phone may be missing)
   useEffect(() => {
     setFormName(user?.name ?? "");
-    setFormPhone(user?.phone ?? "");
-    setFormInstagram(user?.instagram ?? "");
-  }, [user?.name, user?.phone, user?.instagram, slot]);
+    setFormPhone(user?.phone ?? user?.phoneNumber ?? user?.mobile ?? user?.mobilePhone ?? "");
+    setFormInstagram(user?.instagram ?? user?.instagramUsername ?? "");
+    setFormError("");
+  }, [
+    user?.name,
+    user?.phone,
+    user?.phoneNumber,
+    user?.mobile,
+    user?.mobilePhone,
+    user?.instagram,
+    user?.instagramUsername,
+    slot,
+  ]);
 
   if (!slot) return null;
 
@@ -56,13 +67,17 @@ export default function BookingModal() {
     const name = formName.trim();
     const phone = formPhone.trim();
     const instagram = formInstagram.trim();
+    setFormError("");
 
     if (!name) {
+      setFormError("Unesite ime i prezime.");
       toast.error("Unesite ime i prezime");
       return;
     }
     if (!phone && !instagram) {
-      toast.error("Unesite telefon ili Instagram");
+      const msg = "Unesite telefon ili Instagram. Jedno od ta dva polja je obavezno.";
+      setFormError(msg);
+      toast.error(msg);
       return;
     }
     setLoading(true);
@@ -234,7 +249,10 @@ export default function BookingModal() {
                 <input
                   type="text"
                   value={formName}
-                  onChange={(e) => setFormName(e.target.value)}
+                  onChange={(e) => {
+                    setFormName(e.target.value);
+                    if (formError) setFormError("");
+                  }}
                   placeholder="Ana Petrović"
                   style={inputStyle}
                 />
@@ -243,7 +261,10 @@ export default function BookingModal() {
                 <input
                   type="tel"
                   value={formPhone}
-                  onChange={(e) => setFormPhone(e.target.value)}
+                  onChange={(e) => {
+                    setFormPhone(e.target.value);
+                    if (formError) setFormError("");
+                  }}
                   placeholder="+381 60 123 4567"
                   style={inputStyle}
                 />
@@ -252,11 +273,32 @@ export default function BookingModal() {
                 <input
                   type="text"
                   value={formInstagram}
-                  onChange={(e) => setFormInstagram(e.target.value)}
+                  onChange={(e) => {
+                    setFormInstagram(e.target.value);
+                    if (formError) setFormError("");
+                  }}
                   placeholder="@ime.prezime"
                   style={inputStyle}
                 />
               </ModalField>
+              {formError && (
+                <div
+                  role="alert"
+                  style={{
+                    border: "1px solid #fecaca",
+                    background: "#fef2f2",
+                    color: "#991b1b",
+                    borderRadius: 12,
+                    padding: "10px 12px",
+                    fontFamily: "var(--main-font)",
+                    fontSize: 13,
+                    fontWeight: 600,
+                    lineHeight: 1.35,
+                  }}
+                >
+                  {formError}
+                </div>
+              )}
               <SubmitBtn loading={loading} label={user ? "Potvrdi termin" : "Zakaži kao gost"} />
             </form>
           </div>

@@ -32,8 +32,9 @@ interface Props {
   blocks: BaseBlock[] | BaseBlock | null;
   renderBeforeBlock?: (type: BlockTypes) => React.ReactNode;
   onMessageAction?: (type: string) => void;
-  onBlockAction?: (type: string) => void;
+  onBlockAction?: (type: string, payload?: Record<string, unknown>) => void;
   isLanding?: boolean;
+  disableGlobalDedupe?: boolean;
 }
 
 export function LayoutEngine({
@@ -42,6 +43,7 @@ export function LayoutEngine({
   onMessageAction,
   onBlockAction,
   isLanding,
+  disableGlobalDedupe = false,
 }: Props) {
   const blocksArray = blocks ? (Array.isArray(blocks) ? blocks : [blocks]) : [];
 
@@ -68,10 +70,18 @@ export function LayoutEngine({
         continue;
       }
 
-      if (blockOrchestrator.isBlockOpen(b.type)) {
+      if (!disableGlobalDedupe && blockOrchestrator.isBlockOpen(b.type)) {
         // Mounted by another LayoutEngine instance. Focus + skip render.
         log("dedupe.focus_existing", { type: b.type });
-        blockOrchestrator.focusBlock(b.type);
+        if (blockOrchestrator.focusBlock(b.type)) {
+          continue;
+        }
+
+        // The registry can be stale during fast AI handoffs or React remounts:
+        // if no DOM node exists to focus, render the new block instead of
+        // leaving an empty workspace shell.
+        log("dedupe.stale_registry_render", { type: b.type });
+        result.push(b);
         continue;
       }
 
@@ -79,7 +89,10 @@ export function LayoutEngine({
     }
     return result;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [JSON.stringify(blocksArray.map((b) => `${b.type}:${b.id ?? ""}`))]);
+  }, [
+    disableGlobalDedupe,
+    JSON.stringify(blocksArray.map((b) => `${b.type}:${b.id ?? ""}`)),
+  ]);
 
   // Claim ownership on mount, release on unmount.
   useEffect(() => {

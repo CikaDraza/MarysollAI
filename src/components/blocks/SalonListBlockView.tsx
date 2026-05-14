@@ -9,7 +9,7 @@ import { bookingFlow } from "@/lib/ai/booking-flow-state";
 
 interface Props {
   block: SalonListBlockType;
-  onActionComplete: (message: string) => void;
+  onActionComplete: (message: string, payload?: Record<string, unknown>) => void;
 }
 
 export default function SalonListBlockView({ block, onActionComplete }: Props) {
@@ -64,6 +64,13 @@ export default function SalonListBlockView({ block, onActionComplete }: Props) {
                 });
                 onActionComplete(
                   `Izabrao sam salon: ${salon.name} [salonId:${salon.id}]${city ? ` u ${city}` : ""}`,
+                  {
+                    intent: "select_salon",
+                    city,
+                    service,
+                    salonId: salon.id,
+                    salonName: salon.name,
+                  },
                 );
               }}
             />

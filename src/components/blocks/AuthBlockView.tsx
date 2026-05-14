@@ -13,7 +13,7 @@ import { LogoutBlockView } from "./LogoutBlockView";
 
 interface Props {
   block: AuthBlockType;
-  onActionComplete?: (m: string) => void;
+  onActionComplete?: (m: string, payload?: Record<string, unknown>) => void;
 }
 
 export function AuthBlockView({ block, onActionComplete }: Props) {

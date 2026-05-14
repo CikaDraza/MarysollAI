@@ -10,7 +10,7 @@ import { bookingFlow } from "@/lib/ai/booking-flow-state";
 
 interface Props {
   block: CityListBlockType;
-  onActionComplete: (message: string) => void;
+  onActionComplete: (message: string, payload?: Record<string, unknown>) => void;
 }
 
 interface CityEntry {
@@ -98,7 +98,11 @@ export default function CityListBlockView({ block, onActionComplete }: Props) {
                 // Phase 2 Task 10 — hydrate bookingFlow from UI selection so
                 // the next Claudia turn won't re-ask for city.
                 bookingFlow.get().collect({ city: city.name });
-                onActionComplete(`Izabrao sam grad: ${city.name}`);
+                onActionComplete(`Izabrao sam grad: ${city.name}`, {
+                  intent: "select_city",
+                  city: city.name,
+                  service,
+                });
               }}
             />
           </Reveal>

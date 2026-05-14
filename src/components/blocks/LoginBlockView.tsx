@@ -16,7 +16,7 @@ interface Props {
   block: AuthBlockType;
   onSwitchRegister: () => void;
   onSwitchForgot: () => void;
-  onActionComplete?: (msg: string) => void;
+  onActionComplete?: (msg: string, payload?: Record<string, unknown>) => void;
 }
 
 export function LoginBlockView({
@@ -38,7 +38,18 @@ export function LoginBlockView({
       try {
         await login({ email, password });
         if (onActionComplete) {
-          onActionComplete("USPEŠNA PRIJAVA.");
+          const selectedSlot = block.metadata?.selectedSlot;
+          onActionComplete(
+            selectedSlot
+              ? `USPEŠNA PRIJAVA. Nastavi zakazivanje termina: ${selectedSlot.serviceName} u ${selectedSlot.timeLabel} u ${selectedSlot.salonName}, ${selectedSlot.city}.`
+              : "USPEŠNA PRIJAVA.",
+            selectedSlot
+              ? {
+                  intent: "resume_booking_after_login",
+                  selectedSlot,
+                }
+              : undefined,
+          );
         }
       } catch (err: unknown) {
         const axiosErr = err as AxiosError<{
@@ -52,7 +63,7 @@ export function LoginBlockView({
         setErrorMsg(msg);
       }
     },
-    [email, password, login, onActionComplete],
+    [block.metadata?.selectedSlot, email, password, login, onActionComplete],
   );
 
   // FUNKCIJA ZA SKROL KOJA CILJA GLAVNI KONTEJNER

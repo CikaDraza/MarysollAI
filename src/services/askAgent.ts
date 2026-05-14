@@ -3,11 +3,18 @@ import { ThreadItem } from "@/types/ai/chat-thread";
 import OpenAI from "openai";
 import { fetchPlatformKnowledge } from "@/lib/ai/platform-knowledge";
 import type { CollectedBookingFields } from "@/lib/ai/booking-flow-state";
+import type { AiBookingContact } from "@/types/aiBooking";
+import type { SearchResult } from "@/types/slots";
 
-const deepseek = new OpenAI({
-  baseURL: "https://api.deepseek.com/v1",
-  apiKey: process.env.DEEPSEEK_API_KEY_SYSTEM!,
-});
+let deepseekClient: OpenAI | null = null;
+
+function getDeepseekClient(): OpenAI {
+  deepseekClient ??= new OpenAI({
+    baseURL: "https://api.deepseek.com/v1",
+    apiKey: process.env.DEEPSEEK_API_KEY_SYSTEM!,
+  });
+  return deepseekClient;
+}
 
 // Phase 1.5 — Booking memory section.
 // Generated server-side from the snapshot the client forwards. Tells Claudia
@@ -229,7 +236,41 @@ Uvek predloži alternativu: drugi dan, drugi grad, druga usluga.
 
 Vraćaš ISKLJUČIVO valid JSON prema response schema.
 Bez markdown-a. Bez objašnjenja. Bez HTML-a.
-`.trim();
+  `.trim();
+}
+
+function streamJson(body: unknown): ReadableStream {
+  return new ReadableStream({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode(JSON.stringify(body)));
+      controller.close();
+    },
+  });
+}
+
+function buildAppointmentBlock(input: {
+  service?: string;
+  city?: string;
+  date?: string;
+  time?: string;
+  salonId?: string;
+  salonName?: string;
+}) {
+  return {
+    type: "AppointmentCalendarBlock",
+    priority: 1,
+    metadata: {
+      serviceId: "",
+      serviceName: input.service ?? "",
+      variantName: "",
+      service: input.service ?? "",
+      city: input.city ?? "",
+      date: input.date ?? "",
+      time: input.time ?? "",
+      salonId: input.salonId ?? "",
+      salonName: input.salonName ?? "",
+    },
+  };
 }
 
 export async function askAgent(
@@ -239,7 +280,263 @@ export async function askAgent(
   userName: string,
   isBlockInteraction = false,
   collectedBookingFields?: CollectedBookingFields,
+  handoffPayload?: Record<string, unknown>,
 ) {
+  if (handoffPayload?.intent === "appointments") {
+    return streamJson({
+      messages: [
+        {
+          role: "assistant",
+          content: isAuthenticated
+            ? "Evo tvojih zakazanih termina."
+            : "Prijavi se da vidiš svoje termine.",
+          attachToBlockType: isAuthenticated ? "CalendarBlock" : "AuthBlock",
+        },
+      ],
+      layout: [
+        isAuthenticated
+          ? {
+              type: "CalendarBlock",
+              priority: 1,
+              metadata: {
+                mode: "list",
+                serviceId: "",
+                serviceName: "",
+                variantName: "",
+              },
+            }
+          : {
+              type: "AuthBlock",
+              priority: 1,
+              metadata: {
+                mode: "login",
+                serviceId: "",
+                serviceName: "",
+                variantName: "",
+              },
+            },
+      ],
+      intent: { type: "appointments" },
+    });
+  }
+
+  if (handoffPayload?.intent === "prices") {
+    return streamJson({
+      messages: [
+        {
+          role: "assistant",
+          content: "Za koji grad želiš da vidiš cenovnik?",
+          attachToBlockType: "CityListBlock",
+        },
+      ],
+      layout: [
+        {
+          type: "CityListBlock",
+          priority: 1,
+          metadata: {
+            serviceId: "",
+            serviceName: "",
+            variantName: "",
+            service: "",
+          },
+        },
+      ],
+      intent: { type: "prices" },
+    });
+  }
+
+  if (handoffPayload?.intent === "select_city") {
+    const city = String(handoffPayload.city ?? "");
+    const service = String(handoffPayload.service ?? collectedBookingFields?.service ?? "");
+    const date = collectedBookingFields?.date ?? "";
+    const time = collectedBookingFields?.time ?? "";
+
+    if (!service) {
+      return streamJson({
+        messages: [
+          {
+            role: "assistant",
+            content: `Izabrala si ${city}. Koju uslugu želiš da zakažeš?`,
+          },
+        ],
+        layout: [],
+        intent: { type: "select_city", city },
+      });
+    }
+
+    return streamJson({
+      messages: [
+        {
+          role: "assistant",
+          content: time
+            ? `Super, tražim ${service} u ${city} oko ${time}.`
+            : `Super, tražim ${service} u ${city}.`,
+          attachToBlockType: "AppointmentCalendarBlock",
+        },
+      ],
+      layout: [buildAppointmentBlock({ service, city, date, time })],
+      intent: { type: "select_city", city, service },
+    });
+  }
+
+  if (handoffPayload?.intent === "select_salon") {
+    const city = String(handoffPayload.city ?? collectedBookingFields?.city ?? "");
+    const service = String(handoffPayload.service ?? collectedBookingFields?.service ?? "");
+    const salonId = String(handoffPayload.salonId ?? "");
+    const salonName = String(handoffPayload.salonName ?? "");
+    const date = collectedBookingFields?.date ?? "";
+    const time = collectedBookingFields?.time ?? "";
+
+    if (!service) {
+      return streamJson({
+        messages: [
+          {
+            role: "assistant",
+            content: `Izabrala si ${salonName}. Koju uslugu želiš da zakažeš?`,
+          },
+        ],
+        layout: [],
+        intent: { type: "select_salon", city, salonId, salonName },
+      });
+    }
+
+    return streamJson({
+      messages: [
+        {
+          role: "assistant",
+          content: time
+            ? `Izabrala si ${salonName}. Nastavljamo sa ${service} u ${time}.`
+            : `Izabrala si ${salonName}. Nastavljamo sa ${service}.`,
+          attachToBlockType: "AppointmentCalendarBlock",
+        },
+      ],
+      layout: [
+        buildAppointmentBlock({
+          service,
+          city,
+          date,
+          time,
+          salonId,
+          salonName,
+        }),
+      ],
+      intent: { type: "select_salon", city, service, salonId, salonName },
+    });
+  }
+
+  if (
+    handoffPayload?.intent === "login" ||
+    handoffPayload?.intent === "login_for_booking"
+  ) {
+    const selectedSlot = handoffPayload.selectedSlot as SearchResult | undefined;
+    const body = {
+      messages: [
+        {
+          role: "assistant",
+          content:
+            handoffPayload.intent === "login_for_booking"
+              ? "Prijavi se da nastavimo sa zakazivanjem."
+              : "Prijavi se da nastavimo.",
+          attachToBlockType: "AuthBlock",
+        },
+      ],
+      layout: [
+        {
+          type: "AuthBlock",
+          priority: 1,
+          metadata: {
+            mode: "login",
+            serviceId: "",
+            serviceName: "",
+            variantName: "",
+            selectedSlot,
+          },
+        },
+      ],
+      intent: { type: handoffPayload.intent },
+    };
+
+    return streamJson(body);
+  }
+
+  if (handoffPayload?.intent === "resume_booking_after_login") {
+    const selectedSlot = handoffPayload.selectedSlot as SearchResult | undefined;
+    const date = selectedSlot?.startTime?.split("T")[0] ?? "";
+    const body = {
+      messages: [
+        {
+          role: "assistant",
+          content: selectedSlot
+            ? "Uspešno si prijavljena. Nastavljamo sa zakazivanjem."
+            : "Uspešno si prijavljena.",
+          attachToBlockType: selectedSlot ? "AppointmentCalendarBlock" : "none",
+        },
+      ],
+      layout: selectedSlot
+        ? [
+            {
+              type: "AppointmentCalendarBlock",
+              priority: 1,
+              metadata: {
+                serviceId: selectedSlot.serviceId ?? "",
+                serviceName: selectedSlot.serviceName,
+                variantName: "",
+                service: selectedSlot.serviceName,
+                city: selectedSlot.city,
+                date,
+                time: selectedSlot.timeLabel,
+                salonId: selectedSlot.salonId,
+                salonName: selectedSlot.salonName,
+              },
+            },
+          ]
+        : [],
+      intent: { type: "resume_booking_after_login" },
+    };
+
+    return streamJson(body);
+  }
+
+  if (handoffPayload?.intent === "create_booking") {
+    const selectedSlot = handoffPayload.selectedSlot as SearchResult | undefined;
+    const contact = handoffPayload.contact as AiBookingContact | undefined;
+    const date = selectedSlot?.startTime?.split("T")[0] ?? "";
+    const body = {
+      messages: [
+        {
+          role: "assistant",
+          content: contact?.name
+            ? `Spremno. Proveri podatke za termin za ${contact.name}.`
+            : "Spremno. Proveri podatke za termin.",
+          attachToBlockType: "AppointmentCalendarBlock",
+        },
+      ],
+      layout: selectedSlot
+        ? [
+            {
+              type: "AppointmentCalendarBlock",
+              priority: 1,
+              metadata: {
+                serviceId: selectedSlot.serviceId ?? "",
+                serviceName: selectedSlot.serviceName,
+                variantName: "",
+                service: selectedSlot.serviceName,
+                city: selectedSlot.city,
+                date,
+                time: selectedSlot.timeLabel,
+                salonId: selectedSlot.salonId,
+                salonName: selectedSlot.salonName,
+                contact,
+              },
+            },
+          ]
+        : [],
+      intent: { type: "create_booking" },
+    };
+
+    return streamJson(body);
+  }
+
   const { salonsText, servicesText, citiesText, categoriesText } =
     await fetchPlatformKnowledge();
 
@@ -271,7 +568,7 @@ export async function askAgent(
     }));
 
   try {
-    const stream = await deepseek.chat.completions.create({
+    const stream = await getDeepseekClient().chat.completions.create({
       model: "deepseek-chat",
       messages: [
         { role: "system", content: systemPrompt },

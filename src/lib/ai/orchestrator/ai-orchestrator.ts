@@ -33,7 +33,7 @@ export interface OrchestratorContext {
   /** Original message the user typed before Maria saw it. */
   userMessage: string;
   /** Function that triggers Claudia. Returns when she's done. */
-  invokeClaudia: (input: string, payload?: Record<string, string>) => Promise<void>;
+  invokeClaudia: (input: string, payload?: Record<string, unknown>) => Promise<void>;
 }
 
 export interface OrchestrationResult {
@@ -90,8 +90,13 @@ export async function handleMariaResponse(
     // Persist any structured intent Maria extracted so Claudia doesn't re-ask.
     if (response.payload) {
       const { service, city, date, time } = response.payload;
-      bookingFlow.get().collect({ service, city, date, time });
-      if (response.payload.intent) {
+      bookingFlow.get().collect({
+        service: typeof service === "string" ? service : undefined,
+        city: typeof city === "string" ? city : undefined,
+        date: typeof date === "string" ? date : undefined,
+        time: typeof time === "string" ? time : undefined,
+      });
+      if (typeof response.payload.intent === "string") {
         bookingFlow.get().setLastIntent(response.payload.intent);
       }
       log("payload.collected", { ...response.payload });
