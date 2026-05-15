@@ -45,7 +45,7 @@ export default function LandingHeader() {
       <div className="flex-1" />
 
       <button
-        className="inline-flex [@media(max-width:520px)]:hidden w-9 h-9 rounded-full border-0 bg-[var(--surface-2)] text-[var(--fg-2)] cursor-pointer items-center justify-center transition-[background,color] hover:bg-[var(--brand-100)] hover:text-[var(--secondary-color)]"
+        className="inline-flex w-9 h-9 rounded-full border-0 bg-[var(--surface-2)] text-[var(--fg-2)] cursor-pointer items-center justify-center transition-[background,color] hover:bg-[var(--brand-100)] hover:text-[var(--secondary-color)]"
         onClick={onToggleTheme}
         aria-label="Promeni temu"
       >
@@ -62,7 +62,9 @@ export default function LandingHeader() {
         </Pill>
         <CityPill city={city} onChange={onCityChange} />
       </div>
-
+      <div className="block sm:hidden">
+        <CityPill city={city} onChange={onCityChange} />
+      </div>
       {user ? (
         <UserButton user={user} onLogout={logout} />
       ) : (
@@ -81,7 +83,9 @@ export default function LandingHeader() {
         style={{ fontFamily: "var(--main-font)" }}
       >
         <SparklesIcon className="w-4 h-4" />
-        <span className="inline [@media(max-width:520px)]:hidden">Pitaj Mariju</span>
+        <span className="inline [@media(max-width:520px)]:hidden">
+          Pitaj Mariju
+        </span>
       </button>
     </header>
   );
@@ -122,7 +126,7 @@ function CityPill({
         style={{ fontFamily: "var(--main-font)" }}
       >
         <MapPinIcon className="w-[14px] h-[14px] shrink-0" />
-        {city}
+        <span className="hidden sm:block">{city}</span>
         <ChevronDownIcon
           className={`w-3 h-3 shrink-0 transition-transform duration-150 ${open ? "rotate-180" : "rotate-0"}`}
         />
@@ -131,7 +135,7 @@ function CityPill({
       {open && (
         <div
           role="listbox"
-          className="absolute top-[calc(100%+8px)] left-0 bg-[var(--surface)] rounded-[16px] shadow-[var(--shadow-lg)] min-w-[190px] overflow-hidden z-[100] border border-[var(--border-1)]"
+          className="absolute top-[calc(100%+8px)] right-0 sm:left-0 bg-[var(--surface)] rounded-[16px] shadow-[var(--shadow-lg)] min-w-[190px] overflow-hidden z-[100] border border-[var(--border-1)]"
         >
           {SERBIAN_CITIES.map((c) => {
             const isSelected = c.name === city;
@@ -194,7 +198,10 @@ function UserButton({
     .toUpperCase();
 
   return (
-    <div ref={ref} className="relative inline-flex [@media(max-width:520px)]:hidden">
+    <div
+      ref={ref}
+      className="relative inline-flex [@media(max-width:520px)]:hidden"
+    >
       <button
         onClick={() => setOpen((o) => !o)}
         aria-haspopup="true"

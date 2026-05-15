@@ -111,7 +111,7 @@ function LandingPageContent() {
 
       {/* Fixed floating header — shrinks with sidebar on desktop only */}
       <div
-        className="fixed top-0 left-0 z-50 px-6 py-3 bg-white/5 backdrop-blur"
+        className="fixed top-0 left-0 z-50 px-6 pt-3 bg-white/5 backdrop-blur"
         style={{
           right: pushContent ? SIDEBAR_W : 0,
           transition: `right 280ms var(--ease-out)`,
