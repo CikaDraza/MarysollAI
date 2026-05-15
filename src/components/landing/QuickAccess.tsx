@@ -177,9 +177,15 @@ export default function QuickAccess() {
     timeWindowEnd,
     handleCategoryPick,
   } = useFilters();
-  const { results, slotsByCity, fallbackLevel, recoveryState } = useSearchContext();
+  const {
+    results,
+    slotsByCity,
+    fallbackLevel,
+    recoveryState,
+    isLoading: searchLoading,
+  } = useSearchContext();
   const { openModal } = useBookingModal();
-  const { data: salons = [], isLoading: loading } = useSalons(cityName);
+  const { data: salons = [], isLoading: salonsLoading } = useSalons(cityName);
 
   const onPick = (slot: QuickSlot, position: number) => {
     const flatSlot: FlatSlot = {
@@ -426,9 +432,14 @@ export default function QuickAccess() {
 
   const displayCity =
     recoveryState?.effectiveCity || cityName || displayedSlots[0]?.city || "";
+  const canonicalCategory = category
+    ? SLUG_TO_CANONICAL[category as CategorySlug]
+    : "";
+  const isQuickAccessSettled = !searchLoading && !salonsLoading;
   const hasSlots = displayedSlots.length > 0;
   const hasData =
-    !loading && (citySalons.length > 0 || (slotsByCity?.length ?? 0) > 0);
+    isQuickAccessSettled &&
+    (citySalons.length > 0 || (slotsByCity?.length ?? 0) > 0);
 
   return (
     <section id="quick-access" style={{ marginTop: 64 }}>
@@ -463,7 +474,7 @@ export default function QuickAccess() {
       </div>
 
       {/* ── Slots ──────────────────────────────────────────────────────────── */}
-      {loading ? (
+      {!isQuickAccessSettled ? (
         <div style={{ marginBottom: 40 }}>
           <div
             style={{
@@ -509,8 +520,8 @@ export default function QuickAccess() {
             }}
           >
             <ClockIcon style={{ width: 15, height: 15 }} strokeWidth={2} />
-            {category && SLUG_TO_CANONICAL[category as CategorySlug]
-              ? `${SLUG_TO_CANONICAL[category as CategorySlug]} — ${displayCity}`
+            {canonicalCategory
+              ? `${canonicalCategory} — ${displayCity}`
               : `Termini u — ${displayCity}`}
           </p>
           <div className="ms-slots-row">
@@ -576,9 +587,9 @@ export default function QuickAccess() {
             </p>
           )}
         </div>
-      ) : category && SLUG_TO_CANONICAL[category as CategorySlug] ? (
+      ) : category && canonicalCategory ? (
         <CategoryNotFound
-          category={SLUG_TO_CANONICAL[category as CategorySlug]!}
+          category={canonicalCategory}
           categorySlug={category}
           city={displayCity}
           alternateCities={(slotsByCity ?? []).filter(
@@ -590,7 +601,7 @@ export default function QuickAccess() {
       )}
 
       {/* ── Categories — hidden when a search category is active ──────────── */}
-      {!category && (hasData || loading) && (
+      {!category && (hasData || !isQuickAccessSettled) && (
         <div style={{ marginTop: 8, marginBottom: 48 }}>
           <p
             style={{
@@ -605,7 +616,7 @@ export default function QuickAccess() {
           </p>
 
           <div className="ms-cat-rows">
-            {loading &&
+            {!isQuickAccessSettled &&
               [0, 1, 2].map((i) => (
                 <div
                   key={i}
@@ -618,7 +629,7 @@ export default function QuickAccess() {
                 />
               ))}
 
-            {!loading &&
+            {isQuickAccessSettled &&
               categoryGroups.map((grp) => (
                 <CategoryCard
                   key={grp.slug}
