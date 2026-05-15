@@ -1,5 +1,5 @@
 // blocks/ClientBlockAppointments.tsx
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { IAppointment } from "@/types/appointments-type";
 import { useAppointmentsWithToken } from "@/hooks/useAppointmentsWithToken";
 import { formatISODate } from "@/helpers/formatISODate";
@@ -9,6 +9,18 @@ import { useAuthActions } from "@/hooks/useAuthActions";
 
 interface ClientAppointmentListItemProps {
   appointment: IAppointment;
+}
+
+function normalizeText(value: string | undefined) {
+  return value?.trim().toLowerCase() ?? "";
+}
+
+function normalizeClientId(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (!value || typeof value !== "object") return "";
+  const record = value as Record<string, unknown>;
+  const id = record._id ?? record.id;
+  return typeof id === "string" ? id : "";
 }
 
 // AppointmentListItem deo
@@ -106,7 +118,28 @@ function ClientAppointmentListItem({
 
 export default function ClientBlockAppointments() {
   const [page, setPage] = useState(1);
-  const { token, user } = useAuthActions();
+  const [authChecked, setAuthChecked] = useState(false);
+  const {
+    token,
+    user,
+    isLoading: isAuthLoading,
+    ensureFreshAuth,
+  } = useAuthActions();
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const checkAuth = async () => {
+      await ensureFreshAuth();
+      if (!cancelled) setAuthChecked(true);
+    };
+
+    void checkAuth();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [ensureFreshAuth]);
 
   const {
     data: response,
@@ -115,14 +148,33 @@ export default function ClientBlockAppointments() {
   } = useAppointmentsWithToken(token ?? "", {
     page,
     limit: 10,
-    enabled: !!token,
+    enabled: authChecked && !!token,
   });
 
   const appointments = useMemo(() => {
     const all = response?.appointments || [];
-    if (user?.email) return all.filter((a) => a.clientEmail === user.email);
-    return all;
-  }, [response, user?.email]);
+    if (!user) return [];
+
+    const userId = normalizeClientId(user.id);
+    const userEmail = normalizeText(user.email);
+
+    const matched = all.filter((appointment) => {
+      const appointmentClientId = normalizeClientId(appointment.clientId);
+      const appointmentEmail = normalizeText(appointment.clientEmail);
+
+      return (
+        (!!userId && appointmentClientId === userId) ||
+        (!!userEmail && appointmentEmail === userEmail)
+      );
+    });
+
+    if (matched.length > 0) return matched;
+
+    // For client tokens the platform endpoint should already return only the
+    // authenticated user's appointments. Avoid hiding valid rows when the API
+    // shape uses a different clientId/email representation than this UI knows.
+    return user.isAdmin ? [] : all;
+  }, [response, user]);
 
   const pagination = response?.pagination;
 
@@ -130,7 +182,16 @@ export default function ClientBlockAppointments() {
     setPage(newPage);
   };
 
-  if (isLoading) return <MiniLoader />;
+  if (isAuthLoading || !authChecked || (token && isLoading)) {
+    return <MiniLoader />;
+  }
+  if (!token || !user) {
+    return (
+      <p className="text-center text-gray-500 py-8">
+        Prijavite se da biste videli svoje termine.
+      </p>
+    );
+  }
   if (isError) return <p>Greška pri učitavanju termina.</p>;
 
   return (

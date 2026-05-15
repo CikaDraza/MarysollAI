@@ -14,7 +14,7 @@ export async function GET(req: Request) {
       headers: platformHeaders({ Authorization: authHeader }),
     });
 
-    return NextResponse.json(await response.json());
+    return NextResponse.json(await response.json(), { status: response.status });
   } catch (error) {
     console.error("Error fetching appointments:", error);
     return NextResponse.json({ error: "Error fetching appointments" }, { status: 500 });

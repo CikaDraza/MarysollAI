@@ -26,10 +26,12 @@ export function LoginBlockView({
   onActionComplete,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const { user, login, isLoggingIn } = useAuthActions();
+  const autoContinueRef = useRef(false);
+  const { user, login, isLoggingIn, ensureFreshAuth } = useAuthActions();
   const [email, setEmail] = useState(block.defaultEmail || "");
   const [password, setPassword] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
+  const blockIntent = block.metadata?.intent;
 
   const handleSubmit = useCallback(
     async (e: React.FormEvent) => {
@@ -84,6 +86,29 @@ export function LoginBlockView({
     const timer = setTimeout(triggerGlobalScroll, 100);
     return () => clearTimeout(timer);
   }, []);
+
+  useEffect(() => {
+    if (autoContinueRef.current) return;
+    if (blockIntent !== "appointments" || !onActionComplete) return;
+
+    let cancelled = false;
+
+    const continueIfAuthenticated = async () => {
+      const freshUser = user ?? (await ensureFreshAuth());
+      if (cancelled || !freshUser || autoContinueRef.current) return;
+
+      autoContinueRef.current = true;
+      onActionComplete("Mogu li da vidim moje termine?", {
+        intent: "appointments",
+      });
+    };
+
+    void continueIfAuthenticated();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [blockIntent, ensureFreshAuth, onActionComplete, user]);
 
   const showForm = !user;
 

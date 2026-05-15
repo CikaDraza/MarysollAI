@@ -5,6 +5,22 @@ import { askAgent } from "@/services/askAgent";
 import { ThreadItem } from "@/types/ai/chat-thread";
 import type { CollectedBookingFields } from "@/lib/ai/booking-flow-state";
 import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
+import { getUserFromToken } from "@/lib/auth/auth-utils";
+
+function readBearerToken(req: Request): string | null {
+  const authHeader = req.headers.get("authorization") ?? "";
+  if (!authHeader.toLowerCase().startsWith("bearer ")) return null;
+  return authHeader.slice(7).trim() || null;
+}
+
+function requiresVerifiedAuth(handoffPayload?: Record<string, unknown>): boolean {
+  return (
+    handoffPayload?.intent === "appointments" ||
+    handoffPayload?.intent === "create_booking" ||
+    handoffPayload?.intent === "resume_booking_after_login"
+  );
+}
 
 export async function POST(req: Request) {
   const ip = getRequestIP();
@@ -38,12 +54,19 @@ export async function POST(req: Request) {
       bookingMemory?: CollectedBookingFields;
       handoffPayload?: Record<string, unknown>;
     };
+    const requestToken =
+      readBearerToken(req) ?? (await cookies()).get("token")?.value ?? null;
+    const requestUser = requestToken ? getUserFromToken(requestToken) : null;
+    const mustVerifyAuth = requiresVerifiedAuth(handoffPayload);
+    const effectiveIsAuthenticated =
+      Boolean(requestUser) || (!mustVerifyAuth && Boolean(isAuthenticated));
+    const effectiveUserName = requestUser?.name || userName || "Gost";
 
     const stream = await askAgent(
       message,
-      isAuthenticated,
+      effectiveIsAuthenticated,
       history || [],
-      userName,
+      effectiveUserName,
       isBlockInteraction ?? false,
       bookingMemory,
       handoffPayload,

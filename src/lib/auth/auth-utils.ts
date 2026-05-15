@@ -3,23 +3,29 @@ import { AuthUser } from "@/types/auth-types";
 
 export function getUserFromToken(token: string): AuthUser | null {
   try {
-    const decoded: {
-      id: string;
-      email: string;
-      name: string;
-      isAdmin: boolean;
-      token: string;
-      exp: number;
-    } = jwtDecode(token);
+    const decoded = jwtDecode<{
+      id?: string;
+      _id?: string;
+      userId?: string;
+      sub?: string;
+      email?: string;
+      name?: string;
+      isAdmin?: boolean;
+      role?: string;
+      exp?: number;
+    }>(token);
     // Provera da li je token istekao
-    if (decoded.exp * 1000 < Date.now()) {
+    if (decoded.exp && decoded.exp * 1000 < Date.now()) {
       return null;
     }
+    const id = decoded.id ?? decoded._id ?? decoded.userId ?? decoded.sub;
+    if (!id || !decoded.email) return null;
+
     return {
-      id: decoded.id,
+      id,
       email: decoded.email,
-      name: decoded.name,
-      isAdmin: decoded.isAdmin,
+      name: decoded.name ?? decoded.email,
+      isAdmin: decoded.isAdmin ?? decoded.role === "admin",
       token: token,
     };
   } catch {

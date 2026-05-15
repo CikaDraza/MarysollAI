@@ -32,6 +32,7 @@ export interface BaseBlock {
     date?: string;
     time?: string;
     mode?: AuthMode | CalendarMode;
+    intent?: string;
     service?: string;
     city?: string;
     selectedSlot?: SearchResult;

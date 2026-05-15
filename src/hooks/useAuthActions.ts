@@ -1,5 +1,6 @@
 "use client";
 
+import { useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import axios, { AxiosError } from "axios";
 import toast from "react-hot-toast";
@@ -53,22 +54,97 @@ function normalizeProfileContact(user: unknown): { phone?: string; instagram?: s
   };
 }
 
+function clearStoredAuth() {
+  localStorage.removeItem("assistant_token");
+  localStorage.removeItem(PROFILE_KEY);
+}
+
+function buildUserFromToken(
+  token: string,
+  profileSource?: unknown,
+): AuthUser | null {
+  const decoded = getUserFromToken(token);
+  if (!decoded) return null;
+  return {
+    ...decoded,
+    ...normalizeProfileContact(profileSource),
+    ...loadProfileSupplement(),
+  };
+}
+
+async function refreshAuthFromCookie(): Promise<AuthUser | null> {
+  try {
+    const res = await fetch("/api/external/auth/refresh", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: "{}",
+    });
+
+    if (!res.ok) return null;
+
+    const data = (await res.json()) as Partial<LoginResponse>;
+    if (!data.token) return null;
+
+    localStorage.setItem("assistant_token", data.token);
+    const supplement = normalizeProfileContact(data.user);
+    localStorage.setItem(PROFILE_KEY, JSON.stringify(supplement));
+
+    const decoded = getUserFromToken(data.token);
+    return decoded ? { ...decoded, ...supplement } : null;
+  } catch {
+    return null;
+  }
+}
+
+async function resolveAuthUser(forceRefresh = false): Promise<AuthUser | null> {
+  if (typeof window === "undefined") return null;
+
+  if (!forceRefresh) {
+    const token = localStorage.getItem("assistant_token");
+    if (token) {
+      const user = buildUserFromToken(token);
+      if (user) return user;
+      clearStoredAuth();
+    }
+  }
+
+  const refreshed = await refreshAuthFromCookie();
+  if (refreshed) return refreshed;
+  if (forceRefresh) clearStoredAuth();
+  return null;
+}
+
 export function useAuthActions() {
   const queryClient = useQueryClient();
 
   // 1. Fetch trenutnog korisnika iz localStorage + supplement (phone, instagram)
   const { data: user, isLoading } = useQuery<AuthUser | null>({
     queryKey: ["authUser"],
-    queryFn: () => {
-      if (typeof window === "undefined") return null;
-      const token = localStorage.getItem("assistant_token");
-      if (!token) return null;
-      const decoded = getUserFromToken(token);
-      if (!decoded) return null;
-      return { ...decoded, ...loadProfileSupplement() };
-    },
+    queryFn: () => resolveAuthUser(),
     staleTime: Infinity,
   });
+
+  const refreshAuth = useCallback(async () => {
+    const freshUser = await resolveAuthUser(true);
+    queryClient.setQueryData(["authUser"], freshUser);
+    return freshUser;
+  }, [queryClient]);
+
+  const ensureFreshAuth = useCallback(async () => {
+    const cached = queryClient.getQueryData<AuthUser | null>(["authUser"]);
+    if (cached?.token) {
+      const normalizedCached = buildUserFromToken(cached.token, cached);
+      if (normalizedCached) {
+        queryClient.setQueryData(["authUser"], normalizedCached);
+        return normalizedCached;
+      }
+    }
+
+    const freshUser = await resolveAuthUser();
+    queryClient.setQueryData(["authUser"], freshUser);
+    return freshUser;
+  }, [queryClient]);
 
   // 2. Login Mutacija
   const loginMutation = useMutation({
@@ -170,8 +246,7 @@ export function useAuthActions() {
 
   // 7. Logout
   const logout = () => {
-    localStorage.removeItem("assistant_token");
-    localStorage.removeItem(PROFILE_KEY);
+    clearStoredAuth();
     queryClient.setQueryData(["authUser"], null);
     toast.success("Odjavljeni ste.");
   };
@@ -182,6 +257,8 @@ export function useAuthActions() {
     isLoggedIn: !!user,
     isAdmin: !!user?.isAdmin,
     isLoading,
+    refreshAuth,
+    ensureFreshAuth,
     login: loginMutation.mutateAsync,
     isLoggingIn: loginMutation.isPending,
     register: registerMutation.mutateAsync,

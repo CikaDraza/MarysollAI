@@ -311,6 +311,7 @@ export async function askAgent(
               priority: 1,
               metadata: {
                 mode: "login",
+                intent: "appointments",
                 serviceId: "",
                 serviceName: "",
                 variantName: "",

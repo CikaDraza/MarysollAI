@@ -76,7 +76,7 @@ const getAgentTypeName = (type: AgentType | string): string => {
 };
 
 export function AgentBridge({ children, claudiaAskAI }: AgentBridgeProps) {
-  const { user } = useAuthActions();
+  const { user, ensureFreshAuth } = useAuthActions();
   const { askAI: fallbackAskAI } = useAIQuery(user);
   const askAI = claudiaAskAI ?? fallbackAskAI;
   // Re-entrancy guard separate from orchestrator's `isTransitioning` — we
@@ -102,6 +102,21 @@ export function AgentBridge({ children, claudiaAskAI }: AgentBridgeProps) {
 
       try {
         const { agentType, userMessage, history, handoffPayload } = event.payload;
+        const requiresFreshAuth =
+          agentType === "appointments" ||
+          handoffPayload?.intent === "appointments" ||
+          handoffPayload?.intent === "create_booking" ||
+          handoffPayload?.intent === "resume_booking_after_login";
+        let authSnapshot = authRef.current;
+
+        if (requiresFreshAuth) {
+          const freshUser = await ensureFreshAuth();
+          authSnapshot = {
+            isAuthenticated: !!freshUser,
+            userName: freshUser?.name || "Gost",
+          };
+          authRef.current = authSnapshot;
+        }
 
         // Smooth scroll to keep the new agent's first message in view.
         const mainContent = document.getElementById("main-content");
@@ -134,7 +149,7 @@ export function AgentBridge({ children, claudiaAskAI }: AgentBridgeProps) {
               await askAI(originalUserQuery, {
                 context: convertedHistory,
                 preserveHistory: true,
-                explicitAuth: authRef.current,
+                explicitAuth: authSnapshot,
                 handoffPayload: payload,
               });
             },
@@ -158,7 +173,7 @@ export function AgentBridge({ children, claudiaAskAI }: AgentBridgeProps) {
     });
 
     return unsubscribe;
-  }, [askAI]);
+  }, [askAI, ensureFreshAuth]);
 
   return <>{children}</>;
 }

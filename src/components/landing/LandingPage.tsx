@@ -3,7 +3,7 @@
 
 import { CheckIcon } from "@heroicons/react/24/outline";
 import { AnimatePresence, motion } from "framer-motion";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import LandingHeader from "./LandingHeader";
 import Hero from "./Hero";
 import QuickAccess from "./QuickAccess";
@@ -71,7 +71,9 @@ function LandingAgentBridge({ children }: { children: React.ReactNode }) {
 }
 
 function LandingPageContent() {
-  const { drawerOpen } = useLandingUI();
+  const { drawerOpen, setDrawerOpen } = useLandingUI();
+  const { activeBlock } = useWorkspace();
+  const lastAutoClosedBlockId = useRef<string | null>(null);
 
   // On mobile (<= 1024px) the sidebar stays as a fixed overlay — no content shift.
   // On desktop it pushes the page content to the left.
@@ -85,6 +87,19 @@ function LandingPageContent() {
   }, []);
 
   const pushContent = isDesktop && drawerOpen;
+  const activeBlockId = activeBlock?.id ?? null;
+
+  useEffect(() => {
+    if (!activeBlockId) return;
+    if (lastAutoClosedBlockId.current === activeBlockId) return;
+
+    lastAutoClosedBlockId.current = activeBlockId;
+
+    const isDesktopViewport = window.matchMedia("(min-width: 1025px)").matches;
+    if (!isDesktopViewport && drawerOpen) {
+      setDrawerOpen(false);
+    }
+  }, [activeBlockId, drawerOpen, setDrawerOpen]);
 
   return (
     <div

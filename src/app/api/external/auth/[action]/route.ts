@@ -1,5 +1,6 @@
 // src/app/api/external/auth/[action]/route.ts
 import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
 import { platformHeaders } from "@/lib/api/platformHeaders";
 import crypto from "crypto";
 
@@ -55,18 +56,56 @@ async function fetchCurrentUserProfile(token: string): Promise<Record<string, un
   return null;
 }
 
+async function readJsonBody(req: Request): Promise<Record<string, unknown>> {
+  try {
+    return (await req.json()) as Record<string, unknown>;
+  } catch {
+    return {};
+  }
+}
+
+function authCookieOptions() {
+  const configuredDomain =
+    process.env.AUTH_COOKIE_DOMAIN ??
+    (process.env.NODE_ENV === "production"
+      ? "marysoll-assistant.website"
+      : undefined);
+
+  return {
+    httpOnly: true,
+    sameSite: "strict" as const,
+    secure: process.env.NODE_ENV === "production",
+    path: "/",
+    ...(configuredDomain ? { domain: configuredDomain } : {}),
+  };
+}
+
 export async function POST(
   req: Request,
   context: { params: Promise<{ action: string }> },
 ) {
-  const body = await req.json() as Record<string, unknown>;
+  const body = await readJsonBody(req);
   const { action } = await context.params;
 
   try {
     // CLIENT users (USER/GUEST role) are rejected by /api/auth/login.
     // Route login through the marketplace endpoint which does a cross-tenant lookup.
     const isLogin = action === "login";
-    const bodyStr = JSON.stringify(body);
+    const isRefresh = action === "refresh";
+    const refreshToken =
+      typeof body.refreshToken === "string"
+        ? body.refreshToken
+        : (await cookies()).get("refreshToken")?.value;
+
+    if (isRefresh && !refreshToken) {
+      return NextResponse.json(
+        { error: "Nema aktivne sesije za osvežavanje prijave." },
+        { status: 401 },
+      );
+    }
+
+    const requestBody = isRefresh ? { ...body, refreshToken } : body;
+    const bodyStr = JSON.stringify(requestBody);
 
     const url = isLogin
       ? `${MAIN_SITE_API}/marketplace/auth/login`
@@ -110,22 +149,16 @@ export async function POST(
 
     const response = NextResponse.json(data);
 
-    response.cookies.set("token", token ?? "", {
-      httpOnly: true,
-      sameSite: "strict",
-      secure: true,
-      path: "/",
-      domain: "marysoll-assistant.website",
-    });
+    if (token) {
+      response.cookies.set("token", token, authCookieOptions());
+    }
 
     if ((data as { refreshToken?: string }).refreshToken) {
-      response.cookies.set("refreshToken", (data as { refreshToken: string }).refreshToken, {
-        httpOnly: true,
-        sameSite: "strict",
-        secure: true,
-        path: "/",
-        domain: "marysoll-assistant.website",
-      });
+      response.cookies.set(
+        "refreshToken",
+        (data as { refreshToken: string }).refreshToken,
+        authCookieOptions(),
+      );
     }
 
     return response;

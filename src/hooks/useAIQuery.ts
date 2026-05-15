@@ -150,6 +150,10 @@ export function useAIQuery(user?: AuthUser | null) {
 
       try {
         const historyToSend = options?.context || thread;
+        const authToken =
+          typeof window !== "undefined"
+            ? localStorage.getItem("assistant_token")
+            : null;
         const suppressStreamingText =
           options?.handoffPayload?.intent === "create_booking" ||
           options?.handoffPayload?.intent === "resume_booking_after_login" ||
@@ -165,7 +169,10 @@ export function useAIQuery(user?: AuthUser | null) {
 
         const response = await fetch("/api/ai/conversation", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+          },
           body: JSON.stringify({
             message: query,
             isAuthenticated,
