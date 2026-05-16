@@ -32,15 +32,34 @@ export interface IMessage {
 
 export interface IAppointment {
   _id?: string;
-  clientId: string;
+  tenantId?: string;
+  clientId?: string;
+  clientProfileId?: string;
+  staffProfileId?: string;
   clientName: string;
   clientEmail: string;
+  clientPhone?: string;
+  clientInstagram?: string;
+  preferredContact?: "phone" | "instagram" | "email" | "platform";
+  contactNote?: string;
   serviceName: string;
   services: IAppointmentService[];
   duration: number;
   date: string;
   time: string;
   note?: string;
+  cancellationWindowHours?: number;
+  cancellationStatus?: "can_cancel" | "late_cancel";
+  cancelledAt?: string | Date;
+  cancelledBy?: "client" | "admin";
+  cancellationType?: "legitimate" | "late";
+  noShowMarkedAt?: string | Date;
+  noShowReason?: "late_cancel" | "missed_appointment" | "admin_marked";
+  appointmentReliability?: {
+    cancellationAllowed: boolean;
+    cancellationDeadline?: string;
+    source: "platform_policy";
+  };
   status:
     | "pending"
     | "appointment_approved"

@@ -1,6 +1,8 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { POST } from "@/app/api/ai/deepseek-conversation/route";
+import { POST as cancelAppointmentPOST } from "@/app/api/external/appointments/[id]/cancel/route";
+import { PUT as updateAppointmentPUT } from "@/app/api/external/appointments/[id]/update/route";
 import { askAgent, filterSearchResultByStartHour } from "@/services/askAgent";
 import { detectContactInfo } from "@/lib/ai/detectContactInfo";
 import { mergeIntentWithConversationContext } from "@/lib/ai/mergeIntentWithConversationContext";
@@ -17,6 +19,8 @@ import {
   validateContactForm,
   validateBookingPayload,
 } from "@/lib/booking/bookingPayload";
+import { ClaudiaIntentSchema } from "@/lib/ai/schemas/claudia.schema";
+import { mapAppointmentActionError } from "@/lib/api/appointmentActionErrors";
 import type { SearchRecoveryState } from "@/types/searchRecovery";
 import type { SearchResult } from "@/types/slots";
 
@@ -796,5 +800,198 @@ describe("Booking Conflict Recovery", () => {
     expect(source).toContain("isAuthenticated: Boolean(user)");
     expect(source).toContain("phone: formPhone.trim() || undefined");
     expect(source).toContain("userName: user?.name");
+  });
+
+  it("cancel route maps platform success", async () => {
+    const originalFetch = global.fetch;
+    global.fetch = jest.fn().mockResolvedValue(
+      new Response(JSON.stringify({ appointment: { _id: "app-1" } }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+
+    const response = await cancelAppointmentPOST(
+      new Request("http://localhost/api/external/appointments/app-1/cancel", {
+        method: "POST",
+        headers: { Authorization: "Bearer token" },
+        body: "{}",
+      }),
+      { params: Promise.resolve({ id: "app-1" }) },
+    );
+    const data = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(data.ok).toBe(true);
+    expect(global.fetch).toHaveBeenCalledWith(
+      expect.stringContaining("/appointments/client/app-1/cancel"),
+      expect.objectContaining({ method: "POST" }),
+    );
+    global.fetch = originalFetch;
+  });
+
+  it("cancel route maps expired cancellation message", async () => {
+    const originalFetch = global.fetch;
+    global.fetch = jest.fn().mockResolvedValue(
+      new Response(JSON.stringify({ error: "cancellation window expired" }), {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+
+    const response = await cancelAppointmentPOST(
+      new Request("http://localhost/api/external/appointments/app-1/cancel", {
+        method: "POST",
+        headers: { Authorization: "Bearer token" },
+        body: "{}",
+      }),
+      { params: Promise.resolve({ id: "app-1" }) },
+    );
+    const data = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(data.error).toBe("Vreme za otkazivanje termina je isteklo.");
+    global.fetch = originalFetch;
+  });
+
+  it("update route maps success", async () => {
+    const originalFetch = global.fetch;
+    global.fetch = jest.fn().mockResolvedValue(
+      new Response(JSON.stringify({ appointment: { _id: "app-1", time: "15:00" } }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+
+    const response = await updateAppointmentPUT(
+      new Request("http://localhost/api/external/appointments/app-1/update", {
+        method: "PUT",
+        headers: { Authorization: "Bearer token" },
+        body: JSON.stringify({ time: "15:00" }),
+      }),
+      { params: Promise.resolve({ id: "app-1" }) },
+    );
+    const data = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(data.ok).toBe(true);
+    expect(global.fetch).toHaveBeenCalledWith(
+      expect.stringContaining("/appointments/client/app-1/update"),
+      expect.objectContaining({ method: "PUT" }),
+    );
+    global.fetch = originalFetch;
+  });
+
+  it("useCancelAppointment invalidates appointment queries and emits cancellation event", () => {
+    const source = readFileSync(
+      path.join(process.cwd(), "src/hooks/useAppointmentActions.ts"),
+      "utf8",
+    );
+
+    expect(source).toContain('queryKey: ["appointments"]');
+    expect(source).toContain('queryKey: ["appointments-client"]');
+    expect(source).toContain('type: "APPOINTMENT_CANCELLED"');
+    expect(source).toContain("Termin je otkazan.");
+  });
+
+  it("cancel button is hidden for cancelled and rejected appointments", () => {
+    const source = readFileSync(
+      path.join(process.cwd(), "src/components/blocks/ClientBlockAppointments.tsx"),
+      "utf8",
+    );
+
+    expect(source).toContain("CANCELLABLE_STATUSES");
+    expect(source).toContain('"pending"');
+    expect(source).toContain('"appointment_approved"');
+    expect(source).toContain('"appointment_rescheduled"');
+    expect(source).not.toContain('CANCELLABLE_STATUSES = new Set<IAppointment["status"]>([\n  "appointment_cancelled"');
+  });
+
+  it("expired cancel displays Serbian policy message", () => {
+    expect(mapAppointmentActionError("late_cancel")).toBe(
+      "Vreme za otkazivanje termina je isteklo.",
+    );
+  });
+
+  it("Claudia intent schema supports appointment cancel and update intents", () => {
+    expect(ClaudiaIntentSchema.safeParse("cancel_appointment").success).toBe(true);
+    expect(ClaudiaIntentSchema.safeParse("confirm_cancel_appointment").success).toBe(true);
+    expect(ClaudiaIntentSchema.safeParse("update_appointment").success).toBe(true);
+    expect(ClaudiaIntentSchema.safeParse("confirm_update_appointment").success).toBe(true);
+  });
+
+  it("Maria detects cancel appointment request and hands off to Claudia", async () => {
+    const data = await postMaria({
+      messages: [{ role: "user", content: "Otkaži mi termin" }],
+    });
+    const maria = JSON.parse(data.choices[0].message.content);
+
+    expect(maria.type).toBe("handoff");
+    expect(maria.targetAgent).toBe("appointments");
+    expect(maria.payload).toMatchObject({ intent: "cancel_appointment" });
+  });
+
+  it("Claudia asks confirmation when one active appointment is provided", async () => {
+    const stream = await askAgent(
+      "Otkaži mi termin",
+      true,
+      [],
+      "Milica",
+      false,
+      undefined,
+      {
+        intent: "cancel_appointment",
+        appointments: [
+          {
+            _id: "app-1",
+            status: "appointment_approved",
+            serviceName: "Šminkanje",
+            date: "2026-05-20",
+            time: "14:30",
+          },
+        ],
+      },
+    );
+    const data = JSON.parse(await readStream(stream));
+
+    expect(data.messages[0].content).toContain("Da li želite da ga otkažem");
+    expect(data.intent).toMatchObject({
+      type: "confirm_cancel_appointment",
+      appointmentId: "app-1",
+    });
+  });
+
+  it("Claudia shows appointment list when multiple appointments need a choice", async () => {
+    const stream = await askAgent(
+      "Otkaži mi termin",
+      true,
+      [],
+      "Milica",
+      false,
+      undefined,
+      {
+        intent: "cancel_appointment",
+        appointments: [
+          { _id: "app-1", status: "pending", serviceName: "Šminkanje" },
+          { _id: "app-2", status: "appointment_approved", serviceName: "Feniranje" },
+        ],
+      },
+    );
+    const data = JSON.parse(await readStream(stream));
+
+    expect(data.layout[0]).toMatchObject({
+      type: "CalendarBlock",
+      metadata: { mode: "list", intent: "cancel_appointment" },
+    });
+  });
+
+  it("successful cancel emits APPOINTMENT_CANCELLED action support", () => {
+    const source = readFileSync(
+      path.join(process.cwd(), "src/lib/ai/events/chatEvents.ts"),
+      "utf8",
+    );
+
+    expect(source).toContain('"APPOINTMENT_CANCELLED"');
+    expect(source).toContain("isAppointmentActionEvent");
   });
 });

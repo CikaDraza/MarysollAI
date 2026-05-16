@@ -7,6 +7,10 @@ import { z } from "zod";
 
 export const ClaudiaIntentSchema = z.enum([
   "appointments",
+  "cancel_appointment",
+  "confirm_cancel_appointment",
+  "update_appointment",
+  "confirm_update_appointment",
   "prices",
   "recover_missing_salon",
   "booking",

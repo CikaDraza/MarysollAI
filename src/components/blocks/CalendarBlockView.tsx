@@ -9,7 +9,7 @@ import { CalendarBlockPreview } from "./CalendarBlockPreview";
 
 interface Props {
   block: CalendarBlockType;
-  onAction: (query: string) => void;
+  onAction: (query: string, payload?: Record<string, unknown>) => void;
 }
 
 export function CalendarBlockView({ block, onAction }: Props) {
@@ -76,7 +76,7 @@ export function CalendarBlockView({ block, onAction }: Props) {
                 onBookingSuccess={() => setView("list")}
               />
             ) : (
-              <ClientBlockAppointments />
+              <ClientBlockAppointments onAction={onAction} />
             )}
           </div>
         </div>

@@ -398,6 +398,34 @@ function bookingSearchMessage(input: {
   return `Trenutno nema slobodnih termina za ${service}${place}; mogu da proverim drugi dan ili drugu uslugu.`;
 }
 
+const ACTIVE_APPOINTMENT_STATUSES = new Set([
+  "pending",
+  "appointment_approved",
+  "appointment_rescheduled",
+]);
+
+function readActiveAppointments(payload: Record<string, unknown> | undefined) {
+  const raw = [
+    ...(Array.isArray(payload?.appointments) ? payload.appointments : []),
+    ...(payload?.appointment && typeof payload.appointment === "object"
+      ? [payload.appointment]
+      : []),
+  ];
+  return raw
+    .filter((appointment): appointment is Record<string, unknown> =>
+      Boolean(appointment && typeof appointment === "object"),
+    )
+    .filter((appointment) =>
+      ACTIVE_APPOINTMENT_STATUSES.has(String(appointment.status)),
+    );
+}
+
+function appointmentDateTimeText(appointment: Record<string, unknown>): string {
+  const date = String(appointment.date ?? "");
+  const time = String(appointment.time ?? "");
+  return [date, time].filter(Boolean).join(" u ");
+}
+
 export async function askAgent(
   userInput: string,
   isAuthenticated: boolean,
@@ -457,6 +485,191 @@ export async function askAgent(
             },
       ],
       intent: { type: "appointments" },
+    });
+  }
+
+  if (handoffPayload?.intent === "cancel_appointment") {
+    const activeAppointments = readActiveAppointments(handoffPayload);
+    if (!isAuthenticated) {
+      return streamJson({
+        messages: [
+          {
+            role: "assistant",
+            content: "Prijavi se da možeš da otkažeš termin.",
+            attachToBlockType: "AuthBlock",
+          },
+        ],
+        layout: [
+          {
+            type: "AuthBlock",
+            priority: 1,
+            metadata: {
+              mode: "login",
+              intent: "cancel_appointment",
+              serviceId: "",
+              serviceName: "",
+              variantName: "",
+            },
+          },
+        ],
+        intent: { type: "cancel_appointment" },
+      });
+    }
+    if (activeAppointments.length === 1) {
+      const appointment = activeAppointments[0];
+      const service = String(appointment.serviceName ?? "termin");
+      return streamJson({
+        messages: [
+          {
+            role: "assistant",
+            content: `Pronašla sam termin za ${service} ${appointmentDateTimeText(appointment)}. Da li želite da ga otkažem?`,
+            attachToBlockType: "none",
+          },
+        ],
+        layout: [],
+        intent: {
+          type: "confirm_cancel_appointment",
+          appointmentId: appointment._id,
+        },
+      });
+    }
+    if (activeAppointments.length > 1 || !handoffPayload?.appointments) {
+      return streamJson({
+        messages: [
+          {
+            role: "assistant",
+            content: "Izaberi termin koji želiš da otkažeš.",
+            attachToBlockType: "CalendarBlock",
+          },
+        ],
+        layout: [
+          {
+            type: "CalendarBlock",
+            priority: 1,
+            metadata: {
+              mode: "list",
+              intent: "cancel_appointment",
+              serviceId: "",
+              serviceName: "",
+              variantName: "",
+            },
+          },
+        ],
+        intent: { type: "cancel_appointment" },
+      });
+    }
+    return streamJson({
+      messages: [
+        {
+          role: "assistant",
+          content: "Nemate aktivnih termina za otkazivanje.",
+        },
+      ],
+      layout: [],
+      intent: { type: "cancel_appointment" },
+    });
+  }
+
+  if (handoffPayload?.intent === "update_appointment") {
+    const activeAppointments = readActiveAppointments(handoffPayload);
+    if (!isAuthenticated) {
+      return streamJson({
+        messages: [
+          {
+            role: "assistant",
+            content: "Prijavi se da možeš da promeniš termin.",
+            attachToBlockType: "AuthBlock",
+          },
+        ],
+        layout: [
+          {
+            type: "AuthBlock",
+            priority: 1,
+            metadata: {
+              mode: "login",
+              intent: "update_appointment",
+              serviceId: "",
+              serviceName: "",
+              variantName: "",
+            },
+          },
+        ],
+        intent: { type: "update_appointment" },
+      });
+    }
+    if (activeAppointments.length === 1) {
+      const appointment = activeAppointments[0];
+      const service = String(appointment.serviceName ?? "");
+      const city = String(appointment.city ?? appointment.salonCity ?? "");
+      const salonId = String(appointment.salonId ?? "");
+      const salonName = String(appointment.salonName ?? "");
+      if (service && city) {
+        const searchResult = await runBookingSearch({
+          service,
+          city,
+          salonId,
+          salonName,
+        });
+        const alternatives = searchResult.results
+          .filter((slot) => !salonId || slot.salonId === salonId)
+          .slice(0, 3);
+        return streamJson({
+          messages: [
+            {
+              role: "assistant",
+              content:
+                alternatives.length > 0
+                  ? "Pronašla sam nekoliko slobodnih alternativa za isti termin."
+                  : "Trenutno ne vidim slobodne alternative za taj termin.",
+              attachToBlockType:
+                alternatives.length > 0 ? "AppointmentCalendarBlock" : "none",
+            },
+          ],
+          layout:
+            alternatives.length > 0
+              ? [
+                  buildAppointmentBlock({
+                    service,
+                    city,
+                    salonId: salonId || undefined,
+                    salonName: salonName || undefined,
+                    slots: alternatives,
+                  }),
+                ]
+              : [],
+          intent: {
+            type: "confirm_update_appointment",
+            appointmentId: appointment._id,
+          },
+        });
+      }
+    }
+
+    return streamJson({
+      messages: [
+        {
+          role: "assistant",
+          content:
+            activeAppointments.length === 1
+              ? "Proveravam najbliže slobodne alternative za isti termin."
+              : "Izaberi termin koji želiš da promeniš.",
+          attachToBlockType: "CalendarBlock",
+        },
+      ],
+      layout: [
+        {
+          type: "CalendarBlock",
+          priority: 1,
+          metadata: {
+            mode: "list",
+            intent: "update_appointment",
+            serviceId: "",
+            serviceName: "",
+            variantName: "",
+          },
+        },
+      ],
+      intent: { type: "update_appointment" },
     });
   }
 

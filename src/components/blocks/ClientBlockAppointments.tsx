@@ -1,3 +1,4 @@
+"use client";
 // blocks/ClientBlockAppointments.tsx
 import { useEffect, useMemo, useState } from "react";
 import { IAppointment } from "@/types/appointments-type";
@@ -6,9 +7,13 @@ import { formatISODate } from "@/helpers/formatISODate";
 import MiniLoader from "../MiniLoader";
 import Paginator from "../Paginator";
 import { useAuthActions } from "@/hooks/useAuthActions";
+import { useCancelAppointment } from "@/hooks/useAppointmentActions";
 
 interface ClientAppointmentListItemProps {
   appointment: IAppointment;
+  onCancel: (appointment: IAppointment) => void;
+  onChange: (appointment: IAppointment) => void;
+  isCancelling?: boolean;
 }
 
 function normalizeText(value: string | undefined) {
@@ -23,11 +28,32 @@ function normalizeClientId(value: unknown): string {
   return typeof id === "string" ? id : "";
 }
 
+const CANCELLABLE_STATUSES = new Set<IAppointment["status"]>([
+  "pending",
+  "appointment_approved",
+  "appointment_rescheduled",
+]);
+
+export function isClientCancellableAppointment(
+  appointment: IAppointment,
+): boolean {
+  if (!CANCELLABLE_STATUSES.has(appointment.status)) return false;
+  const startsAt = new Date(`${appointment.date}T${appointment.time}`);
+  if (!Number.isNaN(startsAt.getTime()) && startsAt.getTime() < Date.now()) {
+    return false;
+  }
+  return true;
+}
+
 // AppointmentListItem deo
 function ClientAppointmentListItem({
   appointment,
+  onCancel,
+  onChange,
+  isCancelling,
 }: ClientAppointmentListItemProps) {
   const currentAppointment = appointment;
+  const canCancel = isClientCancellableAppointment(currentAppointment);
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -68,6 +94,7 @@ function ClientAppointmentListItem({
                 "Pomerano"}
               {currentAppointment.status === "appointment_cancelled" &&
                 "Otkazano"}
+              {currentAppointment.status === "completed" && "Završeno"}
             </span>
           </div>
           <p className="mt-1 text-xs/5 text-gray-500">
@@ -89,6 +116,14 @@ function ClientAppointmentListItem({
                 )}
               </p>
             )}
+          {currentAppointment.appointmentReliability?.cancellationDeadline && (
+            <p className="mt-1 text-xs text-gray-500">
+              Otkazivanje moguće do:{" "}
+              {formatISODate(
+                currentAppointment.appointmentReliability.cancellationDeadline,
+              )}
+            </p>
+          )}
         </div>
       </div>
 
@@ -111,14 +146,38 @@ function ClientAppointmentListItem({
             </time>
           </p>
         </div>
+        {canCancel && (
+          <div className="mt-3 flex flex-wrap justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => onChange(currentAppointment)}
+              className="rounded-lg border border-gray-200 px-3 py-2 text-xs font-semibold text-gray-700 hover:border-gray-300 hover:bg-gray-50"
+            >
+              Promeni termin
+            </button>
+            <button
+              type="button"
+              onClick={() => onCancel(currentAppointment)}
+              disabled={isCancelling}
+              className="rounded-lg border border-red-200 px-3 py-2 text-xs font-semibold text-red-700 hover:border-red-300 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isCancelling ? "Otkazujem..." : "Otkaži termin"}
+            </button>
+          </div>
+        )}
       </div>
     </li>
   );
 }
 
-export default function ClientBlockAppointments() {
+export default function ClientBlockAppointments({
+  onAction,
+}: {
+  onAction?: (query: string, payload?: Record<string, unknown>) => void;
+}) {
   const [page, setPage] = useState(1);
   const [authChecked, setAuthChecked] = useState(false);
+  const [cancelTarget, setCancelTarget] = useState<IAppointment | null>(null);
   const {
     token,
     user,
@@ -150,6 +209,7 @@ export default function ClientBlockAppointments() {
     limit: 10,
     enabled: authChecked && !!token,
   });
+  const cancelAppointment = useCancelAppointment(token ?? undefined);
 
   const appointments = useMemo(() => {
     const all = response?.appointments || [];
@@ -160,10 +220,14 @@ export default function ClientBlockAppointments() {
 
     const matched = all.filter((appointment) => {
       const appointmentClientId = normalizeClientId(appointment.clientId);
+      const appointmentClientProfileId = normalizeClientId(
+        appointment.clientProfileId,
+      );
       const appointmentEmail = normalizeText(appointment.clientEmail);
 
       return (
         (!!userId && appointmentClientId === userId) ||
+        (!!userId && appointmentClientProfileId === userId) ||
         (!!userEmail && appointmentEmail === userEmail)
       );
     });
@@ -180,6 +244,24 @@ export default function ClientBlockAppointments() {
 
   const handlePageChange = (newPage: number) => {
     setPage(newPage);
+  };
+
+  const confirmCancel = () => {
+    if (!cancelTarget?._id) return;
+    cancelAppointment.mutate({
+      id: cancelTarget._id,
+      appointment: cancelTarget,
+    });
+    setCancelTarget(null);
+  };
+
+  const handleChangeAppointment = (appointment: IAppointment) => {
+    if (!appointment._id) return;
+    onAction?.(`Želim da promenim termin ${appointment._id}`, {
+      intent: "update_appointment",
+      appointmentId: appointment._id,
+      appointment,
+    });
   };
 
   if (isAuthLoading || !authChecked || (token && isLoading)) {
@@ -207,9 +289,42 @@ export default function ClientBlockAppointments() {
               <ClientAppointmentListItem
                 key={appointment._id}
                 appointment={appointment}
+                onCancel={setCancelTarget}
+                onChange={handleChangeAppointment}
+                isCancelling={cancelAppointment.isPending}
               />
             ))}
           </ul>
+          {cancelTarget && (
+            <div
+              className="fixed inset-0 z-[90] flex items-center justify-center bg-black/40 px-4"
+              role="dialog"
+              aria-modal="true"
+            >
+              <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
+                <p className="text-sm font-semibold text-gray-900">
+                  Da li želite da otkažete termin za {cancelTarget.serviceName}{" "}
+                  {formatISODate(`${cancelTarget.date}T${cancelTarget.time}`)}?
+                </p>
+                <div className="mt-5 flex justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setCancelTarget(null)}
+                    className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-semibold text-gray-700"
+                  >
+                    Ne
+                  </button>
+                  <button
+                    type="button"
+                    onClick={confirmCancel}
+                    className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white"
+                  >
+                    Otkaži termin
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
           {/* Paginator */}
           {pagination && pagination.totalPages > 1 && (
             <Paginator

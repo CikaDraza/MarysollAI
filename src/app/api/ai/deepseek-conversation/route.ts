@@ -98,6 +98,19 @@ function isAppointmentsIntent(text: string): boolean {
   );
 }
 
+function getAppointmentManagementIntent(
+  text: string,
+): "cancel_appointment" | "update_appointment" | null {
+  const normalized = text.toLowerCase();
+  if (/\b(otkaži|otkazi|otkazem|otkažem|otkazivanje|cancel)\b/.test(normalized)) {
+    return "cancel_appointment";
+  }
+  if (/\b(promeni|promenim|pomeri|pomerim|izmeni|izmenim|reschedule)\b/.test(normalized)) {
+    return "update_appointment";
+  }
+  return null;
+}
+
 function isPricesIntent(text: string): boolean {
   const normalized = text.toLowerCase();
   return /\b(cenovnik|cene|cena|koliko košta|koliko kosta|price list)\b/.test(normalized);
@@ -340,6 +353,37 @@ export async function POST(req: Request) {
           handoffTriggered: true,
           targetAgent: "auth",
           replyMode: "auth_handoff",
+        },
+      });
+    }
+
+    const appointmentManagementIntent = getAppointmentManagementIntent(latestUserText);
+    if (appointmentManagementIntent) {
+      return responseFromAssistant({
+        message:
+          appointmentManagementIntent === "cancel_appointment"
+            ? "U redu, proveravam koji termin želite da otkažete."
+            : "U redu, proveravam koji termin želite da promenite.",
+        intent: lastIntent,
+        selectedSlot,
+        aiBookingState: aiBookingStateBefore,
+        pendingContact,
+        mariaType: "handoff",
+        targetAgent: "appointments",
+        payload: { intent: appointmentManagementIntent },
+        aiDebug: {
+          rawExtractedIntent: undefined,
+          mergedIntent: lastIntent,
+          lastIntent,
+          lastRecoveryState,
+          selectedSlotExists: Boolean(selectedSlot),
+          contactDetected: false,
+          aiBookingStateBefore,
+          aiBookingStateAfter: aiBookingStateBefore,
+          skippedSearchReason: `${appointmentManagementIntent}_preflight`,
+          handoffTriggered: true,
+          targetAgent: "appointments",
+          replyMode: appointmentManagementIntent,
         },
       });
     }

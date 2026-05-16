@@ -4,13 +4,30 @@ import {
   AgentResponseEvent,
   AgentCompleteEvent,
 } from "@/types/ai/deepseek/agent-call";
+import type { IAppointment } from "@/types/appointments-type";
 
 // lib/events/chatEvents.ts
-type ChatEventType = "CALL_AGENT" | "AGENT_RESPONSE" | "AGENT_COMPLETE";
+type ChatEventType =
+  | "CALL_AGENT"
+  | "AGENT_RESPONSE"
+  | "AGENT_COMPLETE"
+  | "APPOINTMENT_CANCELLED"
+  | "APPOINTMENT_UPDATED";
+export interface AppointmentActionEvent {
+  type: "APPOINTMENT_CANCELLED" | "APPOINTMENT_UPDATED";
+  payload: {
+    appointment?: IAppointment;
+    appointmentId?: string;
+    date?: string;
+    time?: string;
+  };
+  timestamp: number;
+}
 export type ChatEvent =
   | AgentCallEvent
   | AgentResponseEvent
-  | AgentCompleteEvent;
+  | AgentCompleteEvent
+  | AppointmentActionEvent;
 
 export const isAgentCallEvent = (event: ChatEvent): event is AgentCallEvent =>
   event.type === "CALL_AGENT";
@@ -22,6 +39,11 @@ export const isAgentResponseEvent = (
 export const isAgentCompleteEvent = (
   event: ChatEvent,
 ): event is AgentCompleteEvent => event.type === "AGENT_COMPLETE";
+
+export const isAppointmentActionEvent = (
+  event: ChatEvent,
+): event is AppointmentActionEvent =>
+  event.type === "APPOINTMENT_CANCELLED" || event.type === "APPOINTMENT_UPDATED";
 
 type EventListener = (event: ChatEvent) => void;
 
