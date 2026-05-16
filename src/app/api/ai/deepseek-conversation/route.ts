@@ -5,8 +5,6 @@ import { fetchPlatformKnowledge } from "@/lib/ai/platform-knowledge";
 import { parseMariaResponse } from "@/lib/ai/schemas/maria.schema";
 import { extractBookingIntentFromConversation } from "@/lib/ai/extractBookingIntentFromConversation";
 import { detectCityAvailabilityQuestion } from "@/lib/ai/detectCityAvailabilityQuestion";
-import { runBookingSearch } from "@/lib/search/runBookingSearch";
-import { buildBookingAssistantReply } from "@/lib/ai/buildBookingAssistantReply";
 import { detectSlotSelectionIntent } from "@/lib/ai/detectSlotSelectionIntent";
 import { detectBookingConfirmation } from "@/lib/ai/detectBookingConfirmation";
 import { detectContactInfo } from "@/lib/ai/detectContactInfo";
@@ -210,13 +208,14 @@ Bez markdown blokova. Bez code fence. Bez objašnjenja.
   "type": "answer" | "handoff",
   "message": "kratka rečenica korisniku",
   "targetAgent": "booking" | "auth" | "prices" | "appointments" | "testimonials" | "none",
-  "payload": { "intent": "...", "service": "...", "city": "...", "date": "YYYY-MM-DD", "time": "HH:MM" }
+  "payload": { "intent": "...", "category": "...", "subcategory": "...", "service": "...", "serviceId": "...", "serviceName": "...", "city": "...", "salonId": "...", "salonName": "...", "date": "YYYY-MM-DD", "time": "HH:MM", "timeWindowStart": 15, "timeWindowEnd": null }
 }
 
 ## Pravila:
 - "answer" → targetAgent UVEK "none". Payload se ignoriše.
 - "handoff" → targetAgent OBAVEZNO jedan od: booking, auth, prices, appointments, testimonials.
 - "payload" je opcionalno; popuni samo polja koja korisnik EKSPLICITNO pomenuo.
+- Ako korisnik kaže "posle 15h", popuni "timeWindowStart":15 i "timeWindowEnd":null. Ne pretvaraj to samo u "time":"15:00".
 - "message" je UVEK kratka rečenica (1 rečenica) na jeziku korisnika.
 
 ## Primeri
@@ -648,100 +647,57 @@ export async function POST(req: Request) {
         detectedCityQuestion: cityQuestion.detected,
       })
     ) {
-      try {
-        const searchResult = await withTimeout(
-          runBookingSearch(extractedIntent),
-          AI_TIMEOUT_MS,
-          "booking search",
-        );
-        const reply = buildBookingAssistantReply({
-          intent: extractedIntent,
-          searchResult,
-          acceptedEffectiveCity: Boolean(
-            lastRecoveryState?.effectiveCity &&
-              extractedIntent.requestedCity === lastRecoveryState.effectiveCity &&
-              lastRecoveryState.requestedCity !== lastRecoveryState.effectiveCity,
-          ),
-        });
-        const aiDebug = {
-          rawExtractedIntent,
-          mergedIntent: extractedIntent,
-          lastIntent,
-          lastRecoveryState,
-          selectedSlotExists: Boolean(selectedSlot),
-          contactDetected: contactInfo.hasContactInfo,
-          aiBookingStateBefore,
-          aiBookingStateAfter: "showing_options",
-          extractedIntent,
-          previousServiceIntent,
-          detectedCityQuestion: cityQuestion.detected,
-          requestedCity: searchResult.recoveryState?.requestedCity,
-          effectiveCity: searchResult.recoveryState?.effectiveCity,
-          recoveryScenario: searchResult.recoveryState?.recoveryScenario,
-          searchResultsCount: searchResult.results.length,
-          slotSelectionChecked: true,
-          slotSelectionMatched: false,
-          slotSelectionConfidence: slotSelection.confidence,
-          skippedSearchBecauseSlotSelected: false,
-          previousSlotsCount: lastOfferedSlots.length,
-          aiBookingState: "showing_options",
-          skippedSearchReason: undefined,
-          handoffTriggered: false,
-          targetAgent: "none",
-          replyMode: reply.replyMode,
-        };
-        if (process.env.NODE_ENV !== "production") {
-          console.debug("[AI_SEARCH_ORCHESTRATOR]", aiDebug);
-        }
-        return responseFromAssistant({
-          message: reply.text,
-          intent: extractedIntent,
-          recoveryState: searchResult.recoveryState,
-          slots: reply.slots,
-          suggestions: reply.suggestedActions ?? searchResult.suggestions,
-          aiBookingState: "showing_options",
-          pendingContact,
-          aiDebug,
-        });
-      } catch (error) {
-        const message =
-          "Trenutno ne mogu pouzdano da proverim termine. Pokušajte ponovo za trenutak.";
-        const aiDebug = {
-          rawExtractedIntent,
-          mergedIntent: extractedIntent,
-          lastIntent,
-          lastRecoveryState,
-          selectedSlotExists: Boolean(selectedSlot),
-          contactDetected: contactInfo.hasContactInfo,
-          aiBookingStateBefore,
-          aiBookingStateAfter: "searching",
-          extractedIntent,
-          previousServiceIntent,
-          detectedCityQuestion: cityQuestion.detected,
-          requestedCity: extractedIntent.requestedCity,
-          effectiveCity: undefined,
-          recoveryScenario: undefined,
-          searchResultsCount: 0,
-          slotSelectionChecked: true,
-          slotSelectionMatched: false,
-          slotSelectionConfidence: slotSelection.confidence,
-          skippedSearchBecauseSlotSelected: false,
-          previousSlotsCount: lastOfferedSlots.length,
-          aiBookingState: "searching",
-          skippedSearchReason: undefined,
-          handoffTriggered: false,
-          targetAgent: "none",
-          replyMode: "search_error",
-          errorReason: error instanceof Error ? error.message : String(error),
-        };
-        console.error("[AI_SEARCH_ORCHESTRATOR_ERROR]", aiDebug);
-        return responseFromAssistant({
-          message,
-          intent: extractedIntent,
-          aiDebug,
-          error: aiDebug.errorReason,
-        });
-      }
+      const handoffPayload = {
+        intent: "booking",
+        ...extractedIntent,
+      };
+      const aiDebug = {
+        rawExtractedIntent,
+        mergedIntent: extractedIntent,
+        lastIntent,
+        lastRecoveryState,
+        selectedSlotExists: Boolean(selectedSlot),
+        contactDetected: contactInfo.hasContactInfo,
+        aiBookingStateBefore,
+        aiBookingStateAfter: "searching",
+        extractedIntent,
+        previousServiceIntent,
+        detectedCityQuestion: cityQuestion.detected,
+        requestedCity: extractedIntent.requestedCity,
+        timeWindowStart: extractedIntent.timeWindowStart,
+        timeWindowEnd: extractedIntent.timeWindowEnd,
+        slotSelectionChecked: true,
+        slotSelectionMatched: false,
+        slotSelectionConfidence: slotSelection.confidence,
+        skippedSearchBecauseSlotSelected: false,
+        previousSlotsCount: lastOfferedSlots.length,
+        aiBookingState: "searching",
+        skippedSearchReason: "booking_handoff_to_claudia",
+        handoffTriggered: true,
+        targetAgent: "booking",
+        replyMode: "booking_handoff",
+      };
+      console.debug("[AI_INTENT]", {
+        originalUserMessage: latestUserText,
+        parsedPayload: handoffPayload,
+        timeWindowStart: extractedIntent.timeWindowStart,
+        timeWindowEnd: extractedIntent.timeWindowEnd,
+      });
+      console.debug("[AI_HANDOFF]", {
+        originalUserMessage: latestUserText,
+        targetAgent: "booking",
+        parsedPayload: handoffPayload,
+      });
+      return responseFromAssistant({
+        message: "Tražim slobodne termine za tebe.",
+        intent: extractedIntent,
+        aiBookingState: "searching",
+        pendingContact,
+        mariaType: "handoff",
+        targetAgent: "booking",
+        payload: handoffPayload,
+        aiDebug,
+      });
     }
 
     const { salonsText, servicesText, citiesText, categoriesText } =

@@ -14,7 +14,7 @@ import { useCityContext } from "@/context/landing/CityContext";
 import { useFilters } from "@/context/landing/FiltersContext";
 import { useSearchContext } from "@/context/landing/SearchContext";
 import { useBookingModal } from "@/context/landing/BookingModalContext";
-import type { FlatSlot, SearchResult } from "@/types/slots";
+import type { SearchResult } from "@/types/slots";
 import { rankSearchResults } from "@/lib/search/rankSearchResults";
 import {
   resolveFallbackPolicy,
@@ -188,7 +188,7 @@ export default function QuickAccess() {
   const { data: salons = [], isLoading: salonsLoading } = useSalons(cityName);
 
   const onPick = (slot: QuickSlot, position: number) => {
-    const flatSlot: FlatSlot = {
+    const flatSlot = {
       salonId: slot.salonId,
       salonName: slot.salonName,
       serviceId: slot.serviceId,
@@ -196,6 +196,8 @@ export default function QuickAccess() {
       category: slot.serviceCategory,
       startTime: slot.startTime,
       city: slot.city,
+      price: slot.servicePrice,
+      serviceDuration: slot.serviceDuration,
     };
     // Phase 2.5D Task 3 — analytics on click + fallback conversion.
     const slotId = `${slot.salonId}|${slot.startTime}|${slot.serviceId ?? ""}`;

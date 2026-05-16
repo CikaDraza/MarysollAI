@@ -428,6 +428,12 @@ export function CalendarBlockPreview({ onSlotClick, onBookingSuccess }: Props) {
                           serviceName: selectedServiceName,
                           category: "",
                           startTime,
+                          price:
+                            services.find((s) => s._id === selectedServiceId)?.basePrice ??
+                            services.find((s) => s._id === selectedServiceId)?.price ??
+                            undefined,
+                          serviceDuration:
+                            services.find((s) => s._id === selectedServiceId)?.duration,
                         },
                         onBookingSuccess,
                       );

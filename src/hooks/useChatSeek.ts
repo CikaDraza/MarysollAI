@@ -14,6 +14,7 @@ import {
   Message,
   ChatSession,
 } from "@/types/ai/deepseek";
+import { bookingFlow } from "@/lib/ai/booking-flow-state";
 import { UsageStats } from "@/types/ai/deepseek/usage";
 import type { SearchResult } from "@/types/slots";
 import type {
@@ -155,6 +156,7 @@ export function useChatSeek(
     lastIntentRef.current = undefined;
     lastRecoveryStateRef.current = undefined;
     pendingContactRef.current = undefined;
+    bookingFlow.get().reset();
   }, []);
 
   const updateSession = useCallback(
@@ -291,9 +293,11 @@ export function useChatSeek(
             ? {
                 type: mariaResponse.targetAgent as AgentType,
                 originalMessage: replyText,
+                originalUserMessage: newMessage,
                 userIntent: mariaResponse.targetAgent,
                 timestamp: Date.now(),
                 payload: (mariaResponse.payload ?? {}) as Record<string, unknown>,
+                history: updatedMessages,
               }
             : null;
 
@@ -316,7 +320,8 @@ export function useChatSeek(
           payload: {
             agentType: agentCall.type,
             userMessage: agentCall.originalMessage,
-            history: messages.map(({ id, role, content, createdAt }) => ({
+            originalUserMessage: agentCall.originalUserMessage,
+            history: (agentCall.history ?? messages).map(({ id, role, content, createdAt }) => ({
               id,
               role,
               content,
@@ -367,6 +372,7 @@ export function useChatSeek(
     lastIntentRef.current = undefined;
     lastRecoveryStateRef.current = undefined;
     pendingContactRef.current = undefined;
+    bookingFlow.get().reset();
     lastActivityAtRef.current = Date.now();
     setUsage(null);
   }, [currentSession, updateSession]);
@@ -397,6 +403,7 @@ export function useChatSeek(
     lastIntentRef.current = undefined;
     lastRecoveryStateRef.current = undefined;
     pendingContactRef.current = undefined;
+    bookingFlow.get().reset();
     lastActivityAtRef.current = Date.now();
     setUsage(null);
   }, [createNewSession]);

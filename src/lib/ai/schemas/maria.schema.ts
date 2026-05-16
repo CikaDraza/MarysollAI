@@ -16,13 +16,32 @@ export const MariaTargetAgentSchema = z.enum([
 ]);
 export type MariaTargetAgent = z.infer<typeof MariaTargetAgentSchema>;
 
+const OptionalHourSchema = z.preprocess(
+  (value) => {
+    if (typeof value === "string" && value.trim() !== "") return Number(value);
+    return value;
+  },
+  z.number().nullable().optional(),
+);
+
 export const MariaPayloadSchema = z
   .object({
     intent: z.string().optional(),
+    category: z.string().optional(),
+    subcategory: z.string().optional(),
     service: z.string().optional(),
+    serviceId: z.string().optional(),
+    serviceName: z.string().optional(),
     city: z.string().optional(),
+    requestedCity: z.string().optional(),
+    salonId: z.string().optional(),
+    salonName: z.string().optional(),
     date: z.string().optional(),
+    dateMode: z.string().optional(),
     time: z.string().optional(),
+    timeWindowStart: OptionalHourSchema,
+    timeWindowEnd: OptionalHourSchema,
+    queryType: z.string().optional(),
     selectedSlot: z.unknown().optional(),
     contact: z.unknown().optional(),
     aiBookingState: z.string().optional(),

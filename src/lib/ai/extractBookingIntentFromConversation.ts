@@ -30,9 +30,9 @@ function detectCity(text: string): string | undefined {
 function extractService(text: string): string | undefined {
   const normalized = normalizeSemanticTerm(text);
   for (const bucket of Object.values(SERVICE_SEMANTIC_MAP)) {
-    const term = bucket.terms.find((candidate) =>
-      normalized.includes(normalizeSemanticTerm(candidate)),
-    );
+    const term = [...bucket.terms]
+      .sort((a, b) => normalizeSemanticTerm(b).length - normalizeSemanticTerm(a).length)
+      .find((candidate) => normalized.includes(normalizeSemanticTerm(candidate)));
     if (term) {
       if (bucket.canonicalCategory === "Masaža" && normalized.includes("tela")) {
         return "masaža tela";
@@ -103,6 +103,72 @@ function parseEarliestTime(text: string): string | undefined {
   return `${String(hour).padStart(2, "0")}:00`;
 }
 
+function dateInBelgrade(offsetDays: number): string {
+  const date = new Date();
+  date.setDate(date.getDate() + offsetDays);
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Belgrade",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(date);
+}
+
+function parseDateIntent(text: string): {
+  date?: string;
+  dateMode?: StructuredBookingIntent["dateMode"];
+} {
+  const normalized = normalizeSemanticTerm(text);
+  if (/\bdanas\b/.test(normalized)) {
+    return { date: dateInBelgrade(0), dateMode: "today" };
+  }
+  if (/\bsutra\b/.test(normalized)) {
+    return { date: dateInBelgrade(1), dateMode: "tomorrow" };
+  }
+  if (/\bprekosutra\b/.test(normalized)) {
+    return { date: dateInBelgrade(2), dateMode: "specific_date" };
+  }
+  if (/\bvikend\b|\bweekend\b/.test(normalized)) {
+    return { dateMode: "weekend" };
+  }
+  return {};
+}
+
+function parseTimeWindow(text: string): {
+  time?: string;
+  timeWindowStart?: number | null;
+  timeWindowEnd?: number | null;
+} {
+  const normalized = normalizeSemanticTerm(text);
+  const afterMatch = normalized.match(/(?:posle|poslije|nakon|iza)\s+([a-z0-9]+)/);
+  const afterHour = afterMatch ? parseHourWord(afterMatch[1]) : undefined;
+  if (afterHour != null) {
+    return {
+      timeWindowStart: afterHour,
+      timeWindowEnd: null,
+      time: undefined,
+    };
+  }
+
+  if (/\bujutru\b|\bjutro\b/.test(normalized)) {
+    return { timeWindowStart: 8, timeWindowEnd: 12 };
+  }
+  if (/\bpopodne\b/.test(normalized)) {
+    return { timeWindowStart: 12, timeWindowEnd: 17 };
+  }
+  if (/\bveceras\b|\bvečeras\b/.test(normalized)) {
+    return { timeWindowStart: 18, timeWindowEnd: null };
+  }
+
+  const atMatch = normalized.match(/\bu\s+([a-z0-9]+)(?:\s+casova|\s+sati)?/);
+  const atHour = atMatch ? parseHourWord(atMatch[1]) : undefined;
+  if (atHour != null) {
+    return { time: `${String(atHour).padStart(2, "0")}:00` };
+  }
+
+  return {};
+}
+
 export function extractBookingIntentFromConversation(input: {
   messages: ConversationMessage[];
   currentCity?: string;
@@ -119,6 +185,8 @@ export function extractBookingIntentFromConversation(input: {
     previousCity(previousMessages) ??
     input.currentCity;
   const earliestTime = parseEarliestTime(lastText);
+  const dateIntent = parseDateIntent(lastText);
+  const timeWindow = parseTimeWindow(lastText);
   const normalized = normalizeSearchIntent({
     rawQuery: service,
     city: requestedCity,
@@ -130,7 +198,12 @@ export function extractBookingIntentFromConversation(input: {
     category: normalized.categoryKey,
     requestedCity,
     city: requestedCity,
-    earliestTime,
+    ...dateIntent,
+    ...timeWindow,
+    earliestTime:
+      timeWindow.timeWindowStart != null
+        ? `${String(timeWindow.timeWindowStart).padStart(2, "0")}:00`
+        : earliestTime,
     queryType:
       service && requestedCity
         ? "service_and_city"

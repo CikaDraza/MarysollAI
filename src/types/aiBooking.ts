@@ -17,6 +17,7 @@ export interface AiBookingContact {
   name?: string;
   phone?: string;
   email?: string;
+  instagram?: string;
 }
 
 export interface AiBookingMemory {

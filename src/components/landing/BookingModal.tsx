@@ -1,20 +1,24 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { XMarkIcon, CheckCircleIcon } from "@heroicons/react/24/outline";
 import toast from "react-hot-toast";
 import { useAuthActions } from "@/hooks/useAuthActions";
 import { useBookingModal } from "@/context/landing/BookingModalContext";
 import { useLandingUI } from "@/context/landing/LandingUIContext";
 import { useAIContext } from "@/context/landing/AIContext";
-
-function formatTime(iso: string): string {
-  try {
-    return new Date(iso).toLocaleTimeString("sr-Latn", { hour: "2-digit", minute: "2-digit" });
-  } catch {
-    return iso.slice(11, 16);
-  }
-}
+import {
+  buildBookingContactPayload,
+  getUserInstagram,
+  getUserPhone,
+  isBookingConflict,
+  BOOKING_CONFLICT_MESSAGE,
+  mapBookingErrorMessage,
+  normalizeBookingPayload,
+  validateContactForm,
+  validateBookingPayload,
+} from "@/lib/booking/bookingPayload";
+import type { SearchApiResponse, SearchResult } from "@/types/slots";
 
 function formatPrice(price?: number): string {
   if (!price) return "";
@@ -22,10 +26,19 @@ function formatPrice(price?: number): string {
 }
 
 export default function BookingModal() {
-  const { modalSlot: slot, closeModal: onClose, triggerSuccess } = useBookingModal();
+  const {
+    modalSlot: slot,
+    recoveryRequest,
+    closeModal: onClose,
+    clearRecovery,
+    openModal,
+    persistPendingBooking,
+    triggerSuccess,
+  } = useBookingModal();
   const { setConfirmed, setDrawerOpen } = useLandingUI();
-  const { sendMessage } = useAIContext();
+  const { sendToOrchestrator } = useAIContext();
   const { user, isLoading: authLoading } = useAuthActions();
+  const bookingPayload = useMemo(() => normalizeBookingPayload(slot), [slot]);
 
   const onConfirm = () => {
     onClose();
@@ -33,12 +46,23 @@ export default function BookingModal() {
   };
 
   const onLoginRequest = () => {
+    if (slot) {
+      persistPendingBooking(slot);
+    }
     onClose();
     setDrawerOpen(true);
-    sendMessage("Želim da se prijavim da bih nastavila zakazivanje ovog termina.");
+    sendToOrchestrator(
+      "Želim da se prijavim da bih nastavila zakazivanje ovog termina.",
+      {
+        intent: "login_for_booking",
+        selectedSlot: slot,
+        aiBookingState: "auth_required",
+      },
+    );
   };
   const [formName, setFormName] = useState("");
   const [formPhone, setFormPhone] = useState("");
+  const [formEmail, setFormEmail] = useState("");
   const [formInstagram, setFormInstagram] = useState("");
   const [formError, setFormError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -46,10 +70,12 @@ export default function BookingModal() {
   // Pre-fill form when user loads (handles page-refresh case where phone may be missing)
   useEffect(() => {
     setFormName(user?.name ?? "");
-    setFormPhone(user?.phone ?? user?.phoneNumber ?? user?.mobile ?? user?.mobilePhone ?? "");
-    setFormInstagram(user?.instagram ?? user?.instagramUsername ?? "");
+    setFormPhone(getUserPhone(user));
+    setFormEmail(user?.email ?? "");
+    setFormInstagram(getUserInstagram(user));
     setFormError("");
   }, [
+    user?.email,
     user?.name,
     user?.phone,
     user?.phoneNumber,
@@ -60,24 +86,185 @@ export default function BookingModal() {
     slot,
   ]);
 
+  useEffect(() => {
+    if (!slot) return;
+    console.debug("[BOOKING_PREFILL]", {
+      selectedSlot: slot,
+      authState: {
+        isAuthenticated: Boolean(user),
+        userName: user?.name,
+      },
+      restoredBookingState: {
+        salonId: slot.salonId,
+        salonName: slot.salonName,
+        serviceId: slot.serviceId,
+        serviceName: slot.serviceName,
+        category: slot.category,
+        date: bookingPayload?.date,
+        time: bookingPayload?.time,
+        price: slot.price,
+        duration: bookingPayload?.duration,
+        city: slot.city,
+        clientName: user?.name,
+        clientPhone: user?.phone ?? user?.phoneNumber ?? user?.mobile ?? user?.mobilePhone,
+        instagram: user?.instagram ?? user?.instagramUsername,
+      },
+    });
+  }, [bookingPayload, slot, user]);
+
+  useEffect(() => {
+    if (!recoveryRequest) return;
+
+    let cancelled = false;
+    const recover = async () => {
+      const normalized = recoveryRequest.normalizedPayload;
+      const service =
+        normalized?.serviceName || recoveryRequest.originalSlot.serviceName || "";
+      const city = normalized?.city || recoveryRequest.originalSlot.city || "";
+      const date = normalized?.date;
+      const time = normalized?.time;
+
+      if (!service || !city) {
+        clearRecovery();
+        setDrawerOpen(true);
+        sendToOrchestrator(
+          "Ne mogu pouzdano da povežem termin sa salonom. Proveravam najbliže dostupne opcije.",
+          {
+            intent: "booking",
+            service,
+            city,
+            date,
+            time,
+          },
+        );
+        return;
+      }
+
+      const params = new URLSearchParams();
+      params.set("city", city);
+      params.set("category", service);
+      params.set("service", service);
+      if (date) params.set("date", date);
+      if (time) params.set("time", time);
+
+      try {
+        const res = await fetch(`/api/search?${params.toString()}`);
+        const data = (await res.json()) as SearchApiResponse;
+        if (cancelled) return;
+        const matchingSlots = (data.results ?? []).filter((candidate) => {
+          if (time && candidate.timeLabel !== time) return false;
+          return true;
+        });
+        const slots = matchingSlots.length > 0 ? matchingSlots : data.results ?? [];
+        const uniqueSalons = Array.from(
+          new Map(slots.map((s) => [s.salonId, s])).values(),
+        );
+
+        if (uniqueSalons.length === 1) {
+          const recovered = uniqueSalons[0] as SearchResult;
+          clearRecovery();
+          openModal({
+            ...recoveryRequest.originalSlot,
+            ...recovered,
+            startTime: recovered.startTime || normalized?.startTime,
+            date: normalized?.date,
+            time: recovered.timeLabel || normalized?.time,
+          });
+          return;
+        }
+
+        clearRecovery();
+        setDrawerOpen(true);
+        if (uniqueSalons.length > 1) {
+          sendToOrchestrator("Izaberi salon za ovaj termin.", {
+            intent: "recover_missing_salon",
+            city,
+            service,
+            date,
+            time,
+            salons: uniqueSalons.map((slot) => ({
+              id: slot.salonId,
+              name: slot.salonName,
+            })),
+          });
+          return;
+        }
+
+        sendToOrchestrator(
+          "Ne mogu pouzdano da povežem termin sa salonom. Proveravam najbliže dostupne opcije.",
+          {
+            intent: "booking",
+            service,
+            city,
+            date,
+            time,
+          },
+        );
+      } catch {
+        if (cancelled) return;
+        clearRecovery();
+        setDrawerOpen(true);
+        sendToOrchestrator(
+          "Ne mogu pouzdano da povežem termin sa salonom. Proveravam najbliže dostupne opcije.",
+          {
+            intent: "booking",
+            service,
+            city,
+            date,
+            time,
+          },
+        );
+      }
+    };
+
+    toast.loading("Nedostaje salon ili termin. Pokušavam da pronađem odgovarajući salon.", {
+      id: "booking-recovery",
+    });
+    void recover().finally(() => toast.dismiss("booking-recovery"));
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    clearRecovery,
+    openModal,
+    recoveryRequest,
+    sendToOrchestrator,
+    setDrawerOpen,
+  ]);
+
   if (!slot) return null;
 
   async function handleSubmit(e: { preventDefault(): void }) {
     e.preventDefault();
     const name = formName.trim();
     const phone = formPhone.trim();
+    const email = formEmail.trim();
     const instagram = formInstagram.trim();
     setFormError("");
 
-    if (!name) {
-      setFormError("Unesite ime i prezime.");
-      toast.error("Unesite ime i prezime");
-      return;
-    }
-    if (!phone && !instagram) {
-      const msg = "Unesite telefon ili Instagram. Jedno od ta dva polja je obavezno.";
+    const contactValidation = validateContactForm({
+      isAuthenticated: Boolean(user),
+      form: { name, phone, email, instagram },
+    });
+    if (!contactValidation.ok) {
+      const msg =
+        contactValidation.message ??
+        "Unesite telefon, email ili Instagram da salon može da potvrdi termin.";
       setFormError(msg);
       toast.error(msg);
+      return;
+    }
+    const normalized = normalizeBookingPayload(slot);
+    const validation = validateBookingPayload(normalized);
+    if (!validation.ok || !normalized) {
+      const msg = validation.recoverable
+        ? "Nedostaje salon ili termin. Pokušavam da pronađem odgovarajući salon."
+        : "Nedostaju podaci za zakazivanje. Pokušajte ponovo.";
+      setFormError(msg);
+      toast.error(msg);
+      onClose();
+      if (slot) openModal(slot);
       return;
     }
     setLoading(true);
@@ -86,28 +273,72 @@ export default function BookingModal() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          salonId: slot!.salonId,
-          serviceId: slot!.serviceId ?? undefined,
-          serviceName: slot!.serviceName,
-          startTime: slot!.startTime,
-          user: { name, phone, instagram: instagram || undefined },
+          salonId: normalized.salonId,
+          serviceId: normalized.serviceId,
+          serviceName: normalized.serviceName,
+          startTime: normalized.startTime,
+          ...buildBookingContactPayload({
+            user,
+            form: { name, phone, email, instagram },
+          }),
         }),
       });
       if (!res.ok) {
-        const data = (await res.json().catch(() => ({}))) as { error?: string };
-        throw new Error(data.error ?? "Greška");
+        const data = (await res.json().catch(() => ({}))) as { error?: string; code?: string };
+        if (isBookingConflict(res.status, data.code ?? data.error)) {
+          toast.error(BOOKING_CONFLICT_MESSAGE);
+          onClose();
+          setDrawerOpen(true);
+          sendToOrchestrator(BOOKING_CONFLICT_MESSAGE, {
+            intent: "booking_conflict",
+            selectedSlot: slot,
+            serviceId: slot?.serviceId ?? undefined,
+            serviceName: slot?.serviceName ?? undefined,
+            salonId: slot?.salonId ?? undefined,
+            salonName: slot?.salonName ?? undefined,
+            city: slot?.city ?? undefined,
+            date: bookingPayload?.date,
+            time: bookingPayload?.time,
+            startTime: bookingPayload?.startTime,
+            duration: bookingPayload?.duration,
+            clientContext: {
+              name: formName.trim(),
+              phone: formPhone.trim() || undefined,
+              email: formEmail.trim() || undefined,
+              instagram: formInstagram.trim() || undefined,
+              isAuthenticated: Boolean(user),
+              userName: user?.name,
+            },
+          });
+          return;
+        }
+        throw new Error(mapBookingErrorMessage(data.error));
       }
       toast.success("Termin uspešno zakazan!");
       triggerSuccess();
       onConfirm();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Greška pri zakazivanju");
+      toast.error(
+        err instanceof Error
+          ? mapBookingErrorMessage(err.message)
+          : "Greška pri zakazivanju",
+      );
     } finally {
       setLoading(false);
     }
   }
 
-  const priceLabel = formatPrice(slot.price);
+  const priceLabel = formatPrice(bookingPayload?.price);
+  const headerLabel = bookingPayload
+    ? [
+        bookingPayload.city,
+        bookingPayload.salonName,
+        bookingPayload.serviceName,
+        bookingPayload.time,
+      ]
+        .filter(Boolean)
+        .join(" · ")
+    : "";
 
   return (
     <>
@@ -172,6 +403,19 @@ export default function BookingModal() {
               </span>
             </div>
           )}
+          {user && (
+            <p
+              style={{
+                margin: "-10px 0 18px",
+                fontFamily: "var(--main-font)",
+                fontSize: 12,
+                color: "var(--fg-3)",
+                lineHeight: 1.45,
+              }}
+            >
+              Kontakt nije obavezan. Salon može da te kontaktira preko naloga ili emaila.
+            </p>
+          )}
 
           {/* Header */}
           <div
@@ -192,11 +436,10 @@ export default function BookingModal() {
                   color: "var(--fg-1)",
                 }}
               >
-                {slot.salonName}
+                Potvrda termina
               </h2>
               <p style={{ margin: 0, fontSize: 14, color: "var(--fg-3)" }}>
-                {slot.city && `${slot.city} · `}
-                {slot.serviceName} · {formatTime(slot.startTime)}
+                {headerLabel}
               </p>
             </div>
             <button
@@ -241,6 +484,18 @@ export default function BookingModal() {
               <>
                 <OutlineBtn onClick={onLoginRequest} label="Prijavi se" />
                 <Divider label="ili nastavi kao gost" />
+                <p
+                  style={{
+                    margin: 0,
+                    fontFamily: "var(--main-font)",
+                    fontSize: 13,
+                    color: "var(--fg-2)",
+                    fontWeight: 600,
+                    lineHeight: 1.4,
+                  }}
+                >
+                  Unesi ime i bar jedan kontakt za potvrdu termina.
+                </p>
               </>
             )}
 
@@ -257,7 +512,7 @@ export default function BookingModal() {
                   style={inputStyle}
                 />
               </ModalField>
-              <ModalField label="Telefon">
+              <ModalField label={user ? "Drugi telefon za ovaj termin (opciono)" : "Telefon"}>
                 <input
                   type="tel"
                   value={formPhone}
@@ -269,7 +524,21 @@ export default function BookingModal() {
                   style={inputStyle}
                 />
               </ModalField>
-              <ModalField label="Instagram (alternativa za telefon)">
+              {!user && (
+                <ModalField label="Email">
+                  <input
+                    type="email"
+                    value={formEmail}
+                    onChange={(e) => {
+                      setFormEmail(e.target.value);
+                      if (formError) setFormError("");
+                    }}
+                    placeholder="ana@email.com"
+                    style={inputStyle}
+                  />
+                </ModalField>
+              )}
+              <ModalField label={user ? "Instagram za ovaj termin (opciono)" : "Instagram"}>
                 <input
                   type="text"
                   value={formInstagram}

@@ -36,8 +36,12 @@ export default function LandingConfirmBlock({ block }: Props) {
       city,
       serviceId: meta.serviceId || null,
       serviceName,
-      category: "",
+      category: meta.category ?? "",
       startTime,
+      duration: meta.duration,
+      price: meta.price,
+      date,
+      time,
     });
   };
 

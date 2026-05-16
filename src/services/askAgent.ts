@@ -1,10 +1,13 @@
 // src/services/askAgent.ts
 import { ThreadItem } from "@/types/ai/chat-thread";
 import OpenAI from "openai";
+import { ClaudiaIntentSchema } from "@/lib/ai/schemas/claudia.schema";
 import { fetchPlatformKnowledge } from "@/lib/ai/platform-knowledge";
 import type { CollectedBookingFields } from "@/lib/ai/booking-flow-state";
 import type { AiBookingContact } from "@/types/aiBooking";
-import type { SearchResult } from "@/types/slots";
+import { runBookingSearch } from "@/lib/search/runBookingSearch";
+import type { StructuredBookingIntent } from "@/types/intent";
+import type { SearchApiResponse, SearchResult } from "@/types/slots";
 
 let deepseekClient: OpenAI | null = null;
 
@@ -32,6 +35,13 @@ function buildBookingMemorySection(
   if (collected.salonName) known.push(`salon: ${collected.salonName}`);
   if (collected.date) known.push(`datum: ${collected.date}`);
   if (collected.time) known.push(`vreme: ${collected.time}`);
+  if (collected.timeWindowStart != null) {
+    known.push(
+      `vremenski prozor: posle ${collected.timeWindowStart}h${
+        collected.timeWindowEnd != null ? ` do ${collected.timeWindowEnd}h` : ""
+      }`,
+    );
+  }
 
   const required: Array<keyof CollectedBookingFields> = ["service", "city"];
   const missing = required.filter((k) => !collected[k]);
@@ -251,27 +261,141 @@ function streamJson(body: unknown): ReadableStream {
 
 function buildAppointmentBlock(input: {
   service?: string;
+  category?: string;
+  subcategory?: string;
+  serviceId?: string;
+  serviceName?: string;
   city?: string;
   date?: string;
   time?: string;
+  timeWindowStart?: number | null;
+  timeWindowEnd?: number | null;
   salonId?: string;
   salonName?: string;
+  slots?: SearchResult[];
 }) {
   return {
     type: "AppointmentCalendarBlock",
     priority: 1,
     metadata: {
-      serviceId: "",
-      serviceName: input.service ?? "",
+      serviceId: input.serviceId ?? "",
+      serviceName: input.serviceName ?? input.service ?? "",
       variantName: "",
       service: input.service ?? "",
+      category: input.category ?? "",
+      subcategory: input.subcategory ?? "",
       city: input.city ?? "",
       date: input.date ?? "",
       time: input.time ?? "",
+      timeWindowStart: input.timeWindowStart,
+      timeWindowEnd: input.timeWindowEnd,
       salonId: input.salonId ?? "",
       salonName: input.salonName ?? "",
+      slots: input.slots,
     },
   };
+}
+
+function asString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function asNumberOrNull(value: unknown): number | null | undefined {
+  if (value === null) return null;
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim() !== "") {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+  return undefined;
+}
+
+function buildIntentFromHandoff(
+  handoffPayload: Record<string, unknown>,
+  collected?: CollectedBookingFields,
+): StructuredBookingIntent {
+  const city =
+    asString(handoffPayload.city) ??
+    asString(handoffPayload.requestedCity) ??
+    collected?.city;
+  const service =
+    asString(handoffPayload.service) ??
+    asString(handoffPayload.serviceName) ??
+    collected?.service ??
+    collected?.serviceName;
+  const payloadTimeWindowStart = asNumberOrNull(handoffPayload.timeWindowStart);
+  const payloadTimeWindowEnd = asNumberOrNull(handoffPayload.timeWindowEnd);
+  const timeWindowStart =
+    payloadTimeWindowStart !== undefined
+      ? payloadTimeWindowStart
+      : collected?.timeWindowStart;
+  const timeWindowEnd =
+    payloadTimeWindowEnd !== undefined ? payloadTimeWindowEnd : collected?.timeWindowEnd;
+
+  return {
+    city,
+    requestedCity: asString(handoffPayload.requestedCity) ?? city,
+    service,
+    serviceId: asString(handoffPayload.serviceId) ?? collected?.serviceId,
+    serviceName: asString(handoffPayload.serviceName) ?? service,
+    category: asString(handoffPayload.category) ?? collected?.category,
+    subcategory: asString(handoffPayload.subcategory) ?? collected?.subcategory,
+    salonId: asString(handoffPayload.salonId) ?? collected?.salonId,
+    salonName: asString(handoffPayload.salonName) ?? collected?.salonName,
+    date: asString(handoffPayload.date) ?? collected?.date,
+    time: asString(handoffPayload.time) ?? collected?.time,
+    timeWindowStart,
+    timeWindowEnd,
+    earliestTime:
+      timeWindowStart != null
+        ? `${String(timeWindowStart).padStart(2, "0")}:00`
+        : asString(handoffPayload.earliestTime),
+    latestTime: asString(handoffPayload.latestTime),
+    queryType: asString(handoffPayload.queryType) as StructuredBookingIntent["queryType"],
+  };
+}
+
+function slotHour(slot: SearchResult): number {
+  const labelHour = Number(slot.timeLabel?.slice(0, 2));
+  if (Number.isFinite(labelHour)) return labelHour;
+  const isoHour = Number(slot.startTime?.slice(11, 13));
+  return Number.isFinite(isoHour) ? isoHour : 0;
+}
+
+export function filterSearchResultByStartHour(
+  searchResult: SearchApiResponse,
+  timeWindowStart?: number | null,
+): SearchApiResponse {
+  if (timeWindowStart == null) return searchResult;
+  const keep = (slot: SearchResult) => slotHour(slot) >= timeWindowStart;
+  const results = searchResult.results.filter(keep);
+  const slotsByCity = searchResult.slotsByCity
+    .map((group) => ({ ...group, slots: group.slots.filter(keep) }))
+    .filter((group) => group.slots.length > 0);
+  return {
+    ...searchResult,
+    results,
+    slotsByCity,
+    bestSlot: results[0] ?? null,
+  };
+}
+
+function bookingSearchMessage(input: {
+  intent: StructuredBookingIntent;
+  slots: SearchResult[];
+  originalCount: number;
+}): string {
+  const service = input.intent.serviceName ?? input.intent.service ?? "traženu uslugu";
+  const city = input.intent.requestedCity ?? input.intent.city;
+  const place = city ? ` u ${city}` : "";
+  const after = input.intent.timeWindowStart != null ? ` posle ${input.intent.timeWindowStart}h` : "";
+  if (input.slots.length > 0) {
+    return `Pozdrav, imamo slobodne termine za uslugu ${service}${place}${after}.`;
+  }
+  if (input.intent.timeWindowStart != null && input.originalCount > 0) {
+    return `Nema slobodnih termina${place} posle ${input.intent.timeWindowStart}h; mogu da proverim drugi dan ili širi vremenski okvir.`;
+  }
+  return `Trenutno nema slobodnih termina za ${service}${place}; mogu da proverim drugi dan ili drugu uslugu.`;
 }
 
 export async function askAgent(
@@ -283,6 +407,20 @@ export async function askAgent(
   collectedBookingFields?: CollectedBookingFields,
   handoffPayload?: Record<string, unknown>,
 ) {
+  // Guard: if Maria sent an intent, it must be a known ClaudiaIntent.
+  // Unknown intent = Maria-side bug (typo, model drift) — refuse LLM fallback.
+  if (handoffPayload?.intent !== undefined) {
+    const intentParse = ClaudiaIntentSchema.safeParse(handoffPayload.intent);
+    if (!intentParse.success) {
+      console.error("[askAgent] Unknown intent from Maria, refusing LLM fallback:", handoffPayload.intent);
+      return streamJson({
+        messages: [{ role: "assistant", content: "Ne razumem zahtev. Pokušajte ponovo." }],
+        layout: [],
+        intent: {},
+      });
+    }
+  }
+
   if (handoffPayload?.intent === "appointments") {
     return streamJson({
       messages: [
@@ -323,27 +461,139 @@ export async function askAgent(
   }
 
   if (handoffPayload?.intent === "prices") {
+    const city = asString(handoffPayload.city) ?? collectedBookingFields?.city;
+    if (!city) {
+      return streamJson({
+        messages: [
+          {
+            role: "assistant",
+            content: "Za koji grad želiš da vidiš cenovnik?",
+            attachToBlockType: "CityListBlock",
+          },
+        ],
+        layout: [
+          {
+            type: "CityListBlock",
+            priority: 1,
+            metadata: {
+              serviceId: "",
+              serviceName: "",
+              variantName: "",
+              service: "",
+            },
+          },
+        ],
+        intent: { type: "prices" },
+      });
+    }
+    // City is already known — fall through to LLM which applies CENOVNIK FLOW step 2/3
+    // (booking memory section injects the city so Claudia goes straight to SalonListBlock).
+  }
+
+  if (handoffPayload?.intent === "recover_missing_salon") {
+    const city = String(handoffPayload.city ?? "");
+    const service = String(handoffPayload.service ?? "");
+    const salons = Array.isArray(handoffPayload.salons)
+      ? handoffPayload.salons
+          .filter((salon): salon is { id: string; name: string } => {
+            if (!salon || typeof salon !== "object") return false;
+            const record = salon as Record<string, unknown>;
+            return typeof record.id === "string" && typeof record.name === "string";
+          })
+          .map((salon) => ({ id: salon.id, name: salon.name }))
+      : [];
+
     return streamJson({
       messages: [
         {
           role: "assistant",
-          content: "Za koji grad želiš da vidiš cenovnik?",
-          attachToBlockType: "CityListBlock",
+          content: "Izaberi salon za ovaj termin.",
+          attachToBlockType: "SalonListBlock",
         },
       ],
       layout: [
         {
-          type: "CityListBlock",
+          type: "SalonListBlock",
           priority: 1,
           metadata: {
             serviceId: "",
-            serviceName: "",
+            serviceName: service,
             variantName: "",
-            service: "",
+            service,
+            city,
+            salons,
           },
         },
       ],
-      intent: { type: "prices" },
+      intent: { type: "recover_missing_salon", city, service },
+    });
+  }
+
+  if (handoffPayload?.intent === "booking") {
+    const intent = buildIntentFromHandoff(handoffPayload, collectedBookingFields);
+    console.debug("[CLAUDIA_SEARCH]", {
+      originalUserMessage: userInput,
+      parsedPayload: handoffPayload,
+      intent,
+      timeWindowStart: intent.timeWindowStart,
+      timeWindowEnd: intent.timeWindowEnd,
+      authState: { isAuthenticated, userName },
+    });
+
+    const searchResult = await runBookingSearch(intent);
+    const filtered = filterSearchResultByStartHour(
+      searchResult,
+      intent.timeWindowStart,
+    );
+    const slots = filtered.results.slice(0, 5);
+    const message = bookingSearchMessage({
+      intent,
+      slots,
+      originalCount: searchResult.results.length,
+    });
+
+    console.debug("[CLAUDIA_SEARCH]", {
+      originalUserMessage: userInput,
+      parsedPayload: handoffPayload,
+      timeWindowStart: intent.timeWindowStart,
+      timeWindowEnd: intent.timeWindowEnd,
+      beforeFilterCount: searchResult.results.length,
+      afterFilterCount: filtered.results.length,
+      selectedSlot: filtered.bestSlot,
+    });
+
+    return streamJson({
+      messages: [
+        {
+          role: "assistant",
+          content: message,
+          attachToBlockType: slots.length > 0 ? "AppointmentCalendarBlock" : "none",
+        },
+      ],
+      layout:
+        slots.length > 0
+          ? [
+              buildAppointmentBlock({
+                category: intent.category,
+                subcategory: intent.subcategory,
+                service: intent.service,
+                serviceId: intent.serviceId,
+                serviceName: intent.serviceName,
+                city: intent.requestedCity ?? intent.city,
+                date: intent.date,
+                time: intent.time,
+                timeWindowStart: intent.timeWindowStart,
+                timeWindowEnd: intent.timeWindowEnd,
+                salonId: intent.salonId,
+                salonName: intent.salonName,
+                slots,
+              }),
+            ]
+          : [],
+      intent: {
+        ...intent,
+        type: "booking",
+      },
     });
   }
 
@@ -464,6 +714,11 @@ export async function askAgent(
   if (handoffPayload?.intent === "resume_booking_after_login") {
     const selectedSlot = handoffPayload.selectedSlot as SearchResult | undefined;
     const date = selectedSlot?.startTime?.split("T")[0] ?? "";
+    console.debug("[AUTH_RESUME]", {
+      selectedSlot,
+      authState: { isAuthenticated, userName },
+      restoredBookingState: handoffPayload,
+    });
     const body = {
       messages: [
         {
@@ -484,11 +739,16 @@ export async function askAgent(
                 serviceName: selectedSlot.serviceName,
                 variantName: "",
                 service: selectedSlot.serviceName,
+                category: selectedSlot.category,
                 city: selectedSlot.city,
                 date,
                 time: selectedSlot.timeLabel,
                 salonId: selectedSlot.salonId,
                 salonName: selectedSlot.salonName,
+                price: selectedSlot.price,
+                duration: selectedSlot.serviceDuration,
+                selectedSlot,
+                clientName: isAuthenticated ? userName : "",
               },
             },
           ]
@@ -503,6 +763,11 @@ export async function askAgent(
     const selectedSlot = handoffPayload.selectedSlot as SearchResult | undefined;
     const contact = handoffPayload.contact as AiBookingContact | undefined;
     const date = selectedSlot?.startTime?.split("T")[0] ?? "";
+    console.debug("[BOOKING_PREFILL]", {
+      selectedSlot,
+      authState: { isAuthenticated, userName },
+      restoredBookingState: handoffPayload,
+    });
     const body = {
       messages: [
         {
@@ -523,11 +788,18 @@ export async function askAgent(
                 serviceName: selectedSlot.serviceName,
                 variantName: "",
                 service: selectedSlot.serviceName,
+                category: selectedSlot.category,
                 city: selectedSlot.city,
                 date,
                 time: selectedSlot.timeLabel,
                 salonId: selectedSlot.salonId,
                 salonName: selectedSlot.salonName,
+                price: selectedSlot.price,
+                duration: selectedSlot.serviceDuration,
+                selectedSlot,
+                clientName: contact?.name ?? (isAuthenticated ? userName : ""),
+                clientPhone: contact?.phone,
+                instagram: contact?.instagram,
                 contact,
               },
             },
@@ -537,6 +809,119 @@ export async function askAgent(
     };
 
     return streamJson(body);
+  }
+
+  if (handoffPayload?.intent === "booking_conflict") {
+    const conflictSlot = handoffPayload.selectedSlot as SearchResult | undefined;
+    const service =
+      asString(handoffPayload.serviceName) ??
+      asString(handoffPayload.service) ??
+      collectedBookingFields?.serviceName ??
+      collectedBookingFields?.service ??
+      "";
+    const city =
+      asString(handoffPayload.city) ?? collectedBookingFields?.city ?? "";
+    const originalSalonId =
+      asString(handoffPayload.salonId) ?? conflictSlot?.salonId ?? "";
+    const originalSalonName =
+      asString(handoffPayload.salonName) ?? conflictSlot?.salonName ?? "";
+    const conflictDate =
+      asString(handoffPayload.date) ??
+      conflictSlot?.startTime?.split("T")[0] ??
+      "";
+    const conflictHour = (() => {
+      const t = asString(handoffPayload.time) ?? conflictSlot?.timeLabel;
+      if (!t) return 0;
+      const h = Number(t.slice(0, 2));
+      return Number.isFinite(h) ? h : 0;
+    })();
+    const nextDay = (() => {
+      if (!conflictDate) return "";
+      const d = new Date(`${conflictDate}T00:00:00Z`);
+      d.setUTCDate(d.getUTCDate() + 1);
+      return d.toISOString().split("T")[0];
+    })();
+
+    // Search 1: same city + same service + same day + after conflict time.
+    // Post-filter by salon to enforce priority without needing a salonId API param.
+    const sameDaySearch = await runBookingSearch({
+      service,
+      city,
+      date: conflictDate,
+      timeWindowStart: conflictHour + 1,
+      timeWindowEnd: null,
+    });
+
+    const sameSalonAfter = sameDaySearch.results.filter(
+      (s) => s.salonId === originalSalonId,
+    );
+    const otherSalonAfter = sameDaySearch.results.filter(
+      (s) => s.salonId !== originalSalonId,
+    );
+
+    // Search 2: next day, same city — only if same-salon coverage is thin.
+    const needNextDay = sameSalonAfter.length < 2 && !!nextDay;
+    const nextDaySearch = needNextDay
+      ? await runBookingSearch({ service, city, date: nextDay })
+      : null;
+    const nextDaySameSalon = (nextDaySearch?.results ?? []).filter(
+      (s) => s.salonId === originalSalonId,
+    );
+
+    // Priority order: same salon same day → same salon next day → other salons same day
+    const sameSalonSlots = [
+      ...sameSalonAfter.slice(0, 2),
+      ...nextDaySameSalon.slice(0, Math.max(0, 2 - sameSalonAfter.length)),
+    ];
+    const alternatives: SearchResult[] = [
+      ...sameSalonSlots,
+      ...otherSalonAfter.slice(0, Math.max(0, 3 - sameSalonSlots.length)),
+    ].slice(0, 3);
+
+    const first = alternatives[0];
+    const dayLabel = first
+      ? first.dateLabel === "Danas"
+        ? "danas"
+        : first.dateLabel === "Sutra"
+          ? "sutra"
+          : first.dateLabel
+      : "";
+    const message = first
+      ? `Taj termin je u međuvremenu zauzet. Najbliži slobodan termin je ${dayLabel} u ${first.timeLabel} u ${first.salonName}. Želiš da ga rezervišem?`
+      : "Taj termin je u međuvremenu zauzet. Nema više slobodnih termina za danas u ovom salonu. Mogu da proverim drugi dan ili drugu uslugu.";
+
+    return streamJson({
+      messages: [
+        {
+          role: "assistant",
+          content: message,
+          attachToBlockType:
+            alternatives.length > 0 ? "AppointmentCalendarBlock" : "none",
+        },
+      ],
+      layout:
+        alternatives.length > 0
+          ? [
+              buildAppointmentBlock({
+                service,
+                city,
+                salonId: sameSalonSlots.length > 0 ? originalSalonId : undefined,
+                salonName: sameSalonSlots.length > 0 ? originalSalonName : undefined,
+                date: conflictDate,
+                timeWindowStart: conflictHour + 1,
+                timeWindowEnd: null,
+                slots: alternatives,
+              }),
+            ]
+          : [],
+      intent: {
+        type: "booking_conflict",
+        service,
+        city,
+        salonId: originalSalonId,
+        salonName: originalSalonName,
+      },
+    });
   }
 
   const { salonsText, servicesText, citiesText, categoriesText } =

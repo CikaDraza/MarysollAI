@@ -12,9 +12,11 @@ export type AgentType =
 export interface AgentCallMetadata {
   type: AgentType;
   originalMessage: string;
+  originalUserMessage: string;
   userIntent: string;
   timestamp: number;
   payload?: Record<string, unknown>;
+  history?: DeepSeekMessage[];
 }
 
 export interface AgentCallEvent {
@@ -22,6 +24,7 @@ export interface AgentCallEvent {
   payload: {
     agentType: AgentCallMetadata["type"];
     userMessage: string;
+    originalUserMessage?: string;
     history: DeepSeekMessage[];
     sessionId?: string;
     handoffPayload?: Record<string, unknown>;

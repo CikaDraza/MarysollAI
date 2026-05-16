@@ -101,7 +101,13 @@ export function AgentBridge({ children, claudiaAskAI }: AgentBridgeProps) {
       isProcessingRef.current = true;
 
       try {
-        const { agentType, userMessage, history, handoffPayload } = event.payload;
+        const {
+          agentType,
+          userMessage,
+          originalUserMessage,
+          history,
+          handoffPayload,
+        } = event.payload;
         const requiresFreshAuth =
           agentType === "appointments" ||
           handoffPayload?.intent === "appointments" ||
@@ -128,10 +134,30 @@ export function AgentBridge({ children, claudiaAskAI }: AgentBridgeProps) {
         }
 
         const originalUserQuery =
-          (history ? findLastUserMessage(history) : null) || userMessage;
+          originalUserMessage ||
+          (history ? findLastUserMessage(history) : null) ||
+          userMessage;
         const convertedHistory = history
           ? convertDeepSeekHistoryToThreadItems(history)
           : [];
+        console.debug("[AI_HANDOFF]", {
+          originalUserMessage: originalUserQuery,
+          mariaReply: userMessage,
+          handoffPayload,
+          authState: authSnapshot,
+        });
+
+        // Notify subscribers that the specialist has taken over — fires before
+        // Claudia starts so any listener sees the correct chronological order.
+        chatEvents.emit({
+          type: "AGENT_RESPONSE",
+          payload: {
+            agentType,
+            content: `Specijalizovani asistent za ${getAgentTypeName(agentType)} je preuzeo zahtev.`,
+            completed: false,
+          },
+          timestamp: Date.now(),
+        });
 
         // Route through the orchestrator. It owns the state transition; the
         // invokeClaudia callback is awaited inside, so Maria's reply has
@@ -155,16 +181,6 @@ export function AgentBridge({ children, claudiaAskAI }: AgentBridgeProps) {
             },
           },
         );
-
-        chatEvents.emit({
-          type: "AGENT_RESPONSE",
-          payload: {
-            agentType,
-            content: `Specijalizovani asistent za ${getAgentTypeName(agentType)} je preuzeo zahtev.`,
-            completed: false,
-          },
-          timestamp: Date.now(),
-        });
       } catch (error) {
         console.error("[AgentBridge] handoff failed:", error);
       } finally {

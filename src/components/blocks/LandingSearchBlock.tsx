@@ -16,6 +16,9 @@ export default function LandingSearchBlock({ block, onActionComplete }: Props) {
   const city = block.metadata.city ?? "";
   const service = block.metadata.service ?? block.metadata.serviceName ?? block.query ?? "";
   const date = block.metadata.date ?? "";
+  const providedSlots = Array.isArray(block.metadata.slots)
+    ? block.metadata.slots
+    : null;
   const { openModal } = useBookingModal();
   const { setDrawerOpen } = useLandingUI();
 
@@ -23,12 +26,26 @@ export default function LandingSearchBlock({ block, onActionComplete }: Props) {
   if (city) params.set("city", city);
   if (service) params.set("category", service);
   if (date) params.set("date", date);
+  if (block.metadata.timeWindowStart != null) {
+    params.set("timeWindowStart", String(block.metadata.timeWindowStart));
+  }
+  if (block.metadata.timeWindowEnd != null) {
+    params.set("timeWindowEnd", String(block.metadata.timeWindowEnd));
+  }
 
   const { data, isLoading } = useQuery<SearchApiResponse>({
-    queryKey: ["landing-slots", city, service, date],
+    queryKey: [
+      "landing-slots",
+      city,
+      service,
+      date,
+      block.metadata.timeWindowStart,
+      block.metadata.timeWindowEnd,
+    ],
     queryFn: () =>
       fetch(`/api/search?${params.toString()}`).then((r) => r.json()),
     staleTime: 60_000,
+    enabled: !providedSlots,
   });
 
   if (isLoading) {
@@ -60,7 +77,19 @@ export default function LandingSearchBlock({ block, onActionComplete }: Props) {
     );
   }
 
-  const slotsByCity = data?.slotsByCity ?? [];
+  const slotsByCity = providedSlots
+    ? Object.values(
+        providedSlots.reduce<Record<string, { city: string; slots: SearchResult[] }>>(
+          (groups, slot) => {
+            const key = slot.city || city || "Termini";
+            groups[key] ??= { city: key, slots: [] };
+            groups[key].slots.push(slot);
+            return groups;
+          },
+          {},
+        ),
+      )
+    : data?.slotsByCity ?? [];
   const totalSlots = slotsByCity.reduce((n, g) => n + g.slots.length, 0);
 
   if (totalSlots === 0) {

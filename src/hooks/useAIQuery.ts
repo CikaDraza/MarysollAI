@@ -24,6 +24,37 @@ interface PendingResponse {
   data: AIResponseData;
 }
 
+function suppressDuplicateAssistantMessages(
+  prev: ThreadItem[],
+  incoming: ThreadItem[],
+): ThreadItem[] {
+  const lastAssistant = [...prev]
+    .reverse()
+    .find((item) => item.type === "message" && item.data.role === "assistant");
+  if (!lastAssistant || lastAssistant.type !== "message") return incoming;
+
+  const skipBlockIds = new Set<string>();
+  const filtered: ThreadItem[] = [];
+
+  for (let index = 0; index < incoming.length; index++) {
+    const item = incoming[index];
+    if (
+      item.type === "message" &&
+      item.data.role === "assistant" &&
+      item.data.content === lastAssistant.data.content &&
+      Math.abs(item.data.timestamp - lastAssistant.data.timestamp) <= 2_000
+    ) {
+      const next = incoming[index + 1];
+      if (next?.type === "block") skipBlockIds.add(next.id);
+      continue;
+    }
+    if (skipBlockIds.has(item.id)) continue;
+    filtered.push(item);
+  }
+
+  return filtered;
+}
+
 interface AskAIOptions {
   context?: ThreadItem[];
   preserveHistory?: boolean;
@@ -69,7 +100,11 @@ export function useAIQuery(user?: AuthUser | null) {
     );
     setThread((prev) => {
       const filtered = prev.filter((i) => i.id !== activeTempIdRef.current);
-      const updated = [...filtered, ...newElements];
+      const dedupedElements = suppressDuplicateAssistantMessages(
+        filtered,
+        newElements,
+      );
+      const updated = [...filtered, ...dedupedElements];
       saveToHistory(updated);
       return updated;
     });
@@ -154,15 +189,9 @@ export function useAIQuery(user?: AuthUser | null) {
           typeof window !== "undefined"
             ? localStorage.getItem("assistant_token")
             : null;
-        const suppressStreamingText =
-          options?.handoffPayload?.intent === "create_booking" ||
-          options?.handoffPayload?.intent === "resume_booking_after_login" ||
-          options?.handoffPayload?.intent === "select_city" ||
-          options?.handoffPayload?.intent === "select_salon" ||
-          options?.handoffPayload?.intent === "appointments" ||
-          options?.handoffPayload?.intent === "prices" ||
-          options?.handoffPayload?.intent === "login" ||
-          options?.handoffPayload?.intent === "login_for_booking";
+        // Suppress typewriter animation for all structured handoff responses.
+        // Streaming text is only meaningful for conversational LLM output (no handoffPayload).
+        const suppressStreamingText = !!options?.handoffPayload;
 
         // Phase 1.5: forward bookingFlow snapshot so Claudia inherits memory.
         const bookingMemory = bookingFlow.get().collected;

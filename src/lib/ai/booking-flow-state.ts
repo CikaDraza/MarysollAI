@@ -18,11 +18,16 @@ export type BookingFlowState =
   | "completed";
 
 export interface CollectedBookingFields {
+  category?: string;
+  subcategory?: string;
   service?: string;
   serviceId?: string;
+  serviceName?: string;
   city?: string;
   date?: string;
   time?: string;
+  timeWindowStart?: number | null;
+  timeWindowEnd?: number | null;
   salonId?: string;
   salonName?: string;
 }
@@ -59,7 +64,9 @@ export const useBookingFlow = create<BookingFlowValue & BookingFlowActions>(
       set((prev) => {
         const next: CollectedBookingFields = { ...prev.collected };
         for (const [k, v] of Object.entries(fields)) {
-          if (v !== undefined && v !== "") next[k as keyof CollectedBookingFields] = v;
+          if (v !== undefined && v !== "") {
+            (next as Record<string, string | number | null | undefined>)[k] = v;
+          }
         }
         return { collected: next };
       }),

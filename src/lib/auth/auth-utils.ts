@@ -12,6 +12,12 @@ export function getUserFromToken(token: string): AuthUser | null {
       name?: string;
       isAdmin?: boolean;
       role?: string;
+      phone?: string;
+      phoneNumber?: string;
+      mobile?: string;
+      mobilePhone?: string;
+      instagram?: string;
+      instagramUsername?: string;
       exp?: number;
     }>(token);
     // Provera da li je token istekao
@@ -27,6 +33,12 @@ export function getUserFromToken(token: string): AuthUser | null {
       name: decoded.name ?? decoded.email,
       isAdmin: decoded.isAdmin ?? decoded.role === "admin",
       token: token,
+      phone: decoded.phone ?? decoded.phoneNumber ?? decoded.mobile ?? decoded.mobilePhone,
+      instagram: decoded.instagram ?? decoded.instagramUsername,
+      phoneNumber: decoded.phoneNumber,
+      mobile: decoded.mobile,
+      mobilePhone: decoded.mobilePhone,
+      instagramUsername: decoded.instagramUsername,
     };
   } catch {
     return null;

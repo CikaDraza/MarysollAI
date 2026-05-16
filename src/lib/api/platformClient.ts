@@ -136,7 +136,14 @@ export interface CreateBookingPayload {
   salonId: string;
   serviceId: string;
   startTime: string;
-  user: { name: string; phone: string; email?: string; instagram?: string };
+  clientId?: string;
+  clientName: string;
+  clientEmail?: string;
+  clientPhone?: string;
+  clientInstagram?: string;
+  preferredContact?: "phone" | "instagram" | "email" | "platform";
+  contactNote?: string;
+  user: { name: string; phone?: string; email?: string; instagram?: string };
 }
 
 export interface LoginPayload {

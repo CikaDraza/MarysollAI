@@ -11,6 +11,7 @@ import LoaderButton from "../LoaderButton";
 import { Reveal } from "../motion/Reveal";
 import { motion } from "framer-motion";
 import { CollapseView } from "../motion/CollapseView";
+import { useBookingModal } from "@/context/landing/BookingModalContext";
 
 interface Props {
   block: AuthBlockType;
@@ -28,6 +29,7 @@ export function LoginBlockView({
   const containerRef = useRef<HTMLDivElement>(null);
   const autoContinueRef = useRef(false);
   const { user, login, isLoggingIn, ensureFreshAuth } = useAuthActions();
+  const { pendingSlot, openModal, consumePendingBooking } = useBookingModal();
   const [email, setEmail] = useState(block.defaultEmail || "");
   const [password, setPassword] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
@@ -39,8 +41,23 @@ export function LoginBlockView({
       setErrorMsg("");
       try {
         await login({ email, password });
+        const freshUser = await ensureFreshAuth();
         if (onActionComplete) {
-          const selectedSlot = block.metadata?.selectedSlot;
+          const selectedSlot = block.metadata?.selectedSlot ?? pendingSlot ?? undefined;
+          if (selectedSlot) {
+            openModal(selectedSlot);
+            consumePendingBooking();
+            console.debug("[AUTH_RESUME]", {
+              selectedSlot,
+              authState: {
+                isAuthenticated: Boolean(freshUser),
+                userName: freshUser?.name,
+              },
+              restoredBookingState: {
+                selectedSlot,
+              },
+            });
+          }
           onActionComplete(
             selectedSlot
               ? `USPEŠNA PRIJAVA. Nastavi zakazivanje termina: ${selectedSlot.serviceName} u ${selectedSlot.timeLabel} u ${selectedSlot.salonName}, ${selectedSlot.city}.`
@@ -65,7 +82,17 @@ export function LoginBlockView({
         setErrorMsg(msg);
       }
     },
-    [block.metadata?.selectedSlot, email, password, login, onActionComplete],
+    [
+      block.metadata?.selectedSlot,
+      consumePendingBooking,
+      email,
+      ensureFreshAuth,
+      login,
+      onActionComplete,
+      openModal,
+      password,
+      pendingSlot,
+    ],
   );
 
   // FUNKCIJA ZA SKROL KOJA CILJA GLAVNI KONTEJNER

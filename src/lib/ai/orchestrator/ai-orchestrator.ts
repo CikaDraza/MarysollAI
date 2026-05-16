@@ -89,12 +89,37 @@ export async function handleMariaResponse(
 
     // Persist any structured intent Maria extracted so Claudia doesn't re-ask.
     if (response.payload) {
-      const { service, city, date, time } = response.payload;
+      const {
+        category,
+        subcategory,
+        service,
+        serviceId,
+        serviceName,
+        city,
+        date,
+        time,
+        timeWindowStart,
+        timeWindowEnd,
+        salonId,
+        salonName,
+      } = response.payload;
       bookingFlow.get().collect({
+        category: typeof category === "string" ? category : undefined,
+        subcategory: typeof subcategory === "string" ? subcategory : undefined,
         service: typeof service === "string" ? service : undefined,
+        serviceId: typeof serviceId === "string" ? serviceId : undefined,
+        serviceName: typeof serviceName === "string" ? serviceName : undefined,
         city: typeof city === "string" ? city : undefined,
         date: typeof date === "string" ? date : undefined,
         time: typeof time === "string" ? time : undefined,
+        timeWindowStart:
+          typeof timeWindowStart === "number" ? timeWindowStart : undefined,
+        timeWindowEnd:
+          typeof timeWindowEnd === "number" || timeWindowEnd === null
+            ? timeWindowEnd
+            : undefined,
+        salonId: typeof salonId === "string" ? salonId : undefined,
+        salonName: typeof salonName === "string" ? salonName : undefined,
       });
       if (typeof response.payload.intent === "string") {
         bookingFlow.get().setLastIntent(response.payload.intent);

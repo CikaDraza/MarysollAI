@@ -15,11 +15,23 @@ export async function runBookingSearch(
   if (query) qs.set("query", query);
   if (intent.service) qs.set("service", intent.service);
   if (intent.category) qs.set("category", intent.category);
-  if (intent.earliestTime) {
+  if (intent.subcategory) qs.set("subcategory", intent.subcategory);
+  if (intent.date) qs.set("date", intent.date);
+  if (intent.timeWindowStart != null) {
+    qs.set("timeWindowStart", String(intent.timeWindowStart));
+    if (intent.timeWindowEnd != null) {
+      qs.set("timeWindowEnd", String(intent.timeWindowEnd));
+    }
+  } else if (intent.time) {
+    qs.set("time", intent.time);
+  } else if (intent.earliestTime) {
     const hour = Number(intent.earliestTime.slice(0, 2));
     if (!Number.isNaN(hour)) {
       qs.set("timeWindowStart", String(hour));
-      qs.set("timeWindowEnd", "23");
+      if (intent.latestTime) {
+        const latestHour = Number(intent.latestTime.slice(0, 2));
+        if (!Number.isNaN(latestHour)) qs.set("timeWindowEnd", String(latestHour));
+      }
     } else {
       qs.set("time", intent.earliestTime);
     }

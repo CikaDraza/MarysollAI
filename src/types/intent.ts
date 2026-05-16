@@ -21,7 +21,16 @@ export interface StructuredBookingIntent {
   city?: string;
   requestedCity?: string;
   service?: string;
+  serviceId?: string;
+  serviceName?: string;
   category?: string;
+  subcategory?: string;
+  salonId?: string;
+  salonName?: string;
+  date?: string;
+  time?: string;
+  timeWindowStart?: number | null;
+  timeWindowEnd?: number | null;
   queryType?: "empty" | "city_only" | "category" | "service" | "service_and_city" | "unknown";
   dateMode?: "today" | "tomorrow" | "weekend" | "specific_date";
   earliestTime?: string;
