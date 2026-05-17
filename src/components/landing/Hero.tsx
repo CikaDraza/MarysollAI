@@ -97,7 +97,7 @@ function todayStr(): string {
 
 export default function Hero() {
   const { setDrawerOpen } = useLandingUI();
-  const { cityName, setCity } = useCityContext();
+  const { cityName, setCity, geoLoading, requestGpsLocation } = useCityContext();
   const {
     setCategory,
     setDateFilter,
@@ -151,7 +151,6 @@ export default function Hero() {
   const [interpretation, setInterp] = useState<string | null>(null);
   const [intentBadge, setIntentBadge] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [geoLoading, setGeoLoading] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -251,16 +250,8 @@ export default function Hero() {
   };
 
   const handleGeo = () => {
-    if (!navigator.geolocation) return;
-    setGeoLoading(true);
-    navigator.geolocation.getCurrentPosition(
-      () => {
-        setGeoLoading(false);
-        inputRef.current?.focus();
-      },
-      () => setGeoLoading(false),
-      { timeout: 6000 },
-    );
+    requestGpsLocation();
+    inputRef.current?.focus();
   };
 
   const canSubmit = !!value.trim() && !loading;

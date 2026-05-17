@@ -10,6 +10,12 @@ export type BookingModalSlot = Partial<SearchResult> & {
 export interface NormalizedBookingPayload {
   salonId: string;
   salonName: string;
+  salonAddress?: string;
+  salonLat?: number;
+  salonLng?: number;
+  mapsLink?: string;
+  distanceKm?: number;
+  travelMinutesEstimate?: number;
   serviceId: string;
   serviceName: string;
   city: string;
@@ -146,6 +152,12 @@ export function normalizeBookingPayload(
   return {
     salonId: selectedSlot.salonId ?? "",
     salonName: selectedSlot.salonName ?? "",
+    salonAddress: selectedSlot.salonAddress,
+    salonLat: selectedSlot.salonLat,
+    salonLng: selectedSlot.salonLng,
+    mapsLink: selectedSlot.mapsLink,
+    distanceKm: selectedSlot.distanceKm,
+    travelMinutesEstimate: selectedSlot.travelMinutesEstimate,
     serviceId: selectedSlot.serviceId ?? "",
     serviceName: selectedSlot.serviceName ?? "",
     city: selectedSlot.city ?? "",

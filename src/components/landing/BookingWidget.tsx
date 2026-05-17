@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
+  ArrowsRightLeftIcon,
   CheckBadgeIcon,
   MapPinIcon,
   ClockIcon,
@@ -12,6 +13,9 @@ import { useSearchContext } from "@/context/landing/SearchContext";
 import { useFilters } from "@/context/landing/FiltersContext";
 import { useBookingModal } from "@/context/landing/BookingModalContext";
 import { formatDistance } from "@/lib/utils/distance";
+import { calculateDistanceKm, calculateTravelMinutesEstimate } from "@/lib/geo/distance";
+import { createGoogleMapsDirectionsLink } from "@/lib/geo/maps";
+import { resolveDistanceOrigin } from "@/lib/geo/resolveDistanceOrigin";
 import {
   rankSearchResults,
   type RankedSlot,
@@ -42,7 +46,7 @@ function cityGroupLabel(
 }
 
 export default function BookingWidget() {
-  const { cityName: userCity, geoResolved } = useCityContext();
+  const { city, cityName: userCity, geoSignals } = useCityContext();
   const {
     results,
     fallbackLevel,
@@ -58,6 +62,7 @@ export default function BookingWidget() {
     timeWindowEnd,
   } = useFilters();
   const { openModal: onBook } = useBookingModal();
+  const distanceOrigin = resolveDistanceOrigin(geoSignals, city);
 
   // BookingWidget needs a broad, policy-safe marketplace pool. QuickAccess
   // still gets its strict preview so the discovery rows can avoid repeating it.
@@ -69,10 +74,9 @@ export default function BookingWidget() {
     const eligible = shouldTrustEffectiveCity
       ? results.filter((slot) => slot.isSynthetic !== true)
       : applyFallbackPolicy(results, policy);
-    const userLocation =
-      geoResolved.lat != null && geoResolved.lng != null
-        ? { lat: geoResolved.lat, lng: geoResolved.lng }
-        : undefined;
+    const userLocation = distanceOrigin
+      ? { lat: distanceOrigin.lat, lng: distanceOrigin.lng }
+      : undefined;
 
     const quickAccessPreview = rankSearchResults({
       slots: eligible,
@@ -93,13 +97,13 @@ export default function BookingWidget() {
       ...discoveryRanked,
       quickAccessSlotIds: quickAccessPreview.slots.map(bookingSlotId),
     };
-  }, [results, geoResolved.lat, geoResolved.lng, fallbackLevel, recoveryState?.recoveryScenario]);
+  }, [results, distanceOrigin?.lat, distanceOrigin?.lng, fallbackLevel, recoveryState?.recoveryScenario]);
 
   const discoveryBuild = useMemo(() => {
     const hasSearchIntent = Boolean(
       searchQuery || category || subcategoryFilter || dateFilter || timeWindowStart != null || timeWindowEnd != null,
     );
-    const hasGeo = geoResolved.lat != null && geoResolved.lng != null;
+    const hasGeo = distanceOrigin != null;
     const mode: BookingDiscoveryMode =
       fallbackLevel >= 3
         ? "recovery"
@@ -121,8 +125,8 @@ export default function BookingWidget() {
         timeWindowEnd,
       },
       userCity,
-      userLocation: hasGeo
-        ? { lat: geoResolved.lat!, lng: geoResolved.lng! }
+      userLocation: distanceOrigin
+        ? { lat: distanceOrigin.lat, lng: distanceOrigin.lng }
         : undefined,
       fallbackLevel,
       mode,
@@ -133,8 +137,8 @@ export default function BookingWidget() {
       ranked.slots,
       ranked.quickAccessSlotIds,
       ranked.fallback.label,
-      geoResolved.lat,
-      geoResolved.lng,
+      distanceOrigin?.lat,
+      distanceOrigin?.lng,
       userCity,
       searchQuery,
       category,
@@ -307,6 +311,7 @@ export default function BookingWidget() {
                   <SlotCard
                     key={`${slot.salonId}-${slot.startTime}-${i}`}
                     slot={slot as SearchResult}
+                    userLocation={distanceOrigin}
                     onBook={() => {
                       // Phase 2.5D Task 3 — analytics on click.
                       const meta = (slot as RankedSlot).rankingMeta;
@@ -349,15 +354,43 @@ export default function BookingWidget() {
 function SlotCard({
   slot,
   onBook,
+  userLocation,
 }: {
   slot: SearchResult;
   onBook: () => void;
+  userLocation?: { lat: number; lng: number };
 }) {
   const [hovered, setHovered] = useState(false);
 
   const timeLabel = slot.timeLabel ?? formatTimeFallback(slot.startTime);
   const dateLabel = slot.dateLabel ?? formatDateFallback(slot.startTime);
   const isSynthetic = slot.isSynthetic;
+  const gpsDistanceKm =
+    userLocation && slot.salonLat != null && slot.salonLng != null
+      ? calculateDistanceKm(userLocation.lat, userLocation.lng, slot.salonLat, slot.salonLng)
+      : undefined;
+  const displayDistanceKm =
+    gpsDistanceKm != null && Number.isFinite(gpsDistanceKm)
+      ? gpsDistanceKm
+      : slot.distanceKm;
+  const displayTravelMinutes =
+    gpsDistanceKm != null && Number.isFinite(gpsDistanceKm)
+      ? calculateTravelMinutesEstimate(gpsDistanceKm)
+      : slot.travelMinutesEstimate;
+  const directionsLink =
+    userLocation && slot.salonLat != null && slot.salonLng != null
+      ? createGoogleMapsDirectionsLink({
+          originLat: userLocation.lat,
+          originLng: userLocation.lng,
+          destinationLat: slot.salonLat,
+          destinationLng: slot.salonLng,
+        })
+      : "";
+  const mapHref = directionsLink || slot.mapsLink;
+  const distLabel = formatDistance(displayDistanceKm);
+  const travelTitle = displayTravelMinutes
+    ? `oko ${displayTravelMinutes} min`
+    : undefined;
 
   return (
     <div
@@ -395,12 +428,91 @@ function SlotCard({
         />
       )}
 
-      {/* Date + time row */}
+      {/* Date + location row */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 8,
+          marginBottom: 8,
+        }}
+      >
+        <span
+          style={{
+            fontFamily: "var(--main-font)",
+            fontWeight: 600,
+            fontSize: 11,
+            color: "var(--secondary-color)",
+            background: "var(--brand-50, #fdf4ff)",
+            borderRadius: 8,
+            padding: "3px 8px",
+            whiteSpace: "nowrap",
+            flexShrink: 0,
+          }}
+        >
+          {dateLabel}
+        </span>
+        <span
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "flex-end",
+            gap: 8,
+            minWidth: 0,
+            flexWrap: "wrap",
+          }}
+        >
+          {distLabel && (
+            <span
+              title={travelTitle ? `Udaljenost, ${travelTitle}` : "Udaljenost"}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 3,
+                fontFamily: "var(--main-font)",
+                fontWeight: 500,
+                fontSize: 11,
+                color: "var(--fg-3)",
+                whiteSpace: "nowrap",
+              }}
+            >
+              <ArrowsRightLeftIcon style={{ width: 12, height: 12 }} />
+              {distLabel}
+            </span>
+          )}
+          {mapHref && (
+            <a
+              href={mapHref}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={travelTitle ?? "Prikaži mapu"}
+              onClick={(event) => event.stopPropagation()}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 3,
+                fontFamily: "var(--main-font)",
+                fontWeight: 700,
+                fontSize: 11,
+                color: "var(--secondary-color)",
+                textDecoration: "none",
+                whiteSpace: "nowrap",
+              }}
+            >
+              <MapPinIcon style={{ width: 12, height: 12 }} />
+              Mapa
+            </a>
+          )}
+        </span>
+      </div>
+
+      {/* Time row */}
       <div
         style={{
           display: "flex",
           alignItems: "baseline",
-          justifyContent: "space-between",
+          justifyContent: "flex-start",
           gap: 8,
           marginBottom: 10,
         }}
@@ -416,21 +528,6 @@ function SlotCard({
           }}
         >
           {timeLabel}
-        </span>
-        <span
-          style={{
-            fontFamily: "var(--main-font)",
-            fontWeight: 600,
-            fontSize: 11,
-            color: "var(--secondary-color)",
-            background: "var(--brand-50, #fdf4ff)",
-            borderRadius: 8,
-            padding: "3px 8px",
-            whiteSpace: "nowrap",
-            flexShrink: 0,
-          }}
-        >
-          {dateLabel}
         </span>
       </div>
 
@@ -489,7 +586,7 @@ function SlotCard({
         {slot.salonName}
       </p>
 
-      {/* Meta row: distance + price */}
+      {/* Meta row: price */}
       <div
         style={{
           display: "flex",
@@ -499,28 +596,7 @@ function SlotCard({
           gap: 6,
         }}
       >
-        {(() => {
-          // Phase 2.5C Task 7 — single distance formatter everywhere.
-          const distLabel = formatDistance(slot.distanceKm);
-          return distLabel ? (
-            <span
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 3,
-                fontFamily: "var(--main-font)",
-                fontWeight: 500,
-                fontSize: 11,
-                color: "var(--fg-3)",
-              }}
-            >
-              <MapPinIcon style={{ width: 11, height: 11 }} />
-              {distLabel}
-            </span>
-          ) : (
-            <span />
-          );
-        })()}
+        <span />
 
         {slot.price ? (
           <span

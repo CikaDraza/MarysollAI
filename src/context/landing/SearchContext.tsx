@@ -4,6 +4,7 @@ import { createContext, useContext, type ReactNode } from "react";
 import { useSearch, type CitySlots } from "@/hooks/useSearch";
 import { useFilters } from "./FiltersContext";
 import { useCityContext } from "./CityContext";
+import { resolveDistanceOrigin } from "@/lib/geo/resolveDistanceOrigin";
 import type { SearchResult } from "@/types/slots";
 import type { SearchRecoveryState } from "@/types/searchRecovery";
 
@@ -32,7 +33,7 @@ interface SearchContextValue {
 const SearchContext = createContext<SearchContextValue | null>(null);
 
 export function SearchProvider({ children }: { children: ReactNode }) {
-  const { cityName } = useCityContext();
+  const { city, cityName, geoSignals } = useCityContext();
   const {
     category,
     initialCategory,
@@ -44,8 +45,12 @@ export function SearchProvider({ children }: { children: ReactNode }) {
     searchQuery,
   } = useFilters();
 
+  const distanceOrigin = resolveDistanceOrigin(geoSignals, city);
+
   const { results, discovery, slotsByCity, bestSlot, fallbackLevel, suggestions, recoveryState, debug, isLoading } = useSearch({
     city: cityName,
+    lat: distanceOrigin?.lat,
+    lng: distanceOrigin?.lng,
     category: category || undefined,
     routeCategory:
       initialCategory && category === initialCategory && !searchQuery && !subcategoryFilter

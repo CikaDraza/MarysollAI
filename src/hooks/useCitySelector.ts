@@ -24,7 +24,7 @@
 //   - First render returns SERBIAN_CITIES[0] (Beograd) — same as before
 //   - Hydration mismatch avoided: the "real" city only populates after the
 //     mount-effect runs, never during SSR.
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import {
   SERBIAN_CITIES,
   nearestCity,
@@ -47,6 +47,7 @@ export interface UseCitySelectorReturn {
   setCity: (c: SerbianCity) => void;
   cities: SerbianCity[];
   geoLoading: boolean;
+  requestGpsLocation: () => void;
   /** Raw geo signals — exposed so consumers (preload, ranking) can read them. */
   signals: GeoSignals;
   /** Resolved geo from priority chain. Always reflects current signals. */
@@ -60,6 +61,45 @@ export function useCitySelector(initialCity?: string): UseCitySelectorReturn {
   /** Track whether the user explicitly chose during this session — once true,
    * GPS results never override. */
   const sessionExplicit = useRef(false);
+
+  const requestGpsLocation = useCallback(
+    (options?: { updateCity?: boolean }) => {
+      if (typeof navigator === "undefined" || !navigator.geolocation) return;
+
+      const updateCity = options?.updateCity === true;
+      setGeoLoading(true);
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const nearest = nearestCity(pos.coords.latitude, pos.coords.longitude);
+          setSignals((prev) => ({
+            ...prev,
+            gps: {
+              lat: pos.coords.latitude,
+              lng: pos.coords.longitude,
+              city: nearest.name,
+            },
+          }));
+
+          if (updateCity && !sessionExplicit.current) {
+            setCityState(nearest);
+            try {
+              window.localStorage.setItem(STORAGE_KEY, nearest.name);
+            } catch {
+              /* ignore */
+            }
+            log("geo.gps_resolved", { city: nearest.name });
+          } else {
+            log("geo.gps_signal", { city: nearest.name });
+          }
+
+          setGeoLoading(false);
+        },
+        () => setGeoLoading(false),
+        { timeout: 6000 },
+      );
+    },
+    [],
+  );
 
   // Build initial signals on mount. SSR-safe: nothing reads window during
   // the synchronous render path; everything happens inside useEffect.
@@ -122,11 +162,11 @@ export function useCitySelector(initialCity?: string): UseCitySelectorReturn {
     // resolveGeoPriority ranks `ip` below `explicit`, `gps`, `saved`. We
     // surface it so when GPS is denied/blocked, the user still gets a
     // reasonable default instead of falling all the way to "trending".
-    if (!collected.explicit && typeof window !== "undefined") {
+    if (typeof window !== "undefined") {
       void fetch("/api/geo/ip")
         .then((r) => (r.ok ? r.json() : null))
         .then((data) => {
-          if (!data || sessionExplicit.current) return;
+          if (!data) return;
           if (!data.city && data.lat == null) return;
           setSignals((prev) => ({
             ...prev,
@@ -139,7 +179,7 @@ export function useCitySelector(initialCity?: string): UseCitySelectorReturn {
           // Only apply ip-derived city if nothing better was resolved.
           // (GPS may still be in-flight; if it arrives later it overrides
           // via its own setSignals call above.)
-          if (data.city && !sessionExplicit.current) {
+          if (data.city && !collected.explicit && !sessionExplicit.current) {
             const found = findCity(data.city);
             // Don't override an explicit/gps/saved city that already populated.
             if (found && city.name === SERBIAN_CITIES[0].name) {
@@ -155,42 +195,7 @@ export function useCitySelector(initialCity?: string): UseCitySelectorReturn {
 
     // GPS — only request when no explicit prior choice. Adds `gps` signal
     // when it succeeds; explicit always still wins thanks to the resolver.
-    if (
-      !collected.explicit &&
-      typeof navigator !== "undefined" &&
-      navigator.geolocation
-    ) {
-      setGeoLoading(true);
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          const nearest = nearestCity(pos.coords.latitude, pos.coords.longitude);
-          // Critical: do NOT override an explicit choice the user made
-          // between mount and GPS callback (race condition).
-          if (sessionExplicit.current) {
-            setGeoLoading(false);
-            return;
-          }
-          setSignals((prev) => ({
-            ...prev,
-            gps: {
-              lat: pos.coords.latitude,
-              lng: pos.coords.longitude,
-              city: nearest.name,
-            },
-          }));
-          setCityState(nearest);
-          try {
-            window.localStorage.setItem(STORAGE_KEY, nearest.name);
-          } catch {
-            /* ignore */
-          }
-          log("geo.gps_resolved", { city: nearest.name });
-          setGeoLoading(false);
-        },
-        () => setGeoLoading(false),
-        { timeout: 5000 },
-      );
-    }
+    if (!collected.explicit) requestGpsLocation({ updateCity: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -230,6 +235,7 @@ export function useCitySelector(initialCity?: string): UseCitySelectorReturn {
     setCity,
     cities: SERBIAN_CITIES,
     geoLoading,
+    requestGpsLocation,
     signals,
     resolved,
   };

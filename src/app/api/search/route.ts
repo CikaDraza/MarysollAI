@@ -351,7 +351,9 @@ export async function GET(req: Request): Promise<NextResponse> {
   const slotsByCity = groupAndSortByCityPriority(
     selectedResults,
     scenario.recoveryState.effectiveCity ?? params.cityDisplay,
-    params.cityRef,
+    geoRef.lat != null && geoRef.lng != null
+      ? { lat: geoRef.lat, lng: geoRef.lng }
+      : params.cityRef,
   );
   const recoveryState = scenario.recoveryState;
   const suggestions = buildSearchSuggestions({

@@ -1,13 +1,9 @@
 // src/lib/search/enrichGeoSignals.ts
 
 import type { SearchResult } from "@/types/slots";
-import {
-  calculateDistanceKm,
-  calculateTravelMinutesEstimate,
-  isValidCoordinate,
-} from "@/lib/geo/distance";
+import { isValidCoordinate } from "@/lib/geo/distance";
 import { calculateDistanceScore } from "@/lib/geo/geoScore";
-import { createGoogleMapsLink } from "@/lib/geo/maps";
+import { buildSlotLocationPayload } from "@/lib/geo/locationPayload";
 
 export interface GeoSignals {
   distanceKm?: number;
@@ -46,35 +42,26 @@ export function enrichGeoSignals(params: {
   return (params.slots ?? []).map((slot) => {
     try {
       const { lat: salonLat, lng: salonLng } = readSalonCoordinates(slot);
-      const hasSalonCoords =
-        isValidCoordinate(salonLat, "lat") &&
-        isValidCoordinate(salonLng, "lng");
-
-      if (!hasSalonCoords) return { ...slot };
-
-      const mapsLink = createGoogleMapsLink(salonLat, salonLng);
-      if (!canMeasureFromUser) {
-        return { ...slot, mapsLink };
-      }
-
-      const distanceKm = calculateDistanceKm(
-        params.userLat!,
-        params.userLng!,
+      const location = buildSlotLocationPayload({
+        userLat: canMeasureFromUser ? params.userLat : undefined,
+        userLng: canMeasureFromUser ? params.userLng : undefined,
         salonLat,
         salonLng,
-      );
-
-      if (!Number.isFinite(distanceKm)) return { ...slot, mapsLink };
+        salonAddress: slot.salonAddress,
+        salonCity: slot.city,
+      });
+      if (!location.hasSalonLocation) return { ...slot };
+      if (location.distanceKm == null) return { ...slot, mapsLink: location.mapsLink };
 
       return {
         ...slot,
-        distanceKm,
-        travelMinutesEstimate: calculateTravelMinutesEstimate(distanceKm),
+        distanceKm: location.distanceKm,
+        travelMinutesEstimate: location.travelMinutesEstimate,
         distanceScore: calculateDistanceScore({
-          distanceKm,
+          distanceKm: location.distanceKm,
           intentType: params.intentType,
         }),
-        mapsLink,
+        mapsLink: location.mapsLink,
       };
     } catch {
       return { ...slot };

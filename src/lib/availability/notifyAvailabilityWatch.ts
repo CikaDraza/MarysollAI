@@ -128,20 +128,25 @@ export async function notifyAvailabilityWatch(
   const bookingUrl = publicBaseUrl ? new URL(href, publicBaseUrl).toString() : href;
   const slotLabel = formatSlotDateTime(slot);
   const salonLabel = [slot.salonName, slot.city].filter(Boolean).join(", ");
+  const addressLabel = [slot.salonAddress, slot.city].filter(Boolean).join(", ");
   const subject = `Pojavio se slobodan termin za ${watch.serviceName}`;
   const text = [
     subject,
     "",
     slotLabel,
     salonLabel,
+    addressLabel ? `Adresa: ${addressLabel}` : undefined,
+    slot.mapsLink ? `Mapa: ${slot.mapsLink}` : undefined,
     "",
     `Rezerviši termin: ${bookingUrl}`,
-  ].join("\n");
+  ].filter((line): line is string => line != null).join("\n");
   const html = `
     <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #1f2937;">
       <h2 style="margin: 0 0 12px;">${subject}</h2>
       <p style="margin: 0 0 8px;"><strong>${slotLabel}</strong></p>
       <p style="margin: 0 0 18px;">${salonLabel}</p>
+      ${addressLabel ? `<p style="margin: 0 0 12px;"><strong>Adresa:</strong> ${addressLabel}</p>` : ""}
+      ${slot.mapsLink ? `<p style="margin: 0 0 18px;"><a href="${slot.mapsLink}" style="color:#111827;font-weight:700;">Prikaži lokaciju</a></p>` : ""}
       <a href="${bookingUrl}" style="display:inline-block;background:#111827;color:#fff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:700;">Rezerviši termin</a>
     </div>
   `;

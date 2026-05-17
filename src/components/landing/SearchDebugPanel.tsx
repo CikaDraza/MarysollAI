@@ -20,6 +20,7 @@ import {
   applyFallbackPolicy,
   evaluateFallbackPolicy,
 } from "@/lib/availability/fallbackPolicy";
+import { resolveDistanceOrigin } from "@/lib/geo/resolveDistanceOrigin";
 
 const isProd = process.env.NODE_ENV === "production";
 const DEBUG_PANEL_MAX_HEIGHT = "calc(100vh - 32px)";
@@ -35,7 +36,7 @@ function StatRow({ label, value }: { label: string; value: string | number }) {
 
 export default function SearchDebugPanel() {
   const [open, setOpen] = useState(false);
-  const { cityName, geoResolved } = useCityContext();
+  const { city, cityName, geoResolved, geoSignals } = useCityContext();
   const { results, fallbackLevel, recoveryState, debug, isLoading } = useSearchContext();
   const recoveryDebug =
     debug && typeof debug.recoveryDebug === "object" && debug.recoveryDebug !== null
@@ -50,6 +51,7 @@ export default function SearchDebugPanel() {
   // adapter to capture rankingMeta. Reuses the same code path as real consumers.
   const debugPolicy = resolveFallbackPolicy("quickaccess", { kind: "implicit_geo" });
   const policyPassed = applyFallbackPolicy(results, debugPolicy);
+  const distanceOrigin = resolveDistanceOrigin(geoSignals, city);
   const policyRejected = results.length - policyPassed.length;
   const policyDecisions = results.map((slot) => ({
     slot,
@@ -59,10 +61,9 @@ export default function SearchDebugPanel() {
   const ranked = rankSearchResults({
     slots: policyPassed,
     strategy: "quickaccess",
-    userLocation:
-      geoResolved.lat != null && geoResolved.lng != null
-        ? { lat: geoResolved.lat, lng: geoResolved.lng }
-        : undefined,
+    userLocation: distanceOrigin
+      ? { lat: distanceOrigin.lat, lng: distanceOrigin.lng }
+      : undefined,
     fallbackLevel,
     geoSource: geoResolved.source,
   });

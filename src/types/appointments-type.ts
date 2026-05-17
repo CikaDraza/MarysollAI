@@ -42,6 +42,16 @@ export interface IAppointment {
   clientInstagram?: string;
   preferredContact?: "phone" | "instagram" | "email" | "platform";
   contactNote?: string;
+  salonId?: string;
+  salonName?: string;
+  tenantName?: string;
+  salonAddress?: string;
+  salonCity?: string;
+  salonLat?: number;
+  salonLng?: number;
+  mapsLink?: string;
+  distanceKm?: number;
+  travelMinutesEstimate?: number;
   serviceName: string;
   services: IAppointmentService[];
   duration: number;

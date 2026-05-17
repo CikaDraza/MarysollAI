@@ -1,7 +1,12 @@
 "use client";
 
 import { useMemo, useState, useEffect } from "react";
-import { XMarkIcon, CheckCircleIcon } from "@heroicons/react/24/outline";
+import {
+  ClipboardDocumentIcon,
+  MapPinIcon,
+  XMarkIcon,
+  CheckCircleIcon,
+} from "@heroicons/react/24/outline";
 import toast from "react-hot-toast";
 import { useAuthActions } from "@/hooks/useAuthActions";
 import { useBookingModal } from "@/context/landing/BookingModalContext";
@@ -23,6 +28,70 @@ import type { SearchApiResponse, SearchResult } from "@/types/slots";
 function formatPrice(price?: number): string {
   if (!price) return "";
   return new Intl.NumberFormat("sr-Latn").format(price) + " RSD";
+}
+
+function buildLocationNote(payload: ReturnType<typeof normalizeBookingPayload>): string | undefined {
+  if (!payload?.mapsLink && !payload?.salonAddress) return undefined;
+  return [
+    "Lokacija salona:",
+    payload.salonName,
+    payload.salonAddress ? `Adresa: ${payload.salonAddress}, ${payload.city}` : undefined,
+    payload.mapsLink ? `Mapa: ${payload.mapsLink}` : undefined,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function showLocationToast(params: {
+  salonName: string;
+  salonAddress?: string;
+  mapsLink?: string;
+  shouldShowCopy: boolean;
+}) {
+  if (!params.mapsLink) return;
+  toast(
+    (t) => (
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <strong>Lokacija salona</strong>
+        <span>
+          {params.salonName}
+          {params.salonAddress ? ` · ${params.salonAddress}` : ""}
+        </span>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <a
+            href={params.mapsLink}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={() => toast.dismiss(t.id)}
+            style={{ color: "var(--secondary-color)", fontWeight: 700 }}
+          >
+            Prikaži mapu
+          </a>
+          {params.shouldShowCopy && (
+            <button
+              type="button"
+              onClick={() => {
+                void navigator.clipboard?.writeText(params.mapsLink ?? "");
+                toast.success("Link lokacije je kopiran.");
+                toast.dismiss(t.id);
+              }}
+              style={{
+                border: "none",
+                background: "transparent",
+                color: "var(--secondary-color)",
+                fontWeight: 700,
+                cursor: "pointer",
+                padding: 0,
+              }}
+            >
+              Kopiraj link do lokacije
+            </button>
+          )}
+        </div>
+      </div>
+    ),
+    { duration: 9000 },
+  );
 }
 
 export default function BookingModal() {
@@ -270,18 +339,43 @@ export default function BookingModal() {
     }
     setLoading(true);
     try {
+      const contactPayload = buildBookingContactPayload({
+        user,
+        form: { name, phone, email, instagram },
+      });
+      const locationNote = buildLocationNote(normalized);
       const res = await fetch("/api/booking", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           salonId: normalized.salonId,
+          salonName: normalized.salonName,
+          salonAddress: normalized.salonAddress,
+          salonCity: normalized.city,
+          salonLat: normalized.salonLat,
+          salonLng: normalized.salonLng,
+          mapsLink: normalized.mapsLink,
+          distanceKm: normalized.distanceKm,
+          travelMinutesEstimate: normalized.travelMinutesEstimate,
+          metadata: {
+            location: {
+              salonName: normalized.salonName,
+              salonAddress: normalized.salonAddress,
+              salonCity: normalized.city,
+              salonLat: normalized.salonLat,
+              salonLng: normalized.salonLng,
+              mapsLink: normalized.mapsLink,
+              distanceKm: normalized.distanceKm,
+              travelMinutesEstimate: normalized.travelMinutesEstimate,
+            },
+          },
           serviceId: normalized.serviceId,
           serviceName: normalized.serviceName,
           startTime: normalized.startTime,
-          ...buildBookingContactPayload({
-            user,
-            form: { name, phone, email, instagram },
-          }),
+          ...contactPayload,
+          contactNote: [contactPayload.contactNote, locationNote]
+            .filter(Boolean)
+            .join("\n\n") || undefined,
         }),
       });
       if (!res.ok) {
@@ -316,6 +410,12 @@ export default function BookingModal() {
         throw new Error(mapBookingErrorMessage(data.error));
       }
       toast.success("Termin uspešno zakazan!");
+      showLocationToast({
+        salonName: normalized.salonName,
+        salonAddress: normalized.salonAddress,
+        mapsLink: normalized.mapsLink,
+        shouldShowCopy: !email,
+      });
       triggerSuccess();
       onConfirm();
     } catch (err) {
@@ -330,6 +430,9 @@ export default function BookingModal() {
   }
 
   const priceLabel = formatPrice(bookingPayload?.price);
+  const locationTitle = bookingPayload?.travelMinutesEstimate
+    ? `oko ${bookingPayload.travelMinutesEstimate} min`
+    : undefined;
   const headerLabel = bookingPayload
     ? [
         bookingPayload.city,
@@ -477,6 +580,103 @@ export default function BookingModal() {
               <span style={{ fontFamily: "var(--main-font)", fontSize: 15, fontWeight: 700, color: "var(--fg-1)" }}>
                 {priceLabel}
               </span>
+            </div>
+          )}
+
+          {(bookingPayload?.mapsLink || bookingPayload?.salonAddress) && (
+            <div
+              style={{
+                display: "flex",
+                alignItems: "flex-start",
+                gap: 10,
+                marginBottom: 18,
+                paddingBottom: 18,
+                borderBottom: "1px solid var(--border-1)",
+              }}
+            >
+              <MapPinIcon
+                style={{
+                  width: 18,
+                  height: 18,
+                  color: "var(--secondary-color)",
+                  flexShrink: 0,
+                  marginTop: 2,
+                }}
+                strokeWidth={1.8}
+              />
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <p
+                  style={{
+                    margin: "0 0 4px",
+                    fontFamily: "var(--main-font)",
+                    fontSize: 13,
+                    fontWeight: 700,
+                    color: "var(--fg-1)",
+                  }}
+                >
+                  Lokacija salona
+                </p>
+                {bookingPayload.salonAddress && (
+                  <p
+                    style={{
+                      margin: "0 0 8px",
+                      fontFamily: "var(--main-font)",
+                      fontSize: 12,
+                      color: "var(--fg-3)",
+                      lineHeight: 1.4,
+                    }}
+                  >
+                    Adresa: {bookingPayload.salonAddress}, {bookingPayload.city}
+                  </p>
+                )}
+                {bookingPayload.mapsLink && (
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                    <a
+                      href={bookingPayload.mapsLink}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title={locationTitle}
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 5,
+                        fontFamily: "var(--main-font)",
+                        fontSize: 12,
+                        fontWeight: 700,
+                        color: "var(--secondary-color)",
+                        textDecoration: "none",
+                      }}
+                    >
+                      Prikaži mapu
+                    </a>
+                    {!formEmail.trim() && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void navigator.clipboard?.writeText(bookingPayload.mapsLink ?? "");
+                          toast.success("Link lokacije je kopiran.");
+                        }}
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: 4,
+                          border: "none",
+                          background: "transparent",
+                          padding: 0,
+                          fontFamily: "var(--main-font)",
+                          fontSize: 12,
+                          fontWeight: 700,
+                          color: "var(--secondary-color)",
+                          cursor: "pointer",
+                        }}
+                      >
+                        <ClipboardDocumentIcon style={{ width: 13, height: 13 }} />
+                        Kopiraj link do lokacije
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           )}
 

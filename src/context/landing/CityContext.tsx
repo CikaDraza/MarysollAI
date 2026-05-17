@@ -13,6 +13,8 @@ interface CityContextValue {
   cityName: string;
   setCity: (city: SerbianCity) => void;
   setCityByName: (name: string) => void;
+  geoLoading: boolean;
+  requestGpsLocation: () => void;
   /** Phase 2.5B — geo signals + resolved priority surfaced for consumers
    * that need richer geo info (preload, ranking, analytics). */
   geoSignals: GeoSignals;
@@ -28,9 +30,8 @@ export function CityProvider({
   children: ReactNode;
   initialCity?: string;
 }) {
-  const { city, setCity, signals, resolved } = useCitySelector(
-    initialCity || undefined,
-  );
+  const { city, setCity, geoLoading, requestGpsLocation, signals, resolved } =
+    useCitySelector(initialCity || undefined);
 
   const setCityByName = (name: string) => {
     const found = SERBIAN_CITIES.find(
@@ -47,6 +48,8 @@ export function CityProvider({
         cityName: city.name,
         setCity,
         setCityByName,
+        geoLoading,
+        requestGpsLocation,
         geoSignals: signals,
         geoResolved: resolved,
       }}

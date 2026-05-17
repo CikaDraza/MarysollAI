@@ -13,6 +13,9 @@ import {
   filterAppointmentsByMode,
   isCancellableAppointment,
 } from "@/lib/appointments/appointmentFilters";
+import { createGoogleMapsLink, createGoogleMapsLinkFromAddress } from "@/lib/geo/maps";
+import { hasGeoCoordinates } from "@/lib/geo/distance";
+import { formatDistance } from "@/lib/utils/distance";
 
 interface ClientAppointmentListItemProps {
   appointment: IAppointment;
@@ -59,6 +62,32 @@ function appointmentSalonName(appointment: IAppointment): string {
   );
 }
 
+function appointmentSalonAddress(appointment: IAppointment): string {
+  const record = appointment as IAppointment & {
+    address?: unknown;
+    location?: { address?: unknown; formattedAddress?: unknown };
+  };
+  return (
+    (typeof appointment.salonAddress === "string" && appointment.salonAddress.trim()) ||
+    (typeof record.address === "string" && record.address.trim()) ||
+    (typeof record.location?.address === "string" && record.location.address.trim()) ||
+    (typeof record.location?.formattedAddress === "string" && record.location.formattedAddress.trim()) ||
+    ""
+  );
+}
+
+function appointmentMapsLink(appointment: IAppointment): string {
+  if (appointment.mapsLink) return appointment.mapsLink;
+  const coords = { lat: appointment.salonLat, lng: appointment.salonLng };
+  if (hasGeoCoordinates(coords)) {
+    return createGoogleMapsLink(coords.lat, coords.lng);
+  }
+  return createGoogleMapsLinkFromAddress(
+    appointmentSalonAddress(appointment),
+    appointment.salonCity,
+  );
+}
+
 // AppointmentListItem deo
 function ClientAppointmentListItem({
   appointment,
@@ -68,6 +97,14 @@ function ClientAppointmentListItem({
 }: ClientAppointmentListItemProps) {
   const currentAppointment = appointment;
   const canCancel = isCancellableAppointment(currentAppointment);
+  const salonName = appointmentSalonName(currentAppointment);
+  const salonAddress = appointmentSalonAddress(currentAppointment);
+  const salonCity = currentAppointment.salonCity ?? "";
+  const mapsLink = appointmentMapsLink(currentAppointment);
+  const distanceLabel = formatDistance(currentAppointment.distanceKm);
+  const travelLabel = currentAppointment.travelMinutesEstimate
+    ? `oko ${currentAppointment.travelMinutesEstimate} min`
+    : "";
   const cancelExpired =
     currentAppointment.status !== "appointment_cancelled" &&
     currentAppointment.cancellationStatus === "late_cancel";
@@ -123,6 +160,35 @@ function ClientAppointmentListItem({
               <strong>Napomena klijenta:</strong> {currentAppointment.note}
             </p>
           )}
+          <div className="mt-3 rounded-lg bg-gray-50 p-3">
+            <p className="text-sm font-semibold text-gray-900">{salonName}</p>
+            {(salonAddress || salonCity) && (
+              <p className="mt-1 text-xs text-gray-600">
+                {salonAddress && <>Adresa: {salonAddress}</>}
+                {salonAddress && salonCity ? ", " : ""}
+                {salonCity}
+              </p>
+            )}
+            {(distanceLabel || travelLabel || mapsLink) && (
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                {(distanceLabel || travelLabel) && (
+                  <span className="text-xs font-medium text-gray-500">
+                    {[distanceLabel, travelLabel].filter(Boolean).join(" · ")}
+                  </span>
+                )}
+                {mapsLink && (
+                  <a
+                    href={mapsLink}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="rounded-lg border border-gray-200 px-3 py-2 text-xs font-semibold text-gray-700 hover:border-gray-300 hover:bg-white"
+                  >
+                    Prikaži mapu
+                  </a>
+                )}
+              </div>
+            )}
+          </div>
           {currentAppointment.proposedDate &&
             currentAppointment.proposedTime && (
               <p className="mt-1 text-xs text-blue-600">

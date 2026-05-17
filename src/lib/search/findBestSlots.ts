@@ -39,6 +39,8 @@ import {
   type Appointment as AvailabilityAppointment,
   type WorkingHours,
 } from "@/lib/availability/generateVerifiedSlots";
+import { buildSlotLocationPayload } from "@/lib/geo/locationPayload";
+import { calculateTravelMinutesEstimate } from "@/lib/geo/distance";
 
 // ── Related category map ──────────────────────────────────────────────────────
 
@@ -305,12 +307,13 @@ function makeCandidates(
       }
 
       // Per-salon distance for arrival feasibility
+      const salonCoords = resolveSalonCoordinates(salon);
       const userDistanceKm =
         opts.userLat != null &&
         opts.userLng != null &&
-        salon.lat != null &&
-        salon.lng != null
-          ? haversineKm(opts.userLat, opts.userLng, salon.lat, salon.lng)
+        salonCoords.lat != null &&
+        salonCoords.lng != null
+          ? haversineKm(opts.userLat, opts.userLng, salonCoords.lat, salonCoords.lng)
           : typeof salon.distance === "number"
             ? salon.distance
             : undefined;
@@ -341,7 +344,7 @@ function makeCandidates(
           id: salonId,
           name: salon.name,
           city: salon.city,
-          location: { lat: salon.lat, lng: salon.lng, city: salon.city },
+          location: { lat: salonCoords.lat, lng: salonCoords.lng, city: salon.city },
           services: services.map((sv) => {
             const r = sv as Record<string, unknown>;
             const isVariant = r.type === "variant";
@@ -453,6 +456,89 @@ function resolveHasVariants(svc: PlatformService | undefined): boolean {
   return false;
 }
 
+function firstString(...values: unknown[]): string | undefined {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return undefined;
+}
+
+function readNestedString(value: unknown, path: string[]): string | undefined {
+  let current = value;
+  for (const key of path) {
+    if (!current || typeof current !== "object") return undefined;
+    current = (current as Record<string, unknown>)[key];
+  }
+  return typeof current === "string" && current.trim() ? current.trim() : undefined;
+}
+
+function readNumber(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim()) {
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : undefined;
+  }
+  return undefined;
+}
+
+function resolveSalonCoordinates(salon: PlatformSalon): {
+  lat?: number;
+  lng?: number;
+} {
+  const location =
+    salon.location && typeof salon.location === "object"
+      ? (salon.location as Record<string, unknown>)
+      : undefined;
+  const coordinates = Array.isArray(location?.coordinates)
+    ? location.coordinates
+    : undefined;
+
+  return {
+    lat: readNumber(
+      salon.lat ??
+        salon.latitude ??
+        location?.lat ??
+        location?.latitude ??
+        coordinates?.[1],
+    ),
+    lng: readNumber(
+      salon.lng ??
+        salon.lon ??
+        salon.longitude ??
+        location?.lng ??
+        location?.lon ??
+        location?.longitude ??
+        coordinates?.[0],
+    ),
+  };
+}
+
+function resolveSalonAddress(salon: PlatformSalon): string | undefined {
+  const location =
+    salon.location && typeof salon.location === "object"
+      ? (salon.location as Record<string, unknown>)
+      : undefined;
+  return firstString(
+    salon.address,
+    salon.street,
+    salon.salonAddress,
+    salon.streetAddress,
+    salon.fullAddress,
+    readNestedString(salon, ["landingStructure", "landing", "hero", "contact", "location"]),
+    location?.address,
+    location?.formattedAddress,
+  );
+}
+
+function resolveSalonMapsUrl(salon: PlatformSalon): string | undefined {
+  return firstString(
+    salon.googleBusinessUrl,
+    salon.googleMapsUrl,
+    salon.mapsUrl,
+    salon.mapsLink,
+  );
+}
+
 function toSearchResult(
   c: SlotCandidate,
   params: NormalizedSearch,
@@ -463,24 +549,23 @@ function toSearchResult(
   const slotOrigins = deriveSlotOrigins(c, fallbackLevel, params);
   const salonId = c.salon.id ?? c.salon._id ?? "";
 
-  let distanceKm: number | undefined;
-  if (
-    params.lat != null &&
-    params.lng != null &&
-    c.salon.lat != null &&
-    c.salon.lng != null
-  ) {
-    distanceKm = haversineKm(params.lat, params.lng, c.salon.lat, c.salon.lng);
-  } else if (params.cityRef && c.salon.lat != null && c.salon.lng != null) {
-    distanceKm = haversineKm(
-      params.cityRef.lat,
-      params.cityRef.lng,
-      c.salon.lat,
-      c.salon.lng,
-    );
-  } else if (typeof c.salon.distance === "number") {
-    distanceKm = c.salon.distance ?? undefined;
-  }
+  const salonAddress = resolveSalonAddress(c.salon);
+  const salonCoords = resolveSalonCoordinates(c.salon);
+  const locationPayload = buildSlotLocationPayload({
+    userLat: params.lat,
+    userLng: params.lng,
+    salonLat: salonCoords.lat,
+    salonLng: salonCoords.lng,
+    salonAddress,
+    salonCity: c.salon.city,
+  });
+  const mapsLink = locationPayload.mapsLink ?? resolveSalonMapsUrl(c.salon);
+  const distanceKm =
+    locationPayload.distanceKm ??
+    (typeof c.salon.distance === "number" ? c.salon.distance : undefined);
+  const travelMinutesEstimate =
+    locationPayload.travelMinutesEstimate ??
+    (distanceKm != null ? calculateTravelMinutesEstimate(distanceKm) : undefined);
 
   const relevanceScore = computeRelevance(
     { startTime: c.startTime },
@@ -502,13 +587,16 @@ function toSearchResult(
     city: c.salon.city ?? "",
     distanceKm:
       distanceKm != null ? Math.round(distanceKm * 10) / 10 : undefined,
+    travelMinutesEstimate,
+    mapsLink,
     price: resolveServicePrice(c.service),
     hasVariants: resolveHasVariants(c.service),
     // SearchResult extras
     salonSlug: c.salon.slug,
+    salonAddress,
     salonLogo: c.salon.logo,
-    salonLat: c.salon.lat,
-    salonLng: c.salon.lng,
+    salonLat: salonCoords.lat,
+    salonLng: salonCoords.lng,
     verified: c.salon.verified as boolean | undefined,
     rating: c.salon.rating as number | undefined,
     website: c.salon.website as string | undefined,
@@ -610,14 +698,20 @@ function filterCandidates(
       const salonCityNorm = stripDiacritics(c.salon.city ?? "");
       const targetNorm = stripDiacritics(params.cityDisplay);
       if (salonCityNorm !== targetNorm) return false;
-    } else if (opts.maxDistanceKm != null && params.cityRef) {
+    } else if (opts.maxDistanceKm != null) {
+      const origin =
+        params.lat != null && params.lng != null
+          ? { lat: params.lat, lng: params.lng }
+          : params.cityRef;
+      if (!origin) return false;
+      const coords = resolveSalonCoordinates(c.salon);
       const d =
-        c.salon.lat != null && c.salon.lng != null
+        coords.lat != null && coords.lng != null
           ? haversineKm(
-              params.cityRef.lat,
-              params.cityRef.lng,
-              c.salon.lat,
-              c.salon.lng,
+              origin.lat,
+              origin.lng,
+              coords.lat,
+              coords.lng,
             )
           : Infinity;
       if (d > opts.maxDistanceKm) return false;

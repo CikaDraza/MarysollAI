@@ -1,7 +1,11 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ClockIcon } from "@heroicons/react/24/outline";
+import {
+  ArrowsRightLeftIcon,
+  ClockIcon,
+  MapPinIcon,
+} from "@heroicons/react/24/outline";
 import type { CitySlots } from "@/hooks/useSearch";
 import {
   CANONICAL_TO_SLUG,
@@ -24,6 +28,9 @@ import {
 } from "@/lib/availability/fallbackPolicy";
 import type { AvailabilityType } from "@/lib/availability/availabilityConfidence";
 import { formatDistance } from "@/lib/utils/distance";
+import { calculateDistanceKm, calculateTravelMinutesEstimate } from "@/lib/geo/distance";
+import { createGoogleMapsDirectionsLink } from "@/lib/geo/maps";
+import { resolveDistanceOrigin } from "@/lib/geo/resolveDistanceOrigin";
 import { resolveSearchFallback } from "@/lib/search/searchFallback";
 import { trackSearchEvent } from "@/lib/search/searchAnalytics";
 import { SERBIAN_CITIES } from "@/lib/cities";
@@ -67,6 +74,9 @@ export interface QuickSlot {
   distanceScore?: number;
   travelMinutesEstimate?: number;
   mapsLink?: string;
+  salonAddress?: string;
+  salonLat?: number;
+  salonLng?: number;
   /** Phase 2.5D Task 8 — slot came from fallback search (level > 1). */
   fromFallback?: boolean;
   availabilityConfidence?: AvailabilityConfidence;
@@ -168,7 +178,7 @@ function formatPrice(
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function QuickAccess() {
-  const { cityName, setCity, geoResolved } = useCityContext();
+  const { city, cityName, setCity, geoSignals } = useCityContext();
   const {
     category,
     subcategoryFilter: subcategory,
@@ -185,6 +195,7 @@ export default function QuickAccess() {
     isLoading: searchLoading,
   } = useSearchContext();
   const { openModal } = useBookingModal();
+  const distanceOrigin = resolveDistanceOrigin(geoSignals, city);
   const { data: salons = [], isLoading: salonsLoading } = useSalons(cityName);
 
   const onPick = (slot: QuickSlot, position: number) => {
@@ -198,6 +209,12 @@ export default function QuickAccess() {
       city: slot.city,
       price: slot.servicePrice,
       serviceDuration: slot.serviceDuration,
+      distanceKm: slot.distanceKm,
+      travelMinutesEstimate: slot.travelMinutesEstimate,
+      mapsLink: slot.mapsLink,
+      salonAddress: slot.salonAddress,
+      salonLat: slot.salonLat,
+      salonLng: slot.salonLng,
     };
     // Phase 2.5D Task 3 — analytics on click + fallback conversion.
     const slotId = `${slot.salonId}|${slot.startTime}|${slot.serviceId ?? ""}`;
@@ -290,6 +307,9 @@ export default function QuickAccess() {
         distanceScore: r.distanceScore,
         travelMinutesEstimate: r.travelMinutesEstimate,
         mapsLink: r.mapsLink,
+        salonAddress: r.salonAddress,
+        salonLat: r.salonLat,
+        salonLng: r.salonLng,
         fromFallback: (r.fallbackLevel ?? 0) > 1,
       }));
   }, [results, category, cityName, recoveryState?.recoveryScenario]);
@@ -362,6 +382,9 @@ export default function QuickAccess() {
         distanceScore: qs.distanceScore,
         travelMinutesEstimate: qs.travelMinutesEstimate,
         mapsLink: qs.mapsLink,
+        salonAddress: qs.salonAddress,
+        salonLat: qs.salonLat,
+        salonLng: qs.salonLng,
         price: qs.servicePrice,
         hasVariants: qs.hasVariants ?? false,
         serviceDuration: qs.serviceDuration ?? 60,
@@ -381,10 +404,9 @@ export default function QuickAccess() {
     const ranked = rankSearchResults({
       slots,
       strategy: "quickaccess",
-      userLocation:
-        geoResolved.lat != null && geoResolved.lng != null
-          ? { lat: geoResolved.lat, lng: geoResolved.lng }
-          : undefined,
+      userLocation: distanceOrigin
+        ? { lat: distanceOrigin.lat, lng: distanceOrigin.lng }
+        : undefined,
       fallbackLevel,
     });
 
@@ -400,8 +422,8 @@ export default function QuickAccess() {
   }, [
     subcategoryFilteredSlots,
     activeServiceId,
-    geoResolved.lat,
-    geoResolved.lng,
+    distanceOrigin?.lat,
+    distanceOrigin?.lng,
     fallbackLevel,
   ]);
 
@@ -531,6 +553,7 @@ export default function QuickAccess() {
               <SlotCard
                 key={`${slot.salonId}-${slot.startTime}-${slot.serviceId ?? ""}`}
                 slot={slot}
+                userLocation={distanceOrigin}
                 onBook={() => onPick(slot, i)}
               />
             ))}
@@ -672,7 +695,15 @@ export default function QuickAccess() {
 
 // ── Slot card ─────────────────────────────────────────────────────────────────
 
-function SlotCard({ slot, onBook }: { slot: QuickSlot; onBook: () => void }) {
+function SlotCard({
+  slot,
+  onBook,
+  userLocation,
+}: {
+  slot: QuickSlot;
+  onBook: () => void;
+  userLocation?: { lat: number; lng: number };
+}) {
   const [hovered, setHovered] = useState(false);
   const timeStr = formatTime(slot.startTime);
   const priceStr = formatPrice(slot.servicePrice, slot.hasVariants);
@@ -683,6 +714,32 @@ function SlotCard({ slot, onBook }: { slot: QuickSlot; onBook: () => void }) {
     slot.serviceDuration ? `${slot.serviceDuration} min` : null,
   ].filter(Boolean);
   const serviceDetails = serviceParts.join(" · ");
+  const gpsDistanceKm =
+    userLocation && slot.salonLat != null && slot.salonLng != null
+      ? calculateDistanceKm(userLocation.lat, userLocation.lng, slot.salonLat, slot.salonLng)
+      : undefined;
+  const displayDistanceKm =
+    gpsDistanceKm != null && Number.isFinite(gpsDistanceKm)
+      ? gpsDistanceKm
+      : slot.distanceKm;
+  const displayTravelMinutes =
+    gpsDistanceKm != null && Number.isFinite(gpsDistanceKm)
+      ? calculateTravelMinutesEstimate(gpsDistanceKm)
+      : slot.travelMinutesEstimate;
+  const directionsLink =
+    userLocation && slot.salonLat != null && slot.salonLng != null
+      ? createGoogleMapsDirectionsLink({
+          originLat: userLocation.lat,
+          originLng: userLocation.lng,
+          destinationLat: slot.salonLat,
+          destinationLng: slot.salonLng,
+        })
+      : "";
+  const mapHref = directionsLink || slot.mapsLink;
+  const distLabel = formatDistance(displayDistanceKm);
+  const travelTitle = displayTravelMinutes
+    ? `oko ${displayTravelMinutes} min`
+    : undefined;
 
   return (
     <div
@@ -733,25 +790,57 @@ function SlotCard({ slot, onBook }: { slot: QuickSlot; onBook: () => void }) {
         }}
       >
         <span>{slot.dateLabel}</span>
-        {(() => {
-          // Phase 2.5D Task 7 — distance badge in QuickAccess. Right-aligned
-          // alongside the date label, subtle and only when known.
-          const distLabel = formatDistance(slot.distanceKm);
-          if (!distLabel) return null;
-          return (
+        <span
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "flex-end",
+            gap: 8,
+            minWidth: 0,
+            flexWrap: "wrap",
+          }}
+        >
+          {distLabel && (
             <span
-              title="Udaljenost"
+              title={travelTitle ? `Udaljenost, ${travelTitle}` : "Udaljenost"}
               style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 3,
                 fontWeight: 500,
                 color: "var(--fg-3)",
                 fontSize: 10,
                 opacity: 0.85,
+                whiteSpace: "nowrap",
               }}
             >
+              <ArrowsRightLeftIcon style={{ width: 11, height: 11 }} strokeWidth={1.8} />
               {distLabel}
             </span>
-          );
-        })()}
+          )}
+          {mapHref && (
+            <a
+              href={mapHref}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={travelTitle ?? "Prikaži mapu"}
+              onClick={(event) => event.stopPropagation()}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 3,
+                color: "var(--secondary-color)",
+                fontSize: 10,
+                fontWeight: 700,
+                textDecoration: "none",
+                whiteSpace: "nowrap",
+              }}
+            >
+              <MapPinIcon style={{ width: 11, height: 11 }} strokeWidth={1.8} />
+              Mapa
+            </a>
+          )}
+        </span>
       </p>
 
       {/* Time + city badge */}

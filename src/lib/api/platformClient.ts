@@ -136,6 +136,15 @@ export interface CreateBookingPayload {
   salonId: string;
   serviceId: string;
   startTime: string;
+  salonName?: string;
+  salonAddress?: string;
+  salonCity?: string;
+  salonLat?: number;
+  salonLng?: number;
+  mapsLink?: string;
+  distanceKm?: number;
+  travelMinutesEstimate?: number;
+  metadata?: Record<string, unknown>;
   clientId?: string;
   clientName: string;
   clientEmail?: string;

@@ -22,6 +22,7 @@ import { useCityContext } from "@/context/landing/CityContext";
 import type { SearchApiResponse } from "@/types/slots";
 import { aiLog } from "@/lib/ai/debug-log";
 import { buildSearchQueryKey } from "@/lib/search/queryKey";
+import { resolveDistanceOrigin } from "@/lib/geo/resolveDistanceOrigin";
 
 const log = aiLog("SEARCH_ENGINE");
 
@@ -46,29 +47,28 @@ async function fetchSearchPreload(opts: {
  */
 export default function HomepagePreloader() {
   const queryClient = useQueryClient();
-  const { cityName, geoResolved } = useCityContext();
+  const { city, cityName, geoSignals } = useCityContext();
 
-  // Build the geo input the same way useSearch downstream consumers will.
-  // Explicit city wins (matches resolveGeoPriority's invariant).
-  const lat = geoResolved.lat;
-  const lng = geoResolved.lng;
-  const city = geoResolved.city || cityName;
+  const distanceOrigin = resolveDistanceOrigin(geoSignals, city);
+  const lat = distanceOrigin?.lat;
+  const lng = distanceOrigin?.lng;
+  const searchCity = cityName;
 
   useEffect(() => {
-    if (!city) return;
+    if (!searchCity) return;
 
-    log("preload.start", { city, source: geoResolved.source });
+    log("preload.start", { city: searchCity, source: distanceOrigin?.source ?? "none" });
 
     void queryClient
       .prefetchQuery({
-        queryKey: buildSearchQueryKey({ city, lat, lng }),
-        queryFn: () => fetchSearchPreload({ city, lat, lng }),
+        queryKey: buildSearchQueryKey({ city: searchCity, lat, lng }),
+        queryFn: () => fetchSearchPreload({ city: searchCity, lat, lng }),
         staleTime: 1000 * 60 * 2, // match useSearch staleTime
       })
-      .then(() => log("preload.complete", { city }))
+      .then(() => log("preload.complete", { city: searchCity }))
       .catch((err) => log("preload.failed", { error: String(err) }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [city, lat, lng]);
+  }, [searchCity, lat, lng]);
 
   return null;
 }
