@@ -3,7 +3,8 @@
 
 import { CheckIcon } from "@heroicons/react/24/outline";
 import { AnimatePresence, motion } from "framer-motion";
-import { useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useRef, useState } from "react";
 import LandingHeader from "./LandingHeader";
 import Hero from "./Hero";
 import QuickAccess from "./QuickAccess";
@@ -22,6 +23,7 @@ import {
 import { CityProvider } from "@/context/landing/CityContext";
 import { FiltersProvider } from "@/context/landing/FiltersContext";
 import { BookingModalProvider } from "@/context/landing/BookingModalContext";
+import { useBookingModal } from "@/context/landing/BookingModalContext";
 import {
   SearchProvider,
   useSearchContext,
@@ -32,6 +34,7 @@ import {
   useWorkspace,
 } from "@/context/landing/WorkspaceContext";
 import { AgentBridge } from "@/components/chat-bus/AgentBridge";
+import type { SearchResult } from "@/types/slots";
 
 const SIDEBAR_W = 500;
 
@@ -113,6 +116,9 @@ function LandingPageContent() {
       {/* Phase 2.5B — silent homepage preload. Renders nothing; warms
           TanStack's cache so QuickAccess/BookingWidget mount with data. */}
       <HomepagePreloader />
+      <Suspense fallback={null}>
+        <ResumeWatchOpener />
+      </Suspense>
 
       {/* Phase 2.5D — dev-only ranking observability. Renders nothing in
           production. */}
@@ -160,6 +166,36 @@ function LandingPageContent() {
       <AIDrawer />
     </div>
   );
+}
+
+function ResumeWatchOpener() {
+  const searchParams = useSearchParams();
+  const { openModal } = useBookingModal();
+  const openedRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const watchId = searchParams.get("resumeWatch");
+    if (!watchId || openedRef.current === watchId) return;
+    openedRef.current = watchId;
+    const activeWatchId = watchId;
+
+    let cancelled = false;
+    async function openMatchedSlot() {
+      const res = await fetch(`/api/waitlist?id=${encodeURIComponent(activeWatchId)}`);
+      if (!res.ok) return;
+      const data = (await res.json()) as { matchedSlot?: Partial<SearchResult> | null };
+      if (!cancelled && data.matchedSlot) {
+        openModal(data.matchedSlot);
+      }
+    }
+
+    void openMatchedSlot();
+    return () => {
+      cancelled = true;
+    };
+  }, [openModal, searchParams]);
+
+  return null;
 }
 
 /** Shows the AI workspace block when active, QuickAccess when idle. */
