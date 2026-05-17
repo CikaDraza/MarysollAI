@@ -1,10 +1,13 @@
 // src/types/landing-block.ts
 import type { SearchResult } from "@/types/slots";
+import type { IAppointment } from "@/types/appointments-type";
+import type { AppointmentListMode } from "@/lib/appointments/appointmentFilters";
 
 export type BlockTypes =
   | "AuthBlock"
   | "ServicePriceBlock"
   | "AppointmentCalendarBlock"
+  | "AppointmentCancelConfirmBlock"
   | "CalendarBlock"
   | "NewsletterFormBlock"
   | "LoginBlock"
@@ -32,6 +35,7 @@ export interface BaseBlock {
     date?: string;
     time?: string;
     mode?: AuthMode | CalendarMode;
+    appointmentListMode?: AppointmentListMode;
     intent?: string;
     category?: string;
     subcategory?: string;
@@ -49,6 +53,8 @@ export interface BaseBlock {
     instagram?: string;
     contact?: unknown;
     selectedSlot?: SearchResult;
+    appointmentId?: string;
+    appointment?: IAppointment;
   };
   query?: string;
 }
@@ -101,8 +107,17 @@ export interface CalendarBlockType extends BaseBlock {
   type: "CalendarBlock";
   metadata: BaseBlock["metadata"] & {
     mode?: CalendarMode;
+    appointmentListMode?: AppointmentListMode;
   };
   query?: string;
+}
+
+export interface AppointmentCancelConfirmBlockType extends BaseBlock {
+  type: "AppointmentCancelConfirmBlock";
+  metadata: BaseBlock["metadata"] & {
+    appointmentId: string;
+    appointment: IAppointment;
+  };
 }
 
 export interface PricingBlockType extends BaseBlock {

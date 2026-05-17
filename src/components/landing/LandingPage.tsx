@@ -191,7 +191,7 @@ function WorkspaceSection() {
 }
 
 function ConfirmedToast() {
-  const { confirmed } = useLandingUI();
+  const { confirmed, confirmedTime } = useLandingUI();
   const { bestSlot } = useSearchContext();
 
   if (!confirmed) return null;
@@ -205,12 +205,13 @@ function ConfirmedToast() {
     >
       <CheckIcon style={{ width: 16, height: 16 }} strokeWidth={2} />
       Termin potvrđen za{" "}
-      {bestSlot
+      {confirmedTime ||
+        (bestSlot
         ? new Date(bestSlot.startTime).toLocaleTimeString("sr-Latn", {
             hour: "2-digit",
             minute: "2-digit",
           })
-        : ""}
+        : "")}
     </div>
   );
 }

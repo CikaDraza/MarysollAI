@@ -15,6 +15,8 @@ interface LandingUIContextValue {
   setDrawerOpen: (open: boolean) => void;
   confirmed: boolean;
   setConfirmed: (v: boolean) => void;
+  confirmedTime: string;
+  setConfirmedTime: (time: string) => void;
 }
 
 const LandingUIContext = createContext<LandingUIContextValue | null>(null);
@@ -23,6 +25,7 @@ export function LandingUIProvider({ children }: { children: ReactNode }) {
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
+  const [confirmedTime, setConfirmedTime] = useState("");
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -37,6 +40,8 @@ export function LandingUIProvider({ children }: { children: ReactNode }) {
         setDrawerOpen,
         confirmed,
         setConfirmed,
+        confirmedTime,
+        setConfirmedTime,
       }}
     >
       {children}

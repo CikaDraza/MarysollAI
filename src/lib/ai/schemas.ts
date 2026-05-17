@@ -9,6 +9,7 @@ const blockEnum = [
   "ForgotPasswordBlock",
   "CalendarBlock",
   "AppointmentCalendarBlock",
+  "AppointmentCancelConfirmBlock",
   "ServicePriceBlock",
   "TestimonialBlock",
   "NewsletterFormBlock",
@@ -80,6 +81,11 @@ export const unifiedSchema = {
                 type: "string",
                 enum: ["login", "logout", "register", "forgot", "reset", "preview", "list"],
               },
+              appointmentListMode: {
+                type: "string",
+                enum: ["all", "can_cancel"],
+              },
+              appointmentId: { type: "string" },
               service: { type: "string" },
               city: { type: "string" },
               cities: {

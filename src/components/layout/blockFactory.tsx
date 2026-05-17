@@ -1,6 +1,7 @@
 // src/components/layout/blockFactory.tsx
 import {
   AppointmentCalendarBlockType,
+  AppointmentCancelConfirmBlockType,
   AuthBlockType,
   BaseBlock,
   CalendarBlockType,
@@ -17,6 +18,7 @@ import CityListBlockView from "../blocks/CityListBlockView";
 import SalonListBlockView from "../blocks/SalonListBlockView";
 import LandingSearchBlock from "../blocks/LandingSearchBlock";
 import LandingConfirmBlock from "../blocks/LandingConfirmBlock";
+import AppointmentCancelConfirmBlockView from "../blocks/AppointmentCancelConfirmBlockView";
 
 export function blockFactory(
   block: BaseBlock,
@@ -63,6 +65,13 @@ export function blockFactory(
           key={block.id}
           block={block as AppointmentCalendarBlockType}
           onActionComplete={safeOnAction}
+        />
+      );
+    case "AppointmentCancelConfirmBlock":
+      return (
+        <AppointmentCancelConfirmBlockView
+          key={block.id}
+          block={block as AppointmentCancelConfirmBlockType}
         />
       );
     case "CalendarBlock":

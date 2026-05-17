@@ -111,6 +111,8 @@ export function AgentBridge({ children, claudiaAskAI }: AgentBridgeProps) {
         const requiresFreshAuth =
           agentType === "appointments" ||
           handoffPayload?.intent === "appointments" ||
+          handoffPayload?.intent === "cancel_appointment" ||
+          handoffPayload?.intent === "update_appointment" ||
           handoffPayload?.intent === "create_booking" ||
           handoffPayload?.intent === "resume_booking_after_login";
         let authSnapshot = authRef.current;

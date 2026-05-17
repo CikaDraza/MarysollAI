@@ -71,7 +71,6 @@ function generateTimeSlots(start: string, end: string): string[] {
 // ─── Props ────────────────────────────────────────────────────────────────────
 
 interface Props {
-  onSlotClick: (date: string, time: string) => void;
   onBookingSuccess?: () => void;
 }
 
@@ -79,7 +78,7 @@ type ViewMode = "week" | "day";
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export function CalendarBlockPreview({ onSlotClick, onBookingSuccess }: Props) {
+export function CalendarBlockPreview({ onBookingSuccess }: Props) {
   const [selectedSalon, setSelectedSalon] = useState<MappedSalon | null>(null);
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [selectedServiceId, setSelectedServiceId] = useState("");
@@ -434,10 +433,12 @@ export function CalendarBlockPreview({ onSlotClick, onBookingSuccess }: Props) {
                             undefined,
                           serviceDuration:
                             services.find((s) => s._id === selectedServiceId)?.duration,
+                          date: dateStr,
+                          time,
+                          timeLabel: time,
                         },
                         onBookingSuccess,
                       );
-                      onSlotClick(dateStr, time);
                     }}
                     className="cursor-pointer flex flex-col items-center justify-center gap-0.5 py-3 px-2 rounded-xl bg-gray-50 hover:bg-(--secondary-color) hover:text-white border border-transparent hover:border-(--secondary-color) transition-all text-sm font-bold text-gray-700"
                   >

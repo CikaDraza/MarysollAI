@@ -7,6 +7,7 @@ import type { CollectedBookingFields } from "@/lib/ai/booking-flow-state";
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { getUserFromToken } from "@/lib/auth/auth-utils";
+import { platformHeaders } from "@/lib/api/platformHeaders";
 
 function readBearerToken(req: Request): string | null {
   const authHeader = req.headers.get("authorization") ?? "";
@@ -17,9 +18,39 @@ function readBearerToken(req: Request): string | null {
 function requiresVerifiedAuth(handoffPayload?: Record<string, unknown>): boolean {
   return (
     handoffPayload?.intent === "appointments" ||
+    handoffPayload?.intent === "cancel_appointment" ||
+    handoffPayload?.intent === "update_appointment" ||
     handoffPayload?.intent === "create_booking" ||
     handoffPayload?.intent === "resume_booking_after_login"
   );
+}
+
+function needsAppointmentContext(handoffPayload?: Record<string, unknown>): boolean {
+  return (
+    handoffPayload?.intent === "cancel_appointment" ||
+    handoffPayload?.intent === "update_appointment"
+  );
+}
+
+async function fetchClientAppointments(token: string | null, email?: string) {
+  const MAIN_SITE_API = process.env.MAIN_SITE_API;
+  if (!MAIN_SITE_API || !token) return [];
+
+  try {
+    const params = new URLSearchParams({ page: "1", limit: "100" });
+    if (email) {
+      params.set("clientEmail", email);
+    }
+    const response = await fetch(`${MAIN_SITE_API}/appointments?${params.toString()}`, {
+      headers: platformHeaders({ Authorization: `Bearer ${token}` }),
+      cache: "no-store",
+    });
+    const data = await response.json().catch(() => ({}));
+    return Array.isArray(data.appointments) ? data.appointments : [];
+  } catch (error) {
+    console.error("[CLAUDIA_APPOINTMENTS] fetch failed:", error);
+    return [];
+  }
 }
 
 export async function POST(req: Request) {
@@ -61,6 +92,17 @@ export async function POST(req: Request) {
     const effectiveIsAuthenticated =
       Boolean(requestUser) || (!mustVerifyAuth && Boolean(isAuthenticated));
     const effectiveUserName = requestUser?.name || userName || "Gost";
+    const effectiveHandoffPayload =
+      needsAppointmentContext(handoffPayload) &&
+      !Array.isArray(handoffPayload?.appointments)
+        ? {
+            ...handoffPayload,
+            appointments: await fetchClientAppointments(
+              requestToken,
+              requestUser?.email,
+            ),
+          }
+        : handoffPayload;
 
     const stream = await askAgent(
       message,
@@ -69,7 +111,7 @@ export async function POST(req: Request) {
       effectiveUserName,
       isBlockInteraction ?? false,
       bookingMemory,
-      handoffPayload,
+      effectiveHandoffPayload,
     );
 
     // Vraćamo stream sa specijalnim headerima

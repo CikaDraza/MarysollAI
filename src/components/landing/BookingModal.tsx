@@ -35,13 +35,14 @@ export default function BookingModal() {
     persistPendingBooking,
     triggerSuccess,
   } = useBookingModal();
-  const { setConfirmed, setDrawerOpen } = useLandingUI();
+  const { setConfirmed, setConfirmedTime, setDrawerOpen } = useLandingUI();
   const { sendToOrchestrator } = useAIContext();
   const { user, isLoading: authLoading } = useAuthActions();
   const bookingPayload = useMemo(() => normalizeBookingPayload(slot), [slot]);
 
   const onConfirm = () => {
     onClose();
+    setConfirmedTime(bookingPayload?.time ?? "");
     setConfirmed(true);
   };
 

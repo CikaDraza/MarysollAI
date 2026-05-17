@@ -11,6 +11,7 @@ const BLOCK_LABELS: Record<string, string> = {
   AuthBlock: "Prijava",
   CalendarBlock: "Termini",
   AppointmentCalendarBlock: "Zakazivanje",
+  AppointmentCancelConfirmBlock: "Otkazivanje",
   ServicePriceBlock: "Cenovnik",
   TestimonialBlock: "Utisci",
   CityListBlock: "Izaberi grad",

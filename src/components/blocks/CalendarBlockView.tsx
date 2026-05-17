@@ -69,14 +69,12 @@ export function CalendarBlockView({ block, onAction }: Props) {
 
           <div className="p-8 min-h-75">
             {view === "preview" ? (
-              <CalendarBlockPreview
-                onSlotClick={(date, time) =>
-                  onAction(`Zakaži mi termin ${date} u ${time}`)
-                }
-                onBookingSuccess={() => setView("list")}
-              />
+              <CalendarBlockPreview />
             ) : (
-              <ClientBlockAppointments onAction={onAction} />
+              <ClientBlockAppointments
+                onAction={onAction}
+                appointmentListMode={block.metadata?.appointmentListMode || "all"}
+              />
             )}
           </div>
         </div>

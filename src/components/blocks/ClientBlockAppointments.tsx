@@ -8,6 +8,11 @@ import MiniLoader from "../MiniLoader";
 import Paginator from "../Paginator";
 import { useAuthActions } from "@/hooks/useAuthActions";
 import { useCancelAppointment } from "@/hooks/useAppointmentActions";
+import {
+  AppointmentListMode,
+  filterAppointmentsByMode,
+  isCancellableAppointment,
+} from "@/lib/appointments/appointmentFilters";
 
 interface ClientAppointmentListItemProps {
   appointment: IAppointment;
@@ -24,25 +29,34 @@ function normalizeClientId(value: unknown): string {
   if (typeof value === "string") return value;
   if (!value || typeof value !== "object") return "";
   const record = value as Record<string, unknown>;
+  if (typeof record.$oid === "string") return record.$oid;
   const id = record._id ?? record.id;
+  if (id && typeof id === "object") {
+    return normalizeClientId(id);
+  }
   return typeof id === "string" ? id : "";
 }
 
-const CANCELLABLE_STATUSES = new Set<IAppointment["status"]>([
-  "pending",
-  "appointment_approved",
-  "appointment_rescheduled",
-]);
+function appointmentSalonId(appointment: IAppointment): string {
+  const record = appointment as IAppointment & {
+    salonId?: unknown;
+    tenantId?: unknown;
+  };
+  return (
+    normalizeClientId(record.salonId) || normalizeClientId(record.tenantId)
+  );
+}
 
-export function isClientCancellableAppointment(
-  appointment: IAppointment,
-): boolean {
-  if (!CANCELLABLE_STATUSES.has(appointment.status)) return false;
-  const startsAt = new Date(`${appointment.date}T${appointment.time}`);
-  if (!Number.isNaN(startsAt.getTime()) && startsAt.getTime() < Date.now()) {
-    return false;
-  }
-  return true;
+function appointmentSalonName(appointment: IAppointment): string {
+  const record = appointment as IAppointment & {
+    salonName?: unknown;
+    tenantName?: unknown;
+  };
+  return (
+    (typeof record.salonName === "string" && record.salonName.trim()) ||
+    (typeof record.tenantName === "string" && record.tenantName.trim()) ||
+    "Salon"
+  );
 }
 
 // AppointmentListItem deo
@@ -53,7 +67,10 @@ function ClientAppointmentListItem({
   isCancelling,
 }: ClientAppointmentListItemProps) {
   const currentAppointment = appointment;
-  const canCancel = isClientCancellableAppointment(currentAppointment);
+  const canCancel = isCancellableAppointment(currentAppointment);
+  const cancelExpired =
+    currentAppointment.status !== "appointment_cancelled" &&
+    currentAppointment.cancellationStatus === "late_cancel";
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -95,6 +112,7 @@ function ClientAppointmentListItem({
               {currentAppointment.status === "appointment_cancelled" &&
                 "Otkazano"}
               {currentAppointment.status === "completed" && "Završeno"}
+              {currentAppointment.status === "no_show" && "Nije se pojavio"}
             </span>
           </div>
           <p className="mt-1 text-xs/5 text-gray-500">
@@ -165,6 +183,11 @@ function ClientAppointmentListItem({
             </button>
           </div>
         )}
+        {!canCancel && cancelExpired && (
+          <p className="mt-2 max-w-56 text-right text-xs font-medium text-amber-700">
+            Vreme za otkazivanje termina je isteklo.
+          </p>
+        )}
       </div>
     </li>
   );
@@ -172,12 +195,16 @@ function ClientAppointmentListItem({
 
 export default function ClientBlockAppointments({
   onAction,
+  appointmentListMode = "all",
 }: {
   onAction?: (query: string, payload?: Record<string, unknown>) => void;
+  appointmentListMode?: AppointmentListMode;
 }) {
   const [page, setPage] = useState(1);
   const [authChecked, setAuthChecked] = useState(false);
   const [cancelTarget, setCancelTarget] = useState<IAppointment | null>(null);
+  const [selectedSalonId, setSelectedSalonId] = useState("all");
+  const [showSalonPicker, setShowSalonPicker] = useState(false);
   const {
     token,
     user,
@@ -206,39 +233,44 @@ export default function ClientBlockAppointments({
     isError,
   } = useAppointmentsWithToken(token ?? "", {
     page,
-    limit: 10,
+    limit: 100,
+    clientEmail: user?.email ?? "",
     enabled: authChecked && !!token,
   });
   const cancelAppointment = useCancelAppointment(token ?? undefined);
 
-  const appointments = useMemo(() => {
+  const userAppointments = useMemo(() => {
     const all = response?.appointments || [];
     if (!user) return [];
 
-    const userId = normalizeClientId(user.id);
     const userEmail = normalizeText(user.email);
 
-    const matched = all.filter((appointment) => {
-      const appointmentClientId = normalizeClientId(appointment.clientId);
-      const appointmentClientProfileId = normalizeClientId(
-        appointment.clientProfileId,
-      );
+    return all.filter((appointment) => {
       const appointmentEmail = normalizeText(appointment.clientEmail);
-
-      return (
-        (!!userId && appointmentClientId === userId) ||
-        (!!userId && appointmentClientProfileId === userId) ||
-        (!!userEmail && appointmentEmail === userEmail)
-      );
+      return !!userEmail && appointmentEmail === userEmail;
     });
-
-    if (matched.length > 0) return matched;
-
-    // For client tokens the platform endpoint should already return only the
-    // authenticated user's appointments. Avoid hiding valid rows when the API
-    // shape uses a different clientId/email representation than this UI knows.
-    return user.isAdmin ? [] : all;
   }, [response, user]);
+
+  const salonOptions = useMemo(() => {
+    const byId = new Map<string, string>();
+    for (const appointment of userAppointments) {
+      const salonId = appointmentSalonId(appointment);
+      if (!salonId) continue;
+      byId.set(salonId, appointmentSalonName(appointment));
+    }
+    return Array.from(byId, ([id, name]) => ({ id, name }));
+  }, [userAppointments]);
+
+  const appointments = useMemo(() => {
+    const bySalon =
+      selectedSalonId === "all"
+        ? userAppointments
+        : userAppointments.filter(
+            (appointment) =>
+              appointmentSalonId(appointment) === selectedSalonId,
+          );
+    return filterAppointmentsByMode(bySalon, appointmentListMode);
+  }, [appointmentListMode, selectedSalonId, userAppointments]);
 
   const pagination = response?.pagination;
 
@@ -278,9 +310,65 @@ export default function ClientBlockAppointments({
 
   return (
     <div className="space-y-6">
+      {salonOptions.length > 1 && (
+        <div className="flex flex-col gap-3 rounded-xl bg-gray-50 p-3">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-sm font-semibold text-gray-800">
+              {selectedSalonId === "all"
+                ? "Svi saloni"
+                : (salonOptions.find((salon) => salon.id === selectedSalonId)
+                    ?.name ?? "Izabrani salon")}
+            </p>
+            <button
+              type="button"
+              onClick={() => setShowSalonPicker((value) => !value)}
+              className="cursor-pointer text-xs font-semibold text-(--secondary-color) underline"
+            >
+              Promeni salon
+            </button>
+          </div>
+          {showSalonPicker && (
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedSalonId("all");
+                  setShowSalonPicker(false);
+                }}
+                className={`rounded-lg px-3 py-2 text-xs font-semibold ${
+                  selectedSalonId === "all"
+                    ? "bg-gray-900 text-white"
+                    : "bg-white text-gray-700"
+                }`}
+              >
+                Svi saloni
+              </button>
+              {salonOptions.map((salon) => (
+                <button
+                  key={salon.id}
+                  type="button"
+                  onClick={() => {
+                    setSelectedSalonId(salon.id);
+                    setShowSalonPicker(false);
+                  }}
+                  className={`rounded-lg px-3 py-2 text-xs font-semibold ${
+                    selectedSalonId === salon.id
+                      ? "bg-gray-900 text-white"
+                      : "bg-white text-gray-700"
+                  }`}
+                >
+                  {salon.name}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
       {appointments.length === 0 ? (
         <p className="text-center text-gray-500 py-8">
-          Nemate zakazanih termina.
+          {appointmentListMode === "can_cancel"
+            ? "Nemate termina koje trenutno možete da otkažete."
+            : "Nemate zakazanih termina."}
         </p>
       ) : (
         <>

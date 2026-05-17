@@ -7,6 +7,8 @@ interface UseAppointmentsProps {
   limit?: number;
   date?: string;
   clientId?: string;
+  clientEmail?: string;
+  search?: string;
   enabled?: boolean;
 }
 
@@ -29,17 +31,30 @@ export function useAppointmentsWithToken(
     limit = 10,
     date = "",
     clientId = "",
+    clientEmail = "",
+    search = "",
     enabled = true,
   }: UseAppointmentsProps = {},
 ) {
   return useQuery<AppointmentsResponse>({
-    queryKey: ["appointments-client", token, page, limit, date, clientId],
+    queryKey: [
+      "appointments-client",
+      token,
+      page,
+      limit,
+      date,
+      clientId,
+      clientEmail,
+      search,
+    ],
     queryFn: async () => {
       const params = new URLSearchParams();
       params.append("page", page.toString());
       params.append("limit", limit.toString());
       if (date) params.append("date", date);
       if (clientId) params.append("clientId", clientId);
+      if (clientEmail) params.append("clientEmail", clientEmail);
+      if (search) params.append("search", search);
 
       const { data } = await axios.get(
         `/api/external/appointments?${params.toString()}`,

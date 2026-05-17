@@ -21,6 +21,11 @@ import {
 } from "@/lib/booking/bookingPayload";
 import { ClaudiaIntentSchema } from "@/lib/ai/schemas/claudia.schema";
 import { mapAppointmentActionError } from "@/lib/api/appointmentActionErrors";
+import {
+  filterAppointmentsByMode,
+  isCancellableAppointment,
+  sortAppointmentsByScheduledDesc,
+} from "@/lib/appointments/appointmentFilters";
 import type { SearchRecoveryState } from "@/types/searchRecovery";
 import type { SearchResult } from "@/types/slots";
 
@@ -894,17 +899,46 @@ describe("Booking Conflict Recovery", () => {
     expect(source).toContain("Termin je otkazan.");
   });
 
-  it("cancel button is hidden for cancelled and rejected appointments", () => {
-    const source = readFileSync(
-      path.join(process.cwd(), "src/components/blocks/ClientBlockAppointments.tsx"),
-      "utf8",
-    );
+  it("appointment helper filters cancellable appointments and sorts latest first", () => {
+    const appointments = [
+      {
+        _id: "old",
+        status: "pending",
+        cancellationStatus: "can_cancel",
+        date: "2026-05-18",
+        time: "09:00",
+      },
+      {
+        _id: "late",
+        status: "appointment_approved",
+        cancellationStatus: "late_cancel",
+        date: "2026-05-22",
+        time: "15:00",
+      },
+      {
+        _id: "cancelled",
+        status: "appointment_cancelled",
+        cancellationStatus: "can_cancel",
+        date: "2026-05-23",
+        time: "12:00",
+      },
+      {
+        _id: "latest",
+        status: "appointment_rescheduled",
+        cancellationStatus: "can_cancel",
+        date: "2026-05-24",
+        time: "12:00",
+      },
+    ] as const;
 
-    expect(source).toContain("CANCELLABLE_STATUSES");
-    expect(source).toContain('"pending"');
-    expect(source).toContain('"appointment_approved"');
-    expect(source).toContain('"appointment_rescheduled"');
-    expect(source).not.toContain('CANCELLABLE_STATUSES = new Set<IAppointment["status"]>([\n  "appointment_cancelled"');
+    expect(isCancellableAppointment(appointments[1])).toBe(false);
+    expect(filterAppointmentsByMode([...appointments], "can_cancel").map((item) => item._id)).toEqual([
+      "latest",
+      "old",
+    ]);
+    expect(sortAppointmentsByScheduledDesc([...appointments]).map((item) => item._id)[0]).toBe(
+      "latest",
+    );
   });
 
   it("expired cancel displays Serbian policy message", () => {
@@ -945,6 +979,7 @@ describe("Booking Conflict Recovery", () => {
           {
             _id: "app-1",
             status: "appointment_approved",
+            cancellationStatus: "can_cancel",
             serviceName: "Šminkanje",
             date: "2026-05-20",
             time: "14:30",
@@ -954,7 +989,15 @@ describe("Booking Conflict Recovery", () => {
     );
     const data = JSON.parse(await readStream(stream));
 
-    expect(data.messages[0].content).toContain("Da li želite da ga otkažem");
+    expect(data.messages[0].content).toContain("Možeš odmah da ga otkažeš");
+    expect(data.messages[0].attachToBlockType).toBe("AppointmentCancelConfirmBlock");
+    expect(data.layout[0]).toMatchObject({
+      type: "AppointmentCancelConfirmBlock",
+      metadata: {
+        appointmentId: "app-1",
+        appointment: { _id: "app-1" },
+      },
+    });
     expect(data.intent).toMatchObject({
       type: "confirm_cancel_appointment",
       appointmentId: "app-1",
@@ -972,8 +1015,18 @@ describe("Booking Conflict Recovery", () => {
       {
         intent: "cancel_appointment",
         appointments: [
-          { _id: "app-1", status: "pending", serviceName: "Šminkanje" },
-          { _id: "app-2", status: "appointment_approved", serviceName: "Feniranje" },
+          {
+            _id: "app-1",
+            status: "pending",
+            cancellationStatus: "can_cancel",
+            serviceName: "Šminkanje",
+          },
+          {
+            _id: "app-2",
+            status: "appointment_approved",
+            cancellationStatus: "can_cancel",
+            serviceName: "Feniranje",
+          },
         ],
       },
     );
@@ -981,8 +1034,134 @@ describe("Booking Conflict Recovery", () => {
 
     expect(data.layout[0]).toMatchObject({
       type: "CalendarBlock",
-      metadata: { mode: "list", intent: "cancel_appointment" },
+      metadata: {
+        mode: "list",
+        appointmentListMode: "can_cancel",
+        intent: "cancel_appointment",
+      },
     });
+  });
+
+  it("CalendarBlock passes appointmentListMode into client appointment list", () => {
+    const source = readFileSync(
+      path.join(process.cwd(), "src/components/blocks/CalendarBlockView.tsx"),
+      "utf8",
+    );
+
+    expect(source).toContain("appointmentListMode={block.metadata?.appointmentListMode || \"all\"}");
+  });
+
+  it("calendar preview booking does not switch to appointments list or trigger salon recovery", () => {
+    const calendarSource = readFileSync(
+      path.join(process.cwd(), "src/components/blocks/CalendarBlockView.tsx"),
+      "utf8",
+    );
+    const previewSource = readFileSync(
+      path.join(process.cwd(), "src/components/blocks/CalendarBlockPreview.tsx"),
+      "utf8",
+    );
+
+    expect(calendarSource).not.toContain('onBookingSuccess={() => setView("list")}');
+    expect(previewSource).toContain("date: dateStr");
+    expect(previewSource).toContain("timeLabel: time");
+    expect(previewSource).not.toContain("onSlotClick(dateStr, time)");
+  });
+
+  it("booking confirmation toast uses the confirmed booking time", () => {
+    const modalSource = readFileSync(
+      path.join(process.cwd(), "src/components/landing/BookingModal.tsx"),
+      "utf8",
+    );
+    const uiSource = readFileSync(
+      path.join(process.cwd(), "src/context/landing/LandingUIContext.tsx"),
+      "utf8",
+    );
+    const landingSource = readFileSync(
+      path.join(process.cwd(), "src/components/landing/LandingPage.tsx"),
+      "utf8",
+    );
+
+    expect(uiSource).toContain("confirmedTime");
+    expect(modalSource).toContain("setConfirmedTime(bookingPayload?.time ?? \"\")");
+    expect(landingSource).toContain("confirmedTime ||");
+  });
+
+  it("client appointments filter supports Mongo $oid ids and has no show-all fallback", () => {
+    const source = readFileSync(
+      path.join(process.cwd(), "src/components/blocks/ClientBlockAppointments.tsx"),
+      "utf8",
+    );
+
+    expect(source).toContain("record.$oid");
+    expect(source).toContain("clientEmail: user?.email ?? \"\"");
+    expect(source).toContain("appointmentEmail === userEmail");
+    expect(source).not.toContain("search: user?.email ?? \"\"");
+    expect(source).not.toContain("clientId: currentUserId");
+    expect(source).not.toContain("return user.isAdmin ? [] : all");
+  });
+
+  it("client appointments hook can query cross-tenant appointments by email", () => {
+    const source = readFileSync(
+      path.join(process.cwd(), "src/hooks/useAppointmentsWithToken.ts"),
+      "utf8",
+    );
+
+    expect(source).toContain("clientEmail?: string");
+    expect(source).toContain("search?: string");
+    expect(source).toContain('params.append("clientEmail", clientEmail)');
+    expect(source).toContain('params.append("search", search)');
+  });
+
+  it("Claudia appointment context fetch uses authenticated email", () => {
+    const source = readFileSync(
+      path.join(process.cwd(), "src/app/api/ai/conversation/route.ts"),
+      "utf8",
+    );
+
+    expect(source).toContain("fetchClientAppointments(token: string | null, email?: string)");
+    expect(source).toContain('params.set("clientEmail", email)');
+    expect(source).not.toContain('params.set("search", email)');
+    expect(source).toContain("requestUser?.email");
+  });
+
+  it("client appointment list can filter by salon", () => {
+    const source = readFileSync(
+      path.join(process.cwd(), "src/components/blocks/ClientBlockAppointments.tsx"),
+      "utf8",
+    );
+
+    expect(source).toContain("Promeni salon");
+    expect(source).toContain("setSelectedSalonId");
+    expect(source).toContain("appointmentSalonId(appointment) === selectedSalonId");
+  });
+
+  it("appointment handoff refreshes auth and attaches appointment context", () => {
+    const bridgeSource = readFileSync(
+      path.join(process.cwd(), "src/components/chat-bus/AgentBridge.tsx"),
+      "utf8",
+    );
+    const conversationSource = readFileSync(
+      path.join(process.cwd(), "src/app/api/ai/conversation/route.ts"),
+      "utf8",
+    );
+
+    expect(bridgeSource).toContain('handoffPayload?.intent === "cancel_appointment"');
+    expect(bridgeSource).toContain('handoffPayload?.intent === "update_appointment"');
+    expect(conversationSource).toContain("needsAppointmentContext");
+    expect(conversationSource).toContain("fetchClientAppointments");
+    expect(conversationSource).toContain("appointments: await fetchClientAppointments(");
+    expect(conversationSource).toContain("requestUser?.email");
+  });
+
+  it("cancel confirmation block uses cancel appointment hook and CTA", () => {
+    const source = readFileSync(
+      path.join(process.cwd(), "src/components/blocks/AppointmentCancelConfirmBlockView.tsx"),
+      "utf8",
+    );
+
+    expect(source).toContain("useCancelAppointment");
+    expect(source).toContain("Otkaži termin");
+    expect(source).toContain("aiAssisted: true");
   });
 
   it("successful cancel emits APPOINTMENT_CANCELLED action support", () => {

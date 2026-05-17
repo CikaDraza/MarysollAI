@@ -8,6 +8,14 @@ import type { AiBookingContact } from "@/types/aiBooking";
 import { runBookingSearch } from "@/lib/search/runBookingSearch";
 import type { StructuredBookingIntent } from "@/types/intent";
 import type { SearchApiResponse, SearchResult } from "@/types/slots";
+import {
+  isActiveAppointment,
+  isCancellableAppointment,
+  sortAppointmentsByScheduledDesc,
+  type AppointmentFilterInput,
+} from "@/lib/appointments/appointmentFilters";
+
+type AppointmentPayload = Record<string, unknown> & AppointmentFilterInput;
 
 let deepseekClient: OpenAI | null = null;
 
@@ -398,13 +406,9 @@ function bookingSearchMessage(input: {
   return `Trenutno nema slobodnih termina za ${service}${place}; mogu da proverim drugi dan ili drugu uslugu.`;
 }
 
-const ACTIVE_APPOINTMENT_STATUSES = new Set([
-  "pending",
-  "appointment_approved",
-  "appointment_rescheduled",
-]);
-
-function readActiveAppointments(payload: Record<string, unknown> | undefined) {
+function readAppointmentsFromPayload(
+  payload: Record<string, unknown> | undefined,
+) {
   const raw = [
     ...(Array.isArray(payload?.appointments) ? payload.appointments : []),
     ...(payload?.appointment && typeof payload.appointment === "object"
@@ -414,10 +418,27 @@ function readActiveAppointments(payload: Record<string, unknown> | undefined) {
   return raw
     .filter((appointment): appointment is Record<string, unknown> =>
       Boolean(appointment && typeof appointment === "object"),
-    )
-    .filter((appointment) =>
-      ACTIVE_APPOINTMENT_STATUSES.has(String(appointment.status)),
     );
+}
+
+function readActiveAppointments(payload: Record<string, unknown> | undefined) {
+  return sortAppointmentsByScheduledDesc(
+    readAppointmentsFromPayload(payload).filter(
+      (appointment): appointment is AppointmentPayload =>
+        isActiveAppointment(appointment as AppointmentFilterInput),
+    ),
+  );
+}
+
+function readCancellableAppointments(
+  payload: Record<string, unknown> | undefined,
+) {
+  return sortAppointmentsByScheduledDesc(
+    readAppointmentsFromPayload(payload).filter(
+      (appointment): appointment is AppointmentPayload =>
+        isCancellableAppointment(appointment as AppointmentFilterInput),
+    ),
+  );
 }
 
 function appointmentDateTimeText(appointment: Record<string, unknown>): string {
@@ -467,6 +488,7 @@ export async function askAgent(
               priority: 1,
               metadata: {
                 mode: "list",
+                appointmentListMode: "all",
                 serviceId: "",
                 serviceName: "",
                 variantName: "",
@@ -489,7 +511,7 @@ export async function askAgent(
   }
 
   if (handoffPayload?.intent === "cancel_appointment") {
-    const activeAppointments = readActiveAppointments(handoffPayload);
+    const cancellableAppointments = readCancellableAppointments(handoffPayload);
     if (!isAuthenticated) {
       return streamJson({
         messages: [
@@ -515,25 +537,37 @@ export async function askAgent(
         intent: { type: "cancel_appointment" },
       });
     }
-    if (activeAppointments.length === 1) {
-      const appointment = activeAppointments[0];
+    if (cancellableAppointments.length === 1) {
+      const appointment = cancellableAppointments[0];
       const service = String(appointment.serviceName ?? "termin");
       return streamJson({
         messages: [
           {
             role: "assistant",
-            content: `Pronašla sam termin za ${service} ${appointmentDateTimeText(appointment)}. Da li želite da ga otkažem?`,
-            attachToBlockType: "none",
+            content: `Pronašla sam termin za ${service} ${appointmentDateTimeText(appointment)}. Možeš odmah da ga otkažeš.`,
+            attachToBlockType: "AppointmentCancelConfirmBlock",
           },
         ],
-        layout: [],
+        layout: [
+          {
+            type: "AppointmentCancelConfirmBlock",
+            priority: 1,
+            metadata: {
+              serviceId: "",
+              serviceName: service,
+              variantName: "",
+              appointmentId: appointment._id,
+              appointment,
+            },
+          },
+        ],
         intent: {
           type: "confirm_cancel_appointment",
           appointmentId: appointment._id,
         },
       });
     }
-    if (activeAppointments.length > 1 || !handoffPayload?.appointments) {
+    if (cancellableAppointments.length > 1 || !handoffPayload?.appointments) {
       return streamJson({
         messages: [
           {
@@ -548,6 +582,7 @@ export async function askAgent(
             priority: 1,
             metadata: {
               mode: "list",
+              appointmentListMode: "can_cancel",
               intent: "cancel_appointment",
               serviceId: "",
               serviceName: "",
@@ -562,7 +597,7 @@ export async function askAgent(
       messages: [
         {
           role: "assistant",
-          content: "Nemate aktivnih termina za otkazivanje.",
+          content: "Nemate termina koje trenutno možete da otkažete.",
         },
       ],
       layout: [],
@@ -662,6 +697,7 @@ export async function askAgent(
           priority: 1,
           metadata: {
             mode: "list",
+            appointmentListMode: "all",
             intent: "update_appointment",
             serviceId: "",
             serviceName: "",

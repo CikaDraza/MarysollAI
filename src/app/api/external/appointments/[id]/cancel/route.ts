@@ -1,16 +1,9 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { platformHeaders } from "@/lib/api/platformHeaders";
+import { marketplaceHeaders } from "@/lib/api/marketplaceHeaders";
+import { getUserFromToken } from "@/lib/auth/auth-utils";
 import { mapAppointmentActionError } from "@/lib/api/appointmentActionErrors";
 
 const MAIN_SITE_API = process.env.MAIN_SITE_API ?? "";
-
-function readBearerToken(req: Request): string {
-  const authHeader = req.headers.get("authorization") ?? "";
-  return authHeader.toLowerCase().startsWith("bearer ")
-    ? authHeader
-    : "";
-}
 
 export async function POST(
   req: Request,
@@ -18,24 +11,31 @@ export async function POST(
 ) {
   try {
     const { id } = await context.params;
-    const authHeader =
-      readBearerToken(req) ||
-      ((await cookies()).get("token")?.value
-        ? `Bearer ${(await cookies()).get("token")?.value}`
-        : "");
-    const body = await req.json().catch(() => ({}));
 
+    const authHeader = req.headers.get("authorization") ?? "";
+    const token = authHeader.toLowerCase().startsWith("bearer ")
+      ? authHeader.slice(7)
+      : "";
+
+    const user = token ? getUserFromToken(token) : null;
+    if (!user?.email) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const body = JSON.stringify({ clientEmail: user.email });
     const response = await fetch(
-      `${MAIN_SITE_API}/appointments/client/${encodeURIComponent(id)}/cancel`,
+      `${MAIN_SITE_API}/marketplace/appointments/${encodeURIComponent(id)}/cancel`,
       {
         method: "POST",
-        headers: platformHeaders({
-          ...(authHeader ? { Authorization: authHeader } : {}),
-        }),
-        body: JSON.stringify(body),
+        headers: marketplaceHeaders(body),
+        body,
       },
     );
 
+    const contentType = response.headers.get("content-type") ?? "";
+    if (!contentType.includes("application/json")) {
+      return NextResponse.json({ error: "Endpoint nije dostupan na platformi." }, { status: 502 });
+    }
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
       return NextResponse.json(
@@ -44,7 +44,7 @@ export async function POST(
       );
     }
 
-    return NextResponse.json({ ok: true, ...data }, { status: response.status });
+    return NextResponse.json({ ok: true, ...data });
   } catch (error) {
     return NextResponse.json(
       { error: mapAppointmentActionError(error) },
