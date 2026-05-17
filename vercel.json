@@ -2,7 +2,7 @@
   "crons": [
     {
       "path": "/api/cron/check-availability-watches",
-      "schedule": "*/15 * * * *"
+      "schedule": "15 12 * * *"
     }
   ]
 }

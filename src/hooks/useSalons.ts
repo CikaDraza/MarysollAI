@@ -2,7 +2,10 @@
 import { useQuery } from "@tanstack/react-query";
 import type { MappedSalon } from "@/lib/mappers/salonMapper";
 
-export function useSalons(city?: string) {
+export function useSalons(
+  city?: string,
+  options: { enabled?: boolean } = {},
+) {
   return useQuery<MappedSalon[]>({
     queryKey: ["salons", city ?? ""],
     queryFn: async () => {
@@ -13,5 +16,6 @@ export function useSalons(city?: string) {
     },
     staleTime: 1000 * 60 * 5,
     refetchOnWindowFocus: false,
+    enabled: options.enabled ?? true,
   });
 }

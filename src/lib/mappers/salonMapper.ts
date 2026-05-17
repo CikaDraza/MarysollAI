@@ -3,6 +3,7 @@ import type { PlatformSalon, PlatformService, PlatformSlot } from "@/lib/api/pla
 
 export interface MappedSalon {
   id: string;
+  tenantId?: string;
   name: string;
   city?: string;
   location: { lat?: number; lng?: number; city?: string };
@@ -35,6 +36,7 @@ export interface MappedSlot {
 export function mapSalon(raw: PlatformSalon): MappedSalon {
   return {
     id: raw.id ?? raw._id ?? "",
+    tenantId: raw.tenantId,
     name: raw.name,
     city: raw.city,
     location: { lat: raw.lat, lng: raw.lng, city: raw.city },

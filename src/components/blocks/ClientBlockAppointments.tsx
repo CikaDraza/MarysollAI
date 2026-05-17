@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { IAppointment } from "@/types/appointments-type";
 import { useAppointmentsWithToken } from "@/hooks/useAppointmentsWithToken";
+import { useSalons } from "@/hooks/useSalons";
 import { formatISODate } from "@/helpers/formatISODate";
 import MiniLoader from "../MiniLoader";
 import Paginator from "../Paginator";
@@ -16,12 +17,14 @@ import {
 import { createGoogleMapsLink, createGoogleMapsLinkFromAddress } from "@/lib/geo/maps";
 import { hasGeoCoordinates } from "@/lib/geo/distance";
 import { formatDistance } from "@/lib/utils/distance";
+import type { MappedSalon } from "@/lib/mappers/salonMapper";
 
 interface ClientAppointmentListItemProps {
   appointment: IAppointment;
   onCancel: (appointment: IAppointment) => void;
   onChange: (appointment: IAppointment) => void;
   isCancelling?: boolean;
+  salonDirectory?: Map<string, MappedSalon>;
 }
 
 function normalizeText(value: string | undefined) {
@@ -40,6 +43,28 @@ function normalizeClientId(value: unknown): string {
   return typeof id === "string" ? id : "";
 }
 
+function readStringPath(value: unknown, path: string[]): string {
+  let current = value;
+  for (const key of path) {
+    if (!current || typeof current !== "object") return "";
+    current = (current as Record<string, unknown>)[key];
+  }
+  return typeof current === "string" ? current.trim() : "";
+}
+
+function isGenericSalonName(value: string): boolean {
+  return value.trim().toLowerCase() === "salon";
+}
+
+function buildSalonDirectory(salons: MappedSalon[]): Map<string, MappedSalon> {
+  const directory = new Map<string, MappedSalon>();
+  for (const salon of salons) {
+    if (salon.id) directory.set(salon.id, salon);
+    if (salon.tenantId) directory.set(salon.tenantId, salon);
+  }
+  return directory;
+}
+
 function appointmentSalonId(appointment: IAppointment): string {
   const record = appointment as IAppointment & {
     salonId?: unknown;
@@ -50,14 +75,32 @@ function appointmentSalonId(appointment: IAppointment): string {
   );
 }
 
-function appointmentSalonName(appointment: IAppointment): string {
+function appointmentSalonName(
+  appointment: IAppointment,
+  salonDirectory?: Map<string, MappedSalon>,
+): string {
   const record = appointment as IAppointment & {
     salonName?: unknown;
     tenantName?: unknown;
   };
+  const salonId = appointmentSalonId(appointment);
+  const directoryName = salonId ? salonDirectory?.get(salonId)?.name?.trim() : "";
+  const candidates = [
+    typeof record.salonName === "string" ? record.salonName.trim() : "",
+    typeof record.tenantName === "string" ? record.tenantName.trim() : "",
+    readStringPath(record, ["salon", "name"]),
+    readStringPath(record, ["tenant", "name"]),
+    readStringPath(record, ["salonId", "name"]),
+    readStringPath(record, ["tenantId", "name"]),
+    readStringPath(record, ["salonProfile", "name"]),
+    readStringPath(record, ["tenantProfile", "name"]),
+    readStringPath(record, ["metadata", "salonName"]),
+    directoryName ?? "",
+  ].filter(Boolean);
+
   return (
-    (typeof record.salonName === "string" && record.salonName.trim()) ||
-    (typeof record.tenantName === "string" && record.tenantName.trim()) ||
+    candidates.find((name) => !isGenericSalonName(name)) ??
+    candidates[0] ??
     "Salon"
   );
 }
@@ -94,10 +137,11 @@ function ClientAppointmentListItem({
   onCancel,
   onChange,
   isCancelling,
+  salonDirectory,
 }: ClientAppointmentListItemProps) {
   const currentAppointment = appointment;
   const canCancel = isCancellableAppointment(currentAppointment);
-  const salonName = appointmentSalonName(currentAppointment);
+  const salonName = appointmentSalonName(currentAppointment, salonDirectory);
   const salonAddress = appointmentSalonAddress(currentAppointment);
   const salonCity = currentAppointment.salonCity ?? "";
   const mapsLink = appointmentMapsLink(currentAppointment);
@@ -303,7 +347,15 @@ export default function ClientBlockAppointments({
     clientEmail: user?.email ?? "",
     enabled: authChecked && !!token,
   });
+  const { data: salonProfiles = [] } = useSalons(undefined, {
+    enabled: authChecked && !!token,
+  });
   const cancelAppointment = useCancelAppointment(token ?? undefined);
+
+  const salonDirectory = useMemo(
+    () => buildSalonDirectory(salonProfiles),
+    [salonProfiles],
+  );
 
   const userAppointments = useMemo(() => {
     const all = response?.appointments || [];
@@ -322,10 +374,10 @@ export default function ClientBlockAppointments({
     for (const appointment of userAppointments) {
       const salonId = appointmentSalonId(appointment);
       if (!salonId) continue;
-      byId.set(salonId, appointmentSalonName(appointment));
+      byId.set(salonId, appointmentSalonName(appointment, salonDirectory));
     }
     return Array.from(byId, ([id, name]) => ({ id, name }));
-  }, [userAppointments]);
+  }, [salonDirectory, userAppointments]);
 
   const appointments = useMemo(() => {
     const bySalon =
@@ -446,6 +498,7 @@ export default function ClientBlockAppointments({
                 onCancel={setCancelTarget}
                 onChange={handleChangeAppointment}
                 isCancelling={cancelAppointment.isPending}
+                salonDirectory={salonDirectory}
               />
             ))}
           </ul>
