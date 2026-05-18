@@ -1,29 +1,4 @@
 "use client";
-//
-// Phase 2.5B Tasks 1–3, 13 — Geo single-source-of-truth migration.
-//
-// Previously: useCitySelector contained inline priority logic
-// (localStorage > URL > GPS). Now it collects signals and delegates the
-// decision to `resolveGeoPriority`. CityContext becomes a signal collector,
-// not a decision engine — the resolver owns priority everywhere.
-//
-// Behavior preservation:
-//   Old order: localStorage > URL > GPS
-//   New order via resolver: explicit > gps > saved > ip > trending
-//
-// We map the legacy signals into the resolver's slots:
-//   - localStorage stored value  → `explicit` (it was a previous user choice)
-//   - URL initialCity prop       → `explicit` (set only if no localStorage)
-//   - navigator.geolocation      → `gps`
-//
-// Result: explicit always wins, GPS fills in when nothing was previously
-// chosen. Identical user-visible behavior, but priority is now centralized.
-//
-// SSR safety:
-//   - All `window` / `localStorage` / `navigator` reads gated by typeof checks
-//   - First render returns SERBIAN_CITIES[0] (Beograd) — same as before
-//   - Hydration mismatch avoided: the "real" city only populates after the
-//     mount-effect runs, never during SSR.
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import {
   SERBIAN_CITIES,
@@ -36,69 +11,209 @@ import {
   type GeoSignals,
   type ResolvedGeo,
 } from "@/lib/geo/resolveGeoPriority";
+import {
+  GEO_RESOLUTION_TIMEOUT_MS,
+  TRENDING_CITY,
+} from "@/lib/geo/resolveInitialGeoState";
+import { resolveUserLocationOrigin } from "@/lib/geo/resolveDistanceOrigin";
 import { aiLog } from "@/lib/ai/debug-log";
 import { trackSearchEvent } from "@/lib/search/searchAnalytics";
 
 const STORAGE_KEY = "marysoll_city";
+const BACKGROUND_GPS_TIMEOUT_MS = 10000;
+const APPROXIMATE_GPS_THRESHOLD_METERS = 10000;
 const log = aiLog("SEARCH_ENGINE");
+const isDev = process.env.NODE_ENV !== "production";
+
+function geoLog(event: string, payload?: unknown) {
+  if (!isDev) return;
+  console.debug("[GEO]", event, payload ?? {});
+}
 
 export interface UseCitySelectorReturn {
   city: SerbianCity;
   setCity: (c: SerbianCity) => void;
   cities: SerbianCity[];
   geoLoading: boolean;
-  requestGpsLocation: () => void;
+  requestGpsLocation: (options?: {
+    updateCity?: boolean;
+    promoteToExplicit?: boolean;
+  }) => Promise<GpsLocationRequestResult>;
   /** Raw geo signals — exposed so consumers (preload, ranking) can read them. */
   signals: GeoSignals;
   /** Resolved geo from priority chain. Always reflects current signals. */
   resolved: ResolvedGeo;
+  geoReady: boolean;
+  geoSource: ResolvedGeo["source"];
+  userLocation: { lat: number; lng: number; city?: string } | undefined;
+  userLocationSource: "gps" | undefined;
+  userLocationAccuracyMeters: number | undefined;
+  isApproximateLocation: boolean;
 }
+
+export type GpsLocationRequestResult =
+  | {
+      ok: true;
+      city: SerbianCity;
+      accuracyMeters?: number;
+      isApproximate: boolean;
+    }
+  | { ok: false; reason: "unavailable" | "denied" | "failed" };
 
 export function useCitySelector(initialCity?: string): UseCitySelectorReturn {
   const [city, setCityState] = useState<SerbianCity>(SERBIAN_CITIES[0]);
   const [signals, setSignals] = useState<GeoSignals>({});
   const [geoLoading, setGeoLoading] = useState(false);
+  const [geoReady, setGeoReady] = useState(false);
+  const gpsDone = useRef(false);
+  const timeoutExpired = useRef(false);
   /** Track whether the user explicitly chose during this session — once true,
-   * GPS results never override. */
+   * background GPS results never override cityState. */
   const sessionExplicit = useRef(false);
 
+  const markGeoReady = useCallback((reason: string) => {
+    setGeoReady((prev) => {
+      if (!prev) geoLog("geoReady changes", { ready: true, reason });
+      return true;
+    });
+  }, []);
+
+  const maybeMarkReady = useCallback(
+    (nextSignals: GeoSignals, reason: string) => {
+      if (nextSignals.explicit) {
+        markGeoReady(reason);
+        return;
+      }
+      if (nextSignals.gps) {
+        markGeoReady(reason);
+        return;
+      }
+      if (nextSignals.saved && gpsDone.current) {
+        markGeoReady(reason);
+        return;
+      }
+      if (gpsDone.current) {
+        markGeoReady(reason);
+      }
+    },
+    [markGeoReady],
+  );
+
+  const applyResolvedCity = useCallback((nextSignals: GeoSignals, reason: string) => {
+    const nextResolved = resolveGeoPriority(nextSignals);
+    if (!nextResolved.city) return;
+    const found = findCity(nextResolved.city);
+    if (!found) return;
+    setCityState(found);
+    geoLog("applied city", {
+      city: found.name,
+      source: nextResolved.source,
+      reason,
+    });
+  }, []);
+
+  const updateSignals = useCallback(
+    (updater: (prev: GeoSignals) => GeoSignals, reason: string) => {
+      setSignals((prev) => {
+        const next = updater(prev);
+        applyResolvedCity(next, reason);
+        maybeMarkReady(next, reason);
+        return next;
+      });
+    },
+    [applyResolvedCity, maybeMarkReady],
+  );
+
   const requestGpsLocation = useCallback(
-    (options?: { updateCity?: boolean }) => {
-      if (typeof navigator === "undefined" || !navigator.geolocation) return;
+    (options?: { updateCity?: boolean; promoteToExplicit?: boolean }) => {
+      if (typeof navigator === "undefined" || !navigator.geolocation) {
+        gpsDone.current = true;
+        updateSignals((prev) => prev, "gps-unavailable");
+        const result: GpsLocationRequestResult = {
+          ok: false,
+          reason: "unavailable",
+        };
+        return Promise.resolve(result);
+      }
 
       const updateCity = options?.updateCity === true;
+      const promoteToExplicit = options?.promoteToExplicit === true;
       setGeoLoading(true);
-      navigator.geolocation.getCurrentPosition(
+      return new Promise<GpsLocationRequestResult>((resolve) => {
+        navigator.geolocation.getCurrentPosition(
         (pos) => {
+          gpsDone.current = true;
           const nearest = nearestCity(pos.coords.latitude, pos.coords.longitude);
-          setSignals((prev) => ({
-            ...prev,
-            gps: {
-              lat: pos.coords.latitude,
-              lng: pos.coords.longitude,
-              city: nearest.name,
-            },
-          }));
+          const accuracyMeters = Number.isFinite(pos.coords.accuracy)
+            ? pos.coords.accuracy
+            : undefined;
+          const gpsSignal = {
+            lat: pos.coords.latitude,
+            lng: pos.coords.longitude,
+            city: nearest.name,
+            accuracyMeters,
+          };
 
-          if (updateCity && !sessionExplicit.current) {
+          updateSignals(
+            (prev) => ({
+              ...prev,
+              gps: gpsSignal,
+              ...(promoteToExplicit
+                ? {
+                    explicit: {
+                      city: nearest.name,
+                      lat: nearest.lat,
+                      lng: nearest.lng,
+                    },
+                  }
+                : {}),
+            }),
+            "gps-success",
+          );
+
+          if (promoteToExplicit) {
+            sessionExplicit.current = true;
             setCityState(nearest);
+            markGeoReady("gps-promoted-explicit");
+          }
+
+          if ((updateCity && !sessionExplicit.current) || promoteToExplicit) {
             try {
               window.localStorage.setItem(STORAGE_KEY, nearest.name);
             } catch {
               /* ignore */
             }
             log("geo.gps_resolved", { city: nearest.name });
+          } else if (sessionExplicit.current) {
+            geoLog("late GPS ignored", { city: nearest.name });
           } else {
             log("geo.gps_signal", { city: nearest.name });
           }
 
           setGeoLoading(false);
+          resolve({
+            ok: true,
+            city: nearest,
+            accuracyMeters,
+            isApproximate:
+              typeof accuracyMeters === "number" &&
+              accuracyMeters > APPROXIMATE_GPS_THRESHOLD_METERS,
+          });
         },
-        () => setGeoLoading(false),
-        { timeout: 6000 },
-      );
+        (error) => {
+          gpsDone.current = true;
+          setGeoLoading(false);
+          updateSignals((prev) => prev, "gps-failed");
+          resolve({
+            ok: false,
+            reason: error.code === error.PERMISSION_DENIED ? "denied" : "failed",
+          });
+        },
+        { timeout: BACKGROUND_GPS_TIMEOUT_MS },
+        );
+      });
     },
-    [],
+    [markGeoReady, updateSignals],
   );
 
   // Build initial signals on mount. SSR-safe: nothing reads window during
@@ -106,28 +221,8 @@ export function useCitySelector(initialCity?: string): UseCitySelectorReturn {
   useEffect(() => {
     const collected: GeoSignals = {};
 
-    // localStorage stored value — treated as explicit (was a prior user choice).
-    if (typeof window !== "undefined") {
-      try {
-        const stored = window.localStorage.getItem(STORAGE_KEY);
-        if (stored) {
-          const found = findCity(stored);
-          if (found) {
-            collected.explicit = {
-              city: found.name,
-              lat: found.lat,
-              lng: found.lng,
-            };
-          }
-        }
-      } catch {
-        // Privacy mode / disabled storage — silently skip.
-      }
-    }
-
-    // URL prop — only used when nothing was stored. Marks as explicit since
-    // navigation to /grad/<city> is an explicit user intent.
-    if (!collected.explicit && initialCity) {
+    // URL prop marks an explicit current-session intent.
+    if (initialCity) {
       const found = findCity(initialCity);
       if (found) {
         collected.explicit = {
@@ -135,6 +230,7 @@ export function useCitySelector(initialCity?: string): UseCitySelectorReturn {
           lat: found.lat,
           lng: found.lng,
         };
+        sessionExplicit.current = true;
         // Persist so the next visit warm-starts from this choice.
         try {
           if (typeof window !== "undefined") {
@@ -146,56 +242,58 @@ export function useCitySelector(initialCity?: string): UseCitySelectorReturn {
       }
     }
 
+    // localStorage is a saved signal from a previous session, not explicit.
+    if (!collected.explicit && typeof window !== "undefined") {
+      try {
+        const stored = window.localStorage.getItem(STORAGE_KEY);
+        if (stored) {
+          const found = findCity(stored);
+          if (found) {
+            collected.saved = { city: found.name };
+          }
+        }
+      } catch {
+        // Privacy mode / disabled storage — silently skip.
+      }
+    }
+
+    geoLog("initial signals", collected);
     setSignals(collected);
 
-    // Apply the resolved city right away if we have an explicit signal.
     const resolvedNow = resolveGeoPriority(collected);
     if (resolvedNow.city) {
       const found = findCity(resolvedNow.city);
       if (found) {
         setCityState(found);
         log("geo.resolved", { source: resolvedNow.source, city: found.name });
+        geoLog("applied city", {
+          city: found.name,
+          source: resolvedNow.source,
+          reason: "initial",
+        });
       }
     }
+    if (collected.explicit) markGeoReady("explicit-initial");
 
-    // IP-based city — runs in parallel with GPS. Low priority signal:
-    // resolveGeoPriority ranks `ip` below `explicit`, `gps`, `saved`. We
-    // surface it so when GPS is denied/blocked, the user still gets a
-    // reasonable default instead of falling all the way to "trending".
-    if (typeof window !== "undefined") {
-      void fetch("/api/geo/ip")
-        .then((r) => (r.ok ? r.json() : null))
-        .then((data) => {
-          if (!data) return;
-          if (!data.city && data.lat == null) return;
-          setSignals((prev) => ({
-            ...prev,
-            ip: {
-              city: data.city ?? prev.ip?.city ?? "",
-              lat: data.lat ?? undefined,
-              lng: data.lng ?? undefined,
-            },
-          }));
-          // Only apply ip-derived city if nothing better was resolved.
-          // (GPS may still be in-flight; if it arrives later it overrides
-          // via its own setSignals call above.)
-          if (data.city && !collected.explicit && !sessionExplicit.current) {
-            const found = findCity(data.city);
-            // Don't override an explicit/gps/saved city that already populated.
-            if (found && city.name === SERBIAN_CITIES[0].name) {
-              setCityState(found);
-              log("geo.ip_resolved", { city: found.name });
-            }
-          }
-        })
-        .catch(() => {
-          /* soft-fail per spec */
-        });
-    }
+    // Background GPS is the only live user-location signal. It may update
+    // distance/search coordinates later, but explicit city still owns display.
+    requestGpsLocation({ updateCity: !collected.explicit });
 
-    // GPS — only request when no explicit prior choice. Adds `gps` signal
-    // when it succeeds; explicit always still wins thanks to the resolver.
-    if (!collected.explicit) requestGpsLocation({ updateCity: true });
+    const timeout = window.setTimeout(() => {
+      timeoutExpired.current = true;
+      updateSignals((prev) => {
+        const resolved = resolveGeoPriority(prev);
+        if (resolved.city) return prev;
+        geoLog("timeout fallback used", { city: TRENDING_CITY });
+        return {
+          ...prev,
+          trending: { city: TRENDING_CITY },
+        };
+      }, "timeout");
+      markGeoReady("timeout");
+    }, GEO_RESOLUTION_TIMEOUT_MS);
+
+    return () => window.clearTimeout(timeout);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -205,10 +303,14 @@ export function useCitySelector(initialCity?: string): UseCitySelectorReturn {
     const previousCityName = city.name;
     sessionExplicit.current = true;
     setCityState(c);
-    setSignals((prev) => ({
-      ...prev,
-      explicit: { city: c.name, lat: c.lat, lng: c.lng },
-    }));
+    updateSignals(
+      (prev) => ({
+        ...prev,
+        explicit: { city: c.name, lat: c.lat, lng: c.lng },
+      }),
+      "manual-explicit",
+    );
+    markGeoReady("manual-explicit");
     try {
       if (typeof window !== "undefined") {
         window.localStorage.setItem(STORAGE_KEY, c.name);
@@ -229,6 +331,15 @@ export function useCitySelector(initialCity?: string): UseCitySelectorReturn {
 
   // Always-fresh resolved geo — recomputes whenever signals change.
   const resolved = useMemo(() => resolveGeoPriority(signals), [signals]);
+  const userLocationOrigin = useMemo(
+    () => resolveUserLocationOrigin(signals),
+    [signals],
+  );
+  const userLocationAccuracyMeters = userLocationOrigin?.accuracyMeters;
+  const isApproximateLocation =
+    userLocationOrigin?.source === "gps" &&
+    typeof userLocationAccuracyMeters === "number" &&
+    userLocationAccuracyMeters > APPROXIMATE_GPS_THRESHOLD_METERS;
 
   return {
     city,
@@ -238,5 +349,18 @@ export function useCitySelector(initialCity?: string): UseCitySelectorReturn {
     requestGpsLocation,
     signals,
     resolved,
+    geoReady,
+    geoSource: resolved.source,
+    userLocation: userLocationOrigin
+      ? {
+          lat: userLocationOrigin.lat,
+          lng: userLocationOrigin.lng,
+          city: userLocationOrigin.city,
+        }
+      : undefined,
+    userLocationSource:
+      userLocationOrigin?.source === "gps" ? userLocationOrigin.source : undefined,
+    userLocationAccuracyMeters,
+    isApproximateLocation,
   };
 }

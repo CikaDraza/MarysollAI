@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import toast from "react-hot-toast";
 import {
   MagnifyingGlassIcon,
   MapPinIcon,
@@ -249,8 +250,20 @@ export default function Hero() {
     }
   };
 
-  const handleGeo = () => {
-    requestGpsLocation();
+  const handleGeo = async () => {
+    const result = await requestGpsLocation({ promoteToExplicit: true });
+    if (!result.ok) {
+      toast.error(
+        result.reason === "denied"
+          ? "Lokacija nije dozvoljena. Izaberi grad ručno."
+          : "Ne možemo da očitamo lokaciju. Izaberi grad ručno.",
+      );
+      inputRef.current?.focus();
+      return;
+    }
+    if (result.isApproximate) {
+      toast("Lokacija je približna. Možeš ručno izabrati grad.");
+    }
     inputRef.current?.focus();
   };
 

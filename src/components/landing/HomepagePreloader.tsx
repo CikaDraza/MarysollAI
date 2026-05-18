@@ -47,7 +47,7 @@ async function fetchSearchPreload(opts: {
  */
 export default function HomepagePreloader() {
   const queryClient = useQueryClient();
-  const { city, cityName, geoSignals } = useCityContext();
+  const { city, cityName, geoSignals, geoReady } = useCityContext();
 
   const distanceOrigin = resolveDistanceOrigin(geoSignals, city);
   const lat = distanceOrigin?.lat;
@@ -55,6 +55,7 @@ export default function HomepagePreloader() {
   const searchCity = cityName;
 
   useEffect(() => {
+    if (!geoReady) return;
     if (!searchCity) return;
 
     log("preload.start", { city: searchCity, source: distanceOrigin?.source ?? "none" });
@@ -68,7 +69,7 @@ export default function HomepagePreloader() {
       .then(() => log("preload.complete", { city: searchCity }))
       .catch((err) => log("preload.failed", { error: String(err) }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchCity, lat, lng]);
+  }, [geoReady, searchCity, lat, lng]);
 
   return null;
 }

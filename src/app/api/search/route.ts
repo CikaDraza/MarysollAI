@@ -28,7 +28,10 @@ import {
 import { normalizeSemanticTerm } from "@/lib/search/serviceSemanticMap";
 import { resolveSearchRecoveryScenario } from "@/lib/search/resolveSearchRecoveryScenario";
 import type { SearchApiResponse, SearchResult } from "@/types/slots";
-import type { SearchRecoveryState } from "@/types/searchRecovery";
+import type {
+  SearchRecoveryReason,
+  SearchRecoveryState,
+} from "@/types/searchRecovery";
 
 function geoReference(params: {
   lat?: number;
@@ -302,11 +305,38 @@ export async function GET(req: Request): Promise<NextResponse> {
   );
 
   const { results, fallbackLevel, fallbackLabel } = findBestSlots(salons, params);
+  const selectedCity = params.cityDisplay;
+  const sameSelectedCity = (city?: string) =>
+    Boolean(selectedCity) &&
+    Boolean(city) &&
+    stripDiacritics(city!) === stripDiacritics(selectedCity);
+  const selectedCityHasSalons = salons.some((salon) =>
+    sameSelectedCity(salon.city),
+  );
+  const bookingWidgetDiscoveryParams =
+    !selectedCityHasSalons
+      ? {
+          ...params,
+          // Force the BookingWidget discovery pass past L1-L4 when the selected
+          // city has no salons. Keep cityRef so L5 can sort nearby cities from
+          // the selected city, and clear service/category filters so L6 can
+          // always find broad working-hours suggestions.
+          cityDisplay: "__bookingwidget_discovery__",
+          category: undefined,
+          canonicalCategory: undefined,
+          subcategoryNorm: undefined,
+          serviceCandidateNorms: undefined,
+          rawQuery: undefined,
+          limit: Math.max(params.limit, 30),
+        }
+      : { ...params, limit: Math.max(params.limit, 30) };
 
   // Supplement with national slots so we always show up to 3 cities.
   // findBestSlots stops at L4 (user city) when successful, never reaching L5.
-  // By running a second pass on non-user-city salons with cityRef removed,
-  // L1–L4 find nothing (city mismatch) and L5 returns all other cities' slots.
+  // By running a second pass on non-user-city salons, L1–L4 find nothing
+  // (city mismatch) and L5/L6 returns other cities' slots. Keep cityRef so
+  // L5 can actually measure "nearby"; removing it makes no-city selections
+  // unable to expand.
   const coveredCities = new Set<string>(
     results.map((r) => r.city).filter((c): c is string => !!c),
   );
@@ -316,7 +346,7 @@ export async function GET(req: Request): Promise<NextResponse> {
     if (otherSalons.length > 0) {
       const { results: national } = findBestSlots(
         otherSalons,
-        { ...params, cityRef: undefined, limit: Math.max(params.limit, 30) },
+        bookingWidgetDiscoveryParams,
         { augmentWithSynthetic: true },
       );
       const fresh = national.filter((r) => r.city && !coveredCities.has(r.city));
@@ -325,13 +355,18 @@ export async function GET(req: Request): Promise<NextResponse> {
   }
 
   const geoRef = geoReference(params);
-  const geoResults = enrichGeoSignals({
+  const strictGeoResults = enrichGeoSignals({
+    slots: results,
+    userLat: geoRef.lat,
+    userLng: geoRef.lng,
+  });
+  const discoveryGeoResults = enrichGeoSignals({
     slots: allResults,
     userLat: geoRef.lat,
     userLng: geoRef.lng,
   });
   const recoveryPartitions = partitionRecoverySlots({
-    slots: geoResults,
+    slots: strictGeoResults,
     requestedCity: params.cityDisplay,
     intent,
   });
@@ -356,18 +391,48 @@ export async function GET(req: Request): Promise<NextResponse> {
       : params.cityRef,
   );
   const recoveryState = scenario.recoveryState;
+  const selectedCityHasSlots = strictGeoResults.some((slot) =>
+    sameSelectedCity(slot.city),
+  );
+  const expandedToCities = [
+    ...new Set(
+      discoveryGeoResults
+        .map((slot) => slot.city)
+        .filter((city): city is string => Boolean(city) && !sameSelectedCity(city)),
+    ),
+  ];
+  const recoveryReason: SearchRecoveryReason =
+    salons.length === 0
+      ? "no_platform_slots"
+      : !selectedCityHasSalons
+        ? "no_city_salons"
+        : !selectedCityHasSlots
+          ? "no_city_slots"
+          : fallbackLevel >= 6
+            ? "synthetic_recovery"
+            : fallbackLevel >= 5 || expandedToCities.length > 0
+              ? "expanded_to_nearby_cities"
+              : selectedResults.length === 0 && (rawQuery || params.category)
+                ? "no_service_match"
+                : selectedResults.length === 0
+                  ? "no_exact_slots"
+                  : "no_exact_slots";
+  recoveryState.selectedCityHasSalons = selectedCityHasSalons;
+  recoveryState.selectedCityHasSlots = selectedCityHasSlots;
+  recoveryState.reason = recoveryReason;
+  recoveryState.expandedToCities = expandedToCities;
   const suggestions = buildSearchSuggestions({
     query: rawQuery,
     city: recoveryState.effectiveCity ?? params.cityDisplay,
     results: selectedResults,
-    discovery: geoResults,
+    discovery: discoveryGeoResults,
     recoveryState,
     intent,
   });
 
   const response: SearchApiResponse = {
     results: selectedResults,
-    discovery: geoResults,
+    discovery: discoveryGeoResults,
     slotsByCity,
     suggestions,
     recoveryState,
@@ -383,6 +448,10 @@ export async function GET(req: Request): Promise<NextResponse> {
         categoryBucketUsed: intent.shouldSearchCategoryBucket,
       },
       recovery: {
+        reason: recoveryReason,
+        selectedCityHasSalons,
+        selectedCityHasSlots,
+        expandedToCities,
         exactCityCount: recoveryPartitions.exactRequestedCitySlots.length,
         semanticCityCount: recoveryPartitions.relatedRequestedCitySlots.length,
         relatedCityCount: recoveryPartitions.relatedRequestedCitySlots.length,
@@ -402,6 +471,10 @@ export async function GET(req: Request): Promise<NextResponse> {
         selectedSlotsCount: selectedResults.length,
         nearbyCitySuggestions: recoveryState.nearbyCitySuggestions,
         userMessage: recoveryState.userMessage,
+        reason: recoveryState.reason,
+        selectedCityHasSalons,
+        selectedCityHasSlots,
+        expandedToCities,
       },
       normalizedCity: params.cityDisplay,
       normalizedCategory: params.category ?? null,
@@ -411,7 +484,7 @@ export async function GET(req: Request): Promise<NextResponse> {
           ? `${params.timeWindowStart}:00–${params.timeWindowEnd}:00`
           : null,
       timezone: "Europe/Belgrade",
-      totalSlotsFound: geoResults.length,
+      totalSlotsFound: discoveryGeoResults.length,
       fallbackUsed: fallbackLabel,
     },
   };

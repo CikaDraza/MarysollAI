@@ -1,8 +1,10 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { buildSlotLocationPayload } from "@/lib/geo/locationPayload";
-import { createGoogleMapsDirectionsLink } from "@/lib/geo/maps";
-import { resolveDistanceOrigin } from "@/lib/geo/resolveDistanceOrigin";
+import {
+  resolveDistanceOrigin,
+  resolveUserLocationOrigin,
+} from "@/lib/geo/resolveDistanceOrigin";
 import { findBestSlots } from "@/lib/search/findBestSlots";
 import type { PlatformSalon } from "@/lib/api/platformClient";
 import type { NormalizedSearch } from "@/lib/search/normalizeSearch";
@@ -63,20 +65,25 @@ describe("slot location payload", () => {
     expect(payload.hasSalonLocation).toBe(false);
   });
 
-  it("creates a directions link when origin and destination coordinates exist", () => {
-    const link = createGoogleMapsDirectionsLink({
-      originLat: 44.8176,
-      originLng: 20.4569,
-      destinationLat: 44.8173,
-      destinationLng: 20.4571,
+  it("uses user coords for distance but salon coords for mapsLink", () => {
+    const payload = buildSlotLocationPayload({
+      userLat: 45.5062,
+      userLng: 19.2606,
+      salonLat: 45.2671,
+      salonLng: 19.8335,
+      salonAddress: "Bulevar oslobođenja 1",
+      salonCity: "Novi Sad",
     });
 
-    expect(link).toBe(
-      "https://www.google.com/maps/dir/?api=1&origin=44.8176%2C20.4569&destination=44.8173%2C20.4571&travelmode=driving",
+    expect(payload.distanceKm).toBeGreaterThan(50);
+    expect(payload.mapsLink).toBe(
+      "https://www.google.com/maps/search/?api=1&query=45.2671,19.8335",
     );
+    expect(payload.mapsLink).not.toContain("45.5062");
+    expect(payload.mapsLink).not.toContain("19.2606");
   });
 
-  it("resolves distance origin by gps, then ip, then selected city", () => {
+  it("resolves distance origin by gps, then selected city; ip is ignored", () => {
     const selectedCity = { name: "Beograd", lat: 44.8176, lng: 20.4569 };
 
     expect(
@@ -94,12 +101,51 @@ describe("slot location payload", () => {
         { ip: { lat: 43.3209, lng: 21.8954, city: "Niš" } },
         selectedCity,
       ),
-    ).toMatchObject({ source: "ip", city: "Niš" });
+    ).toMatchObject({ source: "city", city: "Beograd" });
 
     expect(resolveDistanceOrigin({}, selectedCity)).toMatchObject({
       source: "city",
       city: "Beograd",
     });
+  });
+
+  it("ignores approximate GPS for distance and falls back to selected city", () => {
+    const selectedCity = { name: "Novi Sad", lat: 45.2671, lng: 19.8335 };
+    const signals = {
+      gps: {
+        lat: 45.5062,
+        lng: 19.2606,
+        city: "Novi Sad",
+        accuracyMeters: 25000,
+      },
+    };
+
+    expect(resolveDistanceOrigin(signals, selectedCity)).toMatchObject({
+      source: "city",
+      city: "Novi Sad",
+      lat: 45.2671,
+      lng: 19.8335,
+    });
+    expect(resolveUserLocationOrigin(signals)).toBeUndefined();
+  });
+
+  it("resolves user location only from gps, never ip or selected city", () => {
+    const selectedCity = { name: "Beograd", lat: 44.8176, lng: 20.4569 };
+
+    expect(
+      resolveUserLocationOrigin({
+        gps: { lat: 45.2671, lng: 19.8335, city: "Novi Sad" },
+        ip: { lat: 43.3209, lng: 21.8954, city: "Niš" },
+      }),
+    ).toMatchObject({ source: "gps", city: "Novi Sad" });
+
+    expect(
+      resolveUserLocationOrigin({
+        ip: { lat: 43.3209, lng: 21.8954, city: "Niš" },
+      }),
+    ).toBeUndefined();
+
+    expect(resolveUserLocationOrigin({ saved: { city: selectedCity.name } })).toBeUndefined();
   });
 });
 
@@ -216,12 +262,12 @@ describe("location payload integration", () => {
     );
 
     expect(quickAccess).toContain("formatDistance(displayDistanceKm)");
-    expect(quickAccess).toContain("directionsLink || slot.mapsLink");
-    expect(quickAccess).toContain("userLocation={distanceOrigin}");
+    expect(quickAccess).toContain("salonMapLink || slot.mapsLink");
+    expect(quickAccess).toContain("userLocation={userLocationOrigin}");
     expect(quickAccess).toContain("Mapa");
     expect(bookingWidget).toContain("formatDistance(displayDistanceKm)");
-    expect(bookingWidget).toContain("directionsLink || slot.mapsLink");
-    expect(bookingWidget).toContain("userLocation={distanceOrigin}");
+    expect(bookingWidget).toContain("salonMapLink || slot.mapsLink");
+    expect(bookingWidget).toContain("userLocation={userLocationOrigin}");
     expect(bookingWidget).toContain("Mapa");
   });
 
@@ -234,6 +280,15 @@ describe("location payload integration", () => {
     expect(source).toContain("resolveDistanceOrigin(geoSignals, city)");
     expect(source).toContain("lat: distanceOrigin?.lat");
     expect(source).toContain("lng: distanceOrigin?.lng");
+  });
+
+  it("City selector no longer fetches IP geo for user location", () => {
+    const source = readFileSync(
+      path.join(process.cwd(), "src/hooks/useCitySelector.ts"),
+      "utf8",
+    );
+
+    expect(source).not.toContain("/api/geo/ip");
   });
 
   it("Appointment list renders Prikaži mapu when mapsLink exists", () => {

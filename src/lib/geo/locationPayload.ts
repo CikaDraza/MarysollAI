@@ -73,6 +73,8 @@ export function buildSlotLocationPayload(
     distanceKm != null && Number.isFinite(distanceKm)
       ? calculateTravelMinutesEstimate(distanceKm)
       : undefined;
+  // Map links always point to the salon, never to the user's origin. User
+  // coords are used only for distance/travel estimates above.
   const mapsLink = salonLocation
     ? createGoogleMapsLink(salonLocation.lat, salonLocation.lng)
     : createGoogleMapsLinkFromAddress(

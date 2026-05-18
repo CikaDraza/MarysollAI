@@ -8,6 +8,16 @@ export type RecoveryScenario =
   | "discovery"
   | "empty";
 
+export type SearchRecoveryReason =
+  | "no_service_match"
+  | "no_city_salons"
+  | "no_city_slots"
+  | "no_exact_slots"
+  | "expanded_to_nearby_cities"
+  | "expanded_to_any_category"
+  | "synthetic_recovery"
+  | "no_platform_slots";
+
 export interface NearbyCitySuggestion {
   city: string;
   count: number;
@@ -29,6 +39,10 @@ export interface SearchRecoveryState {
   relatedMatchInNearestCity: boolean;
 
   selectedCityHasResults: boolean;
+  selectedCityHasSalons?: boolean;
+  selectedCityHasSlots?: boolean;
+  reason?: SearchRecoveryReason;
+  expandedToCities?: string[];
   effectiveCityReason?: string;
 
   nearbyCitySuggestions: NearbyCitySuggestion[];

@@ -34,7 +34,7 @@ export interface GeoSignals {
   /** User picked a city in the UI dropdown / clicked a city tile. */
   explicit?: { city: string; lat?: number; lng?: number };
   /** Browser geolocation result (already permission-granted by caller). */
-  gps?: { lat: number; lng: number; city?: string };
+  gps?: { lat: number; lng: number; city?: string; accuracyMeters?: number };
   /** localStorage saved city from previous session. */
   saved?: { city: string };
   /** Server-side IP-based city lookup. */

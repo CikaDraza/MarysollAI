@@ -14,8 +14,14 @@ import { useFilters } from "@/context/landing/FiltersContext";
 import { useBookingModal } from "@/context/landing/BookingModalContext";
 import { formatDistance } from "@/lib/utils/distance";
 import { calculateDistanceKm, calculateTravelMinutesEstimate } from "@/lib/geo/distance";
-import { createGoogleMapsDirectionsLink } from "@/lib/geo/maps";
-import { resolveDistanceOrigin } from "@/lib/geo/resolveDistanceOrigin";
+import {
+  createGoogleMapsLink,
+  createGoogleMapsLinkFromAddress,
+} from "@/lib/geo/maps";
+import {
+  resolveDistanceOrigin,
+  resolveUserLocationOrigin,
+} from "@/lib/geo/resolveDistanceOrigin";
 import {
   rankSearchResults,
   type RankedSlot,
@@ -24,6 +30,7 @@ import {
   resolveFallbackPolicy,
   applyFallbackPolicy,
 } from "@/lib/availability/fallbackPolicy";
+import { bookingWidgetRecoveryCopy } from "@/lib/search/bookingWidgetRecoveryCopy";
 import {
   buildBookingDiscoveryGroups,
   bookingSlotId,
@@ -49,6 +56,7 @@ export default function BookingWidget() {
   const { city, cityName: userCity, geoSignals } = useCityContext();
   const {
     results,
+    discovery,
     fallbackLevel,
     recoveryState,
     isLoading: loading,
@@ -63,17 +71,27 @@ export default function BookingWidget() {
   } = useFilters();
   const { openModal: onBook } = useBookingModal();
   const distanceOrigin = resolveDistanceOrigin(geoSignals, city);
+  const userLocationOrigin = resolveUserLocationOrigin(geoSignals);
 
   // BookingWidget needs a broad, policy-safe marketplace pool. QuickAccess
   // still gets its strict preview so the discovery rows can avoid repeating it.
   const ranked = useMemo(() => {
     const policy = resolveFallbackPolicy("bookingwidget", { kind: "discovery" });
+    const sourceSlots = results.length > 0 ? results : discovery;
     const shouldTrustEffectiveCity =
       recoveryState?.recoveryScenario === "exact_in_nearest_city" ||
       recoveryState?.recoveryScenario === "related_in_nearest_city";
-    const eligible = shouldTrustEffectiveCity
-      ? results.filter((slot) => slot.isSynthetic !== true)
-      : applyFallbackPolicy(results, policy);
+    // When the selected city has no salons/slots, BookingWidget enters cascade
+    // mode. The policy filter can drop everything if the marketplace slots
+    // lack the expected origins metadata — bypass it so the cascade always
+    // has raw discovery data to bucket by city.
+    const cityRecovery =
+      recoveryState?.reason === "no_city_salons" ||
+      recoveryState?.reason === "no_city_slots";
+    const eligible =
+      shouldTrustEffectiveCity || cityRecovery
+        ? sourceSlots
+        : applyFallbackPolicy(sourceSlots, policy);
     const userLocation = distanceOrigin
       ? { lat: distanceOrigin.lat, lng: distanceOrigin.lng }
       : undefined;
@@ -97,7 +115,7 @@ export default function BookingWidget() {
       ...discoveryRanked,
       quickAccessSlotIds: quickAccessPreview.slots.map(bookingSlotId),
     };
-  }, [results, distanceOrigin?.lat, distanceOrigin?.lng, fallbackLevel, recoveryState?.recoveryScenario]);
+  }, [results, discovery, distanceOrigin?.lat, distanceOrigin?.lng, fallbackLevel, recoveryState?.recoveryScenario, recoveryState?.reason]);
 
   const discoveryBuild = useMemo(() => {
     const hasSearchIntent = Boolean(
@@ -153,10 +171,18 @@ export default function BookingWidget() {
   const discoveryGroups = discoveryBuild.groups;
   const bookingWidgetDebug = discoveryBuild.debug;
   const hasAny = discoveryGroups.some((g) => g.slots.length > 0);
-  const recoveryMessage =
-    typeof recoveryState?.userMessage === "string"
-      ? recoveryState.userMessage
-      : null;
+  const hasSearchIntent = Boolean(
+    searchQuery || category || subcategoryFilter || dateFilter || timeWindowStart != null || timeWindowEnd != null,
+  );
+  const categoryLabel = category
+    ? SLUG_TO_CANONICAL[category as CategorySlug] ?? category
+    : undefined;
+  const recoveryCopy = bookingWidgetRecoveryCopy({
+    city: userCity,
+    recoveryState,
+    hasSearchIntent,
+    categoryLabel,
+  });
 
   useEffect(() => {
     if (process.env.NODE_ENV !== "production") {
@@ -166,7 +192,20 @@ export default function BookingWidget() {
 
   // Compute a friendly subtitle once
   const subtitle = useMemo(() => {
-    if (!hasAny || loading) return null;
+    if (loading) return null;
+    // Cascade banner: selected city has no salons/slots but we found options
+    // in nearby/popular cities — make that explicit to the user.
+    const cityCascadeActive =
+      hasAny &&
+      (recoveryState?.reason === "no_city_salons" ||
+        recoveryState?.reason === "no_city_slots");
+    if (cityCascadeActive) {
+      return userCity
+        ? `Nema slobodnih termina za grad ${userCity}. Prikazujemo najbliže gradove sa terminima.`
+        : "Prikazujemo najbliže gradove sa slobodnim terminima.";
+    }
+    if (recoveryCopy?.title) return recoveryCopy.title;
+    if (!hasAny) return null;
     const cities = discoveryGroups
       .filter((g) => g.slots.length > 0)
       .map((g) => g.city)
@@ -180,7 +219,7 @@ export default function BookingWidget() {
     if (fallbackLevel >= 5) return "Prikazujemo termine iz popularnih gradova.";
     if (fallbackLevel >= 4) return "Prikazujemo termine iz gradova u blizini.";
     return null;
-  }, [hasAny, loading, discoveryGroups, userCity, fallbackLevel]);
+  }, [hasAny, loading, discoveryGroups, userCity, fallbackLevel, recoveryCopy?.title, recoveryState?.reason]);
 
   return (
     <section id="booking-widget" style={{ marginTop: 56 }}>
@@ -244,11 +283,7 @@ export default function BookingWidget() {
               margin: "0 0 8px",
             }}
           >
-            {recoveryMessage?.split(". ")[0] ?? (
-              category
-                ? `Nema slobodnih termina za ${SLUG_TO_CANONICAL[category as CategorySlug] ?? category} u ${userCity}.`
-                : "Nismo prepoznali tačno ovu uslugu."
-            )}
+            {recoveryCopy?.title ?? "Trenutno nema dostupnih termina."}
           </p>
           <p
             style={{
@@ -258,8 +293,8 @@ export default function BookingWidget() {
               margin: 0,
             }}
           >
-            {recoveryMessage?.split(". ").slice(1).join(". ") ||
-              "Pogledajte dostupne kategorije ispod."}
+            {recoveryCopy?.body ||
+              "Prikazaćemo najbliže dostupne opcije čim ih pronađemo."}
           </p>
         </div>
       )}
@@ -311,7 +346,7 @@ export default function BookingWidget() {
                   <SlotCard
                     key={`${slot.salonId}-${slot.startTime}-${i}`}
                     slot={slot as SearchResult}
-                    userLocation={distanceOrigin}
+                    userLocation={userLocationOrigin}
                     onBook={() => {
                       // Phase 2.5D Task 3 — analytics on click.
                       const meta = (slot as RankedSlot).rankingMeta;
@@ -377,16 +412,11 @@ function SlotCard({
     gpsDistanceKm != null && Number.isFinite(gpsDistanceKm)
       ? calculateTravelMinutesEstimate(gpsDistanceKm)
       : slot.travelMinutesEstimate;
-  const directionsLink =
-    userLocation && slot.salonLat != null && slot.salonLng != null
-      ? createGoogleMapsDirectionsLink({
-          originLat: userLocation.lat,
-          originLng: userLocation.lng,
-          destinationLat: slot.salonLat,
-          destinationLng: slot.salonLng,
-        })
-      : "";
-  const mapHref = directionsLink || slot.mapsLink;
+  const salonMapLink =
+    slot.salonLat != null && slot.salonLng != null
+      ? createGoogleMapsLink(slot.salonLat, slot.salonLng)
+      : createGoogleMapsLinkFromAddress(slot.salonAddress ?? "", slot.city);
+  const mapHref = salonMapLink || slot.mapsLink;
   const distLabel = formatDistance(displayDistanceKm);
   const travelTitle = displayTravelMinutes
     ? `oko ${displayTravelMinutes} min`
@@ -506,6 +536,20 @@ function SlotCard({
           )}
         </span>
       </div>
+
+      {slot.isSynthetic && (
+        <p
+          style={{
+            fontFamily: "var(--main-font)",
+            fontSize: 11,
+            fontWeight: 700,
+            color: "var(--fg-3)",
+            margin: "-4px 0 8px",
+          }}
+        >
+          mogući termin
+        </p>
+      )}
 
       {/* Time row */}
       <div

@@ -3,6 +3,8 @@
 import type { SearchResult } from "@/types/slots";
 import type { SearchRecoveryState } from "@/types/searchRecovery";
 import type { RankedSlot } from "./rankSearchResults";
+import { CITY_POPULARITY, SERBIAN_CITIES, findCity, haversineKm } from "@/lib/cities";
+import { stripDiacritics } from "@/lib/intent/parseIntent";
 
 export type BookingDiscoveryMode =
   | "initial_load"
@@ -58,6 +60,12 @@ export interface BookingWidgetDebug {
     reason?: string;
   }>;
   emptyReason?: string;
+  recoveryReason?: string;
+  selectedCityHasSalons?: boolean;
+  selectedCityHasSlots?: boolean;
+  expandedToCities?: string[];
+  discoveryCount?: number;
+  syntheticCount?: number;
 }
 
 export interface BookingDiscoveryBuildResult {
@@ -326,6 +334,147 @@ function makeGroup(params: {
   };
 }
 
+/**
+ * Map any free-form city string (DB casing, missing diacritics, stray
+ * whitespace) to the canonical SERBIAN_CITIES name. Returns the input
+ * untouched when there is no match so we still bucket unknown cities.
+ */
+function canonicalCity(input: string | undefined): string {
+  if (!input) return "";
+  const norm = stripDiacritics(input).trim();
+  const match = SERBIAN_CITIES.find(
+    (c) => stripDiacritics(c.name) === norm,
+  );
+  return match ? match.name : input.trim();
+}
+
+/**
+ * Distance from a candidate city to the requested city. Both names are
+ * canonicalised so casing/diacritic mismatches don't fall through to
+ * Infinity (which would silently push the city to the end of the cascade).
+ */
+function cityDistanceFromRequested(
+  candidate: string,
+  requestedCity: string | undefined,
+): number {
+  if (!requestedCity) return Number.POSITIVE_INFINITY;
+  const a = findCity(canonicalCity(candidate));
+  const b = findCity(canonicalCity(requestedCity));
+  if (a && b) return haversineKm(a.lat, a.lng, b.lat, b.lng);
+  return Number.POSITIVE_INFINITY;
+}
+
+/**
+ * Cascade fallback: when the requested city has no salons or no slots,
+ * build a sequence of per-city groups ordered by distance from the
+ * requested city, with popularity as a tiebreaker. Guarantees that the
+ * BookingWidget is never empty as long as there is at least one
+ * trustworthy slot in the marketplace pool.
+ */
+function buildCityCascadeGroups(params: {
+  trustworthy: RankedSlot[];
+  requestedCity: string | undefined;
+  quickAccessIds: Set<string>;
+  usedSlotKeys: Set<string>;
+  usedSalonService: Set<string>;
+  fallbackLevel: number;
+  maxCities?: number;
+  perCity?: number;
+}): {
+  groups: BookingDiscoveryGroup[];
+  debug: BookingWidgetDebug["groups"];
+  expandedToCities: string[];
+} {
+  const maxCities = params.maxCities ?? 5;
+  const perCity = params.perCity ?? 5;
+  const groups: BookingDiscoveryGroup[] = [];
+  const debug: BookingWidgetDebug["groups"] = [];
+
+  // Bucket slots by city. Use the canonical SERBIAN_CITIES name as the
+  // bucket key so distance lookups always succeed regardless of casing or
+  // diacritics in the raw slot data.
+  const requestedCanonical = canonicalCity(params.requestedCity);
+  const byCity = new Map<string, RankedSlot[]>();
+  for (const slot of params.trustworthy) {
+    if (!slot.city) continue;
+    const key = canonicalCity(slot.city);
+    if (!key) continue;
+    if (
+      requestedCanonical &&
+      stripDiacritics(key).toLowerCase() ===
+        stripDiacritics(requestedCanonical).toLowerCase()
+    ) {
+      continue; // skip requested city (already empty)
+    }
+    const arr = byCity.get(key) ?? [];
+    arr.push(slot);
+    byCity.set(key, arr);
+  }
+
+  if (byCity.size === 0) return { groups, debug, expandedToCities: [] };
+
+  // Order cities: distance to requested first, then popularity, then slot count.
+  const orderedCities = [...byCity.keys()].sort((a, b) => {
+    const da = cityDistanceFromRequested(a, params.requestedCity);
+    const db = cityDistanceFromRequested(b, params.requestedCity);
+    if (Number.isFinite(da) || Number.isFinite(db)) {
+      if (da !== db) return da - db;
+    }
+    const popA = CITY_POPULARITY[a] ?? 0;
+    const popB = CITY_POPULARITY[b] ?? 0;
+    if (popA !== popB) return popB - popA;
+    return (byCity.get(b)?.length ?? 0) - (byCity.get(a)?.length ?? 0);
+  });
+
+  const expandedToCities: string[] = [];
+  let priority = 1;
+
+  for (const cityName of orderedCities.slice(0, maxCities)) {
+    const pool = sortedByDistance(byCity.get(cityName) ?? []);
+    const picked = pickDiverse(pool, perCity, {
+      avoidSlotIds: params.quickAccessIds,
+      usedSlotKeys: params.usedSlotKeys,
+      usedSalonService: params.usedSalonService,
+      preferAvoided: true,
+      relaxUsedWhenEmpty: true,
+    });
+    const inputCount = pool.length;
+    const distanceKm = cityDistanceFromRequested(cityName, params.requestedCity);
+    const isFirst = expandedToCities.length === 0;
+    const distanceLabel = Number.isFinite(distanceKm)
+      ? ` (~${Math.round(distanceKm)} km)`
+      : "";
+
+    const title = isFirst
+      ? `Najbliži termini — ${cityName}${distanceLabel}`
+      : `Još termina — ${cityName}${distanceLabel}`;
+
+    const made = makeGroup({
+      id: `cascade:${cityName}`,
+      type: isFirst ? "best_nearby" : "nearby_cities",
+      title,
+      subtitle: isFirst
+        ? params.requestedCity
+          ? `Nema slobodnih termina za grad ${params.requestedCity}. Pokazujemo najbliži grad sa terminima.`
+          : "Pokazujemo najbliže gradove sa slobodnim terminima."
+        : undefined,
+      slots: picked,
+      priority: priority++,
+      reason: isFirst ? "cascade_nearest_city" : "cascade_next_city",
+      city: cityName,
+      fallbackLevel: params.fallbackLevel,
+      inputCount,
+    });
+    debug.push(made.debug);
+    if (made.group) {
+      groups.push(made.group);
+      expandedToCities.push(cityName);
+    }
+  }
+
+  return { groups, debug, expandedToCities };
+}
+
 export function buildBookingDiscoveryGroups(
   input: BuildBookingDiscoveryGroupsInput,
 ): BookingDiscoveryBuildResult {
@@ -338,8 +487,92 @@ export function buildBookingDiscoveryGroups(
   const debugGroups: BookingWidgetDebug["groups"] = [];
 
   const city = input.recoveryState?.effectiveCity ?? input.query.city ?? input.userCity;
+  const requestedCity =
+    input.recoveryState?.requestedCity ?? input.query.city ?? input.userCity;
   const titles = scenarioTitles(input.recoveryState, input.query, city);
+  const cityRecoveryReason =
+    input.recoveryState?.reason === "no_city_salons" ||
+    input.recoveryState?.reason === "no_city_slots";
   const exactCitySlots = trustworthy.filter((slot) => sameCity(slot, city));
+
+  // ── CASCADE MODE ─────────────────────────────────────────────────────────
+  // When the selected city has no salons or no slots, BookingWidget acts as
+  // a discovery surface: expand outward, nearest city first, until salons
+  // are found. Never render an empty state if any trustworthy slot exists.
+  const cascadeTriggered =
+    cityRecoveryReason ||
+    (Boolean(requestedCity) && exactCitySlots.length === 0 && trustworthy.length > 0);
+
+  if (cascadeTriggered) {
+    // In cascade mode we relax the trust filter: if the trustworthy pool is
+    // empty (e.g. all marketplace slots are synthetic L6 projections), fall
+    // back to the full slot pool so the widget still shows something. A
+    // synthetic suggestion is more useful than an empty card when the
+    // selected city has no salons.
+    const cascadePool = trustworthy.length > 0 ? trustworthy : input.slots;
+  if (cascadePool.length > 0) {
+    const cascade = buildCityCascadeGroups({
+      trustworthy: cascadePool,
+      requestedCity,
+      quickAccessIds,
+      usedSlotKeys,
+      usedSalonService,
+      fallbackLevel: input.fallbackLevel,
+    });
+    groups.push(...cascade.groups);
+    debugGroups.push(...cascade.debug);
+
+    // Final safety net: if cascade somehow produced no groups (e.g. all
+    // slots lacked a city), drop one popularity-sorted catch-all group so
+    // the widget is never empty.
+    if (groups.length === 0) {
+      const fallbackMade = makeGroup({
+        id: "cascade:any",
+        type: "recommended_salons",
+        title: "Slobodni termini",
+        subtitle: requestedCity
+          ? `Nema slobodnih termina u ${requestedCity}. Pokazujemo bilo koji slobodan termin.`
+          : "Pokazujemo bilo koji slobodan termin.",
+        slots: pickDiverse(sortedByPopular(trustworthy), 8, {
+          avoidSlotIds: quickAccessIds,
+          usedSlotKeys,
+          usedSalonService,
+          preferAvoided: true,
+          relaxUsedWhenEmpty: true,
+        }),
+        priority: 1,
+        reason: "cascade_any_available",
+        fallbackLevel: input.fallbackLevel,
+        inputCount: trustworthy.length,
+      });
+      debugGroups.push(fallbackMade.debug);
+      if (fallbackMade.group) groups.push(fallbackMade.group);
+    }
+
+    const debug: BookingWidgetDebug = {
+      mode,
+      inputSlots: input.slots.length,
+      afterQuickAccessDedup: trustworthy.filter(
+        (slot) => !quickAccessIds.has(bookingSlotId(slot)),
+      ).length,
+      groupCount: groups.length,
+      groups: debugGroups,
+      emptyReason: groups.length === 0 ? "no_trustworthy_discovery_slots" : undefined,
+      recoveryReason: input.recoveryState?.reason ?? "cascade_no_city_match",
+      selectedCityHasSalons: input.recoveryState?.selectedCityHasSalons,
+      selectedCityHasSlots: input.recoveryState?.selectedCityHasSlots,
+      expandedToCities:
+        cascade.expandedToCities.length > 0
+          ? cascade.expandedToCities
+          : input.recoveryState?.expandedToCities,
+      discoveryCount: input.slots.length,
+      syntheticCount: input.slots.filter((slot) => slot.isSynthetic).length,
+    };
+
+    return { groups, debug };
+  }
+  }
+  // ── END CASCADE MODE ─────────────────────────────────────────────────────
   const nearbyCitySlots = trustworthy.filter(
     (slot) => city && !sameCity(slot, city),
   );
@@ -362,7 +595,15 @@ export function buildBookingDiscoveryGroups(
     if (made.group) groups.push(made.group);
   };
 
-  const bestNearbyPool = sortedByDistance(city ? exactCitySlots : trustworthy);
+  const bestNearbyPool = sortedByDistance(
+    cityRecoveryReason && exactCitySlots.length === 0
+      ? nearbyCitySlots.length > 0
+        ? nearbyCitySlots
+        : trustworthy
+      : city
+        ? exactCitySlots
+        : trustworthy,
+  );
   const exactPool = exactServiceSlots.filter((slot) =>
     city ? sameCity(slot, city) : true,
   );
@@ -408,9 +649,13 @@ export function buildBookingDiscoveryGroups(
       id: "exact_city",
       type: "exact_city",
       title: titles?.[0] ?? (serviceCity
-        ? `Najbolji rezultati u ${city}`
+        ? cityRecoveryReason
+          ? "Najbliži slobodni termini"
+          : `Najbolji rezultati u ${city}`
         : city
-          ? `Najbolji termini - ${city}`
+          ? cityRecoveryReason
+            ? "Najbliži slobodni termini"
+            : `Najbolji termini - ${city}`
           : input.query.service
             ? `Najbolji termini za ${input.query.service}`
             : "Najbolji slobodni termini"),
@@ -555,6 +800,12 @@ export function buildBookingDiscoveryGroups(
     groups: debugGroups,
     emptyReason:
       ordered.length === 0 ? "no_trustworthy_discovery_slots" : undefined,
+    recoveryReason: input.recoveryState?.reason,
+    selectedCityHasSalons: input.recoveryState?.selectedCityHasSalons,
+    selectedCityHasSlots: input.recoveryState?.selectedCityHasSlots,
+    expandedToCities: input.recoveryState?.expandedToCities,
+    discoveryCount: input.slots.length,
+    syntheticCount: input.slots.filter((slot) => slot.isSynthetic).length,
   };
 
   return { groups: ordered, debug };

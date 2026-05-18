@@ -40,45 +40,50 @@ interface IpGeoResponse {
 
 const EMPTY: IpGeoResponse = { city: null, lat: null, lng: null };
 
+export function resolveIpGeoFromHeaders(h: Pick<Headers, "get">): IpGeoResponse {
+  const country = h.get(HEADER_COUNTRY);
+  if (country && country.toUpperCase() !== "RS") {
+    return EMPTY;
+  }
+
+  const rawLat = h.get(HEADER_LAT);
+  const rawLng = h.get(HEADER_LNG);
+  const rawCity = h.get(HEADER_CITY);
+
+  const lat = rawLat ? Number(rawLat) : NaN;
+  const lng = rawLng ? Number(rawLng) : NaN;
+  const hasCoords = Number.isFinite(lat) && Number.isFinite(lng);
+
+  let city: string | null = null;
+  if (hasCoords) {
+    city = nearestCity(lat, lng).name;
+  } else if (rawCity) {
+    let decodedCity = rawCity;
+    try {
+      decodedCity = decodeURIComponent(rawCity.replace(/\+/g, " "));
+    } catch {
+      decodedCity = rawCity;
+    }
+    const lower = decodedCity.toLowerCase();
+    const match = SERBIAN_CITIES.find(
+      (c) => c.name.toLowerCase() === lower,
+    );
+    if (match) {
+      city = match.name;
+    }
+  }
+
+  return {
+    city,
+    lat: hasCoords ? lat : null,
+    lng: hasCoords ? lng : null,
+  };
+}
+
 export async function GET() {
   try {
     const h = await headers();
-
-    // Only resolve Serbia for now — other countries fall back gracefully.
-    const country = h.get(HEADER_COUNTRY);
-    if (country && country.toUpperCase() !== "RS") {
-      return NextResponse.json(EMPTY);
-    }
-
-    const rawLat = h.get(HEADER_LAT);
-    const rawLng = h.get(HEADER_LNG);
-    const rawCity = h.get(HEADER_CITY);
-
-    const lat = rawLat ? Number(rawLat) : NaN;
-    const lng = rawLng ? Number(rawLng) : NaN;
-    const hasCoords = Number.isFinite(lat) && Number.isFinite(lng);
-
-    // Best-effort city resolution: snap to the nearest known Serbian city so
-    // downstream code can match it directly against SERBIAN_CITIES.
-    let city: string | null = null;
-    if (hasCoords) {
-      city = nearestCity(lat, lng).name;
-    } else if (rawCity) {
-      // CDN gave us a city name string but no coords. Snap by name lookup.
-      const lower = rawCity.toLowerCase();
-      const match = SERBIAN_CITIES.find(
-        (c) => c.name.toLowerCase() === lower,
-      );
-      if (match) {
-        city = match.name;
-      }
-    }
-
-    return NextResponse.json<IpGeoResponse>({
-      city,
-      lat: hasCoords ? lat : null,
-      lng: hasCoords ? lng : null,
-    });
+    return NextResponse.json<IpGeoResponse>(resolveIpGeoFromHeaders(h));
   } catch {
     // Soft-fail — never block rendering with an IP geo error.
     return NextResponse.json(EMPTY);

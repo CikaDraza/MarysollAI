@@ -1,9 +1,13 @@
 "use client";
 
 import { createContext, useContext, type ReactNode } from "react";
-import { useCitySelector } from "@/hooks/useCitySelector";
+import {
+  useCitySelector,
+  type GpsLocationRequestResult,
+} from "@/hooks/useCitySelector";
 import { SERBIAN_CITIES, type SerbianCity } from "@/lib/cities";
 import type {
+  GeoSource,
   GeoSignals,
   ResolvedGeo,
 } from "@/lib/geo/resolveGeoPriority";
@@ -14,11 +18,20 @@ interface CityContextValue {
   setCity: (city: SerbianCity) => void;
   setCityByName: (name: string) => void;
   geoLoading: boolean;
-  requestGpsLocation: () => void;
+  geoReady: boolean;
+  requestGpsLocation: (options?: {
+    updateCity?: boolean;
+    promoteToExplicit?: boolean;
+  }) => Promise<GpsLocationRequestResult>;
   /** Phase 2.5B — geo signals + resolved priority surfaced for consumers
    * that need richer geo info (preload, ranking, analytics). */
   geoSignals: GeoSignals;
   geoResolved: ResolvedGeo;
+  geoSource: GeoSource;
+  userLocation: { lat: number; lng: number; city?: string } | undefined;
+  userLocationSource: "gps" | undefined;
+  userLocationAccuracyMeters: number | undefined;
+  isApproximateLocation: boolean;
 }
 
 const CityContext = createContext<CityContextValue | null>(null);
@@ -30,7 +43,20 @@ export function CityProvider({
   children: ReactNode;
   initialCity?: string;
 }) {
-  const { city, setCity, geoLoading, requestGpsLocation, signals, resolved } =
+  const {
+    city,
+    setCity,
+    geoLoading,
+    geoReady,
+    geoSource,
+    userLocation,
+    userLocationSource,
+    userLocationAccuracyMeters,
+    isApproximateLocation,
+    requestGpsLocation,
+    signals,
+    resolved,
+  } =
     useCitySelector(initialCity || undefined);
 
   const setCityByName = (name: string) => {
@@ -49,9 +75,15 @@ export function CityProvider({
         setCity,
         setCityByName,
         geoLoading,
+        geoReady,
         requestGpsLocation,
         geoSignals: signals,
         geoResolved: resolved,
+        geoSource,
+        userLocation,
+        userLocationSource,
+        userLocationAccuracyMeters,
+        isApproximateLocation,
       }}
     >
       {children}

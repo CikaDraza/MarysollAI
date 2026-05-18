@@ -28,12 +28,13 @@ interface SearchContextValue {
   recoveryState?: SearchRecoveryState;
   debug?: Record<string, unknown>;
   isLoading: boolean;
+  totalSalons: number;
 }
 
 const SearchContext = createContext<SearchContextValue | null>(null);
 
 export function SearchProvider({ children }: { children: ReactNode }) {
-  const { city, cityName, geoSignals } = useCityContext();
+  const { city, cityName, geoSignals, geoReady } = useCityContext();
   const {
     category,
     initialCategory,
@@ -47,7 +48,7 @@ export function SearchProvider({ children }: { children: ReactNode }) {
 
   const distanceOrigin = resolveDistanceOrigin(geoSignals, city);
 
-  const { results, discovery, slotsByCity, bestSlot, fallbackLevel, suggestions, recoveryState, debug, isLoading } = useSearch({
+  const { results, discovery, slotsByCity, bestSlot, fallbackLevel, suggestions, recoveryState, debug, isLoading, totalSalons } = useSearch({
     city: cityName,
     lat: distanceOrigin?.lat,
     lng: distanceOrigin?.lng,
@@ -63,6 +64,7 @@ export function SearchProvider({ children }: { children: ReactNode }) {
     timeWindowStart,
     timeWindowEnd,
     subcategory: subcategoryFilter,
+    enabled: geoReady,
   });
 
   return (
@@ -77,6 +79,7 @@ export function SearchProvider({ children }: { children: ReactNode }) {
         recoveryState,
         debug,
         isLoading,
+        totalSalons,
       }}
     >
       {children}

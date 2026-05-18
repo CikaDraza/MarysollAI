@@ -29,8 +29,18 @@ import {
 import type { AvailabilityType } from "@/lib/availability/availabilityConfidence";
 import { formatDistance } from "@/lib/utils/distance";
 import { calculateDistanceKm, calculateTravelMinutesEstimate } from "@/lib/geo/distance";
-import { createGoogleMapsDirectionsLink } from "@/lib/geo/maps";
-import { resolveDistanceOrigin } from "@/lib/geo/resolveDistanceOrigin";
+import {
+  createGoogleMapsLink,
+  createGoogleMapsLinkFromAddress,
+} from "@/lib/geo/maps";
+import {
+  resolveDistanceOrigin,
+  resolveUserLocationOrigin,
+} from "@/lib/geo/resolveDistanceOrigin";
+import {
+  resolveDistanceLocationLabel,
+  resolveSearchLocationLabel,
+} from "@/lib/geo/geoSourceDisplay";
 import { resolveSearchFallback } from "@/lib/search/searchFallback";
 import { trackSearchEvent } from "@/lib/search/searchAnalytics";
 import { SERBIAN_CITIES } from "@/lib/cities";
@@ -178,7 +188,7 @@ function formatPrice(
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function QuickAccess() {
-  const { city, cityName, setCity, geoSignals } = useCityContext();
+  const { city, cityName, setCity, geoSignals, geoResolved } = useCityContext();
   const {
     category,
     subcategoryFilter: subcategory,
@@ -196,6 +206,15 @@ export default function QuickAccess() {
   } = useSearchContext();
   const { openModal } = useBookingModal();
   const distanceOrigin = resolveDistanceOrigin(geoSignals, city);
+  const userLocationOrigin = resolveUserLocationOrigin(geoSignals);
+  const searchLocationLabel = useMemo(
+    () => resolveSearchLocationLabel(geoResolved),
+    [geoResolved],
+  );
+  const distanceLocationLabel = useMemo(
+    () => resolveDistanceLocationLabel(distanceOrigin),
+    [distanceOrigin],
+  );
   const { data: salons = [], isLoading: salonsLoading } = useSalons(cityName);
 
   const onPick = (slot: QuickSlot, position: number) => {
@@ -544,16 +563,24 @@ export default function QuickAccess() {
             }}
           >
             <ClockIcon style={{ width: 15, height: 15 }} strokeWidth={2} />
-            {canonicalCategory
-              ? `${canonicalCategory} — ${displayCity}`
-              : `Termini u — ${displayCity}`}
+            <span>
+              {canonicalCategory
+                ? `${canonicalCategory} — ${displayCity}`
+                : `Termini u — ${displayCity}`}
+              <span style={{ opacity: 0.78 }}>
+                {" | "}
+                {searchLocationLabel}
+                {" | "}
+                {distanceLocationLabel}
+              </span>
+            </span>
           </p>
           <div className="ms-slots-row">
             {displayedSlots.map((slot, i) => (
               <SlotCard
                 key={`${slot.salonId}-${slot.startTime}-${slot.serviceId ?? ""}`}
                 slot={slot}
-                userLocation={distanceOrigin}
+                userLocation={userLocationOrigin}
                 onBook={() => onPick(slot, i)}
               />
             ))}
@@ -622,7 +649,11 @@ export default function QuickAccess() {
           )}
         />
       ) : (
-        <RecoveryCTA city={displayCity} />
+        <RecoveryCTA
+          city={displayCity}
+          locationContext={`${searchLocationLabel} | ${distanceLocationLabel}`}
+          noSalons={recoveryState?.reason === "no_city_salons"}
+        />
       )}
 
       {/* ── Categories — hidden when a search category is active ──────────── */}
@@ -726,16 +757,11 @@ function SlotCard({
     gpsDistanceKm != null && Number.isFinite(gpsDistanceKm)
       ? calculateTravelMinutesEstimate(gpsDistanceKm)
       : slot.travelMinutesEstimate;
-  const directionsLink =
-    userLocation && slot.salonLat != null && slot.salonLng != null
-      ? createGoogleMapsDirectionsLink({
-          originLat: userLocation.lat,
-          originLng: userLocation.lng,
-          destinationLat: slot.salonLat,
-          destinationLng: slot.salonLng,
-        })
-      : "";
-  const mapHref = directionsLink || slot.mapsLink;
+  const salonMapLink =
+    slot.salonLat != null && slot.salonLng != null
+      ? createGoogleMapsLink(slot.salonLat, slot.salonLng)
+      : createGoogleMapsLinkFromAddress(slot.salonAddress ?? "", slot.city);
+  const mapHref = salonMapLink || slot.mapsLink;
   const distLabel = formatDistance(displayDistanceKm);
   const travelTitle = displayTravelMinutes
     ? `oko ${displayTravelMinutes} min`
@@ -1155,9 +1181,36 @@ function CategoryNotFound({
 
 // ── Recovery CTA ──────────────────────────────────────────────────────────────
 
-function RecoveryCTA({ city }: { city: string }) {
+function RecoveryCTA({
+  city,
+  locationContext,
+  noSalons,
+}: {
+  city: string;
+  locationContext: string;
+  noSalons?: boolean;
+}) {
+  const cityIn = city === "Sremska Mitrovica"
+    ? "Sremskoj Mitrovici"
+    : city === "Novi Sad"
+      ? "Novom Sadu"
+      : city === "Beograd"
+        ? "Beogradu"
+        : city;
   return (
     <div style={{ marginBottom: 40 }}>
+      <p
+        style={{
+          fontFamily: "var(--main-font)",
+          fontWeight: 600,
+          fontSize: 13,
+          color: "var(--fg-3)",
+          margin: "0 0 12px",
+          textAlign: "center",
+        }}
+      >
+        prikazujemo na osnovu: {locationContext}
+      </p>
       <p
         style={{
           fontFamily: "var(--main-font)",
@@ -1168,7 +1221,9 @@ function RecoveryCTA({ city }: { city: string }) {
           textAlign: "center",
         }}
       >
-        Nema slobodnih termina trenutno{city ? ` - ${city}` : ""}.
+        {noSalons
+          ? `Nema salona${city ? ` u ${cityIn}` : ""}.`
+          : `Nema slobodnih termina trenutno${city ? ` - ${city}` : ""}.`}
       </p>
       <div className="flex flex-col lg:flex-row items-center justify-between gap-6 mt-6">
         {/* CTA 1 — Primary: Marija finds a slot */}

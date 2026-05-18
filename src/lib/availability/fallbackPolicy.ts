@@ -95,9 +95,8 @@ export type { AvailabilityConfidence } from "./availabilityConfidence";
 //   - Never synthetic, never cross-city, never category drift.
 //   - Capped at L2 for every intent. Empty is better than misleading.
 //
-// BookingWidget: discovery surface. Wider net, cross-city ok.
-//   - Synthetic still forbidden — showing "projected" slots as if confirmed
-//     undermines trust in a primary booking surface.
+// BookingWidget: discovery surface. Wider net, cross-city and synthetic ok,
+// but synthetic must be visibly marked by the consumer UI.
 //
 // ai_recovery: wider net. AI context signals recovery intent, but still capped
 // at L5 so fully synthetic L6 projections stay out of search results.
@@ -114,10 +113,10 @@ const STRATEGY_DEFAULTS: Record<SearchStrategy, FallbackPolicy> = {
     allowRelaxedTime: true,
   },
   bookingwidget: {
-    maxFallbackLevel: 3,
-    allowSynthetic: false,
+    maxFallbackLevel: 6,
+    allowSynthetic: true,
     allowNearbyCities: true,
-    allowCategoryDrift: false,
+    allowCategoryDrift: true,
     allowServiceVariants: true,
     allowRelaxedTime: true,
   },

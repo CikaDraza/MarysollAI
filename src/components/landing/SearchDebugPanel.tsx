@@ -37,7 +37,7 @@ function StatRow({ label, value }: { label: string; value: string | number }) {
 export default function SearchDebugPanel() {
   const [open, setOpen] = useState(false);
   const { city, cityName, geoResolved, geoSignals } = useCityContext();
-  const { results, fallbackLevel, recoveryState, debug, isLoading } = useSearchContext();
+  const { results, discovery, fallbackLevel, recoveryState, debug, isLoading } = useSearchContext();
   const recoveryDebug =
     debug && typeof debug.recoveryDebug === "object" && debug.recoveryDebug !== null
       ? (debug.recoveryDebug as Record<string, unknown>)
@@ -210,11 +210,25 @@ export default function SearchDebugPanel() {
               <StatRow label="requestedCity" value={String(recoveryDebug.requestedCity ?? "—")} />
               <StatRow label="effectiveCity" value={String(recoveryDebug.effectiveCity ?? "—")} />
               <StatRow label="scenario" value={String(recoveryDebug.recoveryScenario ?? "—")} />
+              <StatRow label="reason" value={String(recoveryDebug.reason ?? "—")} />
+              <StatRow label="city has salons" value={String(recoveryDebug.selectedCityHasSalons ?? "—")} />
+              <StatRow label="city has slots" value={String(recoveryDebug.selectedCityHasSlots ?? "—")} />
+              <StatRow
+                label="expanded cities"
+                value={Array.isArray(recoveryDebug.expandedToCities)
+                  ? recoveryDebug.expandedToCities.join(", ") || "—"
+                  : "—"}
+              />
               <StatRow label="exact requested" value={Number(recoveryDebug.exactRequestedCityCount ?? 0)} />
               <StatRow label="related requested" value={Number(recoveryDebug.relatedRequestedCityCount ?? 0)} />
               <StatRow label="exact other" value={Number(recoveryDebug.exactOtherCityCount ?? 0)} />
               <StatRow label="related other" value={Number(recoveryDebug.relatedOtherCityCount ?? 0)} />
               <StatRow label="selected" value={Number(recoveryDebug.selectedSlotsCount ?? 0)} />
+              <StatRow label="discovery count" value={discovery.length} />
+              <StatRow
+                label="synthetic count"
+                value={results.filter((slot) => slot.isSynthetic).length}
+              />
               <StatRow
                 label="city suggestions"
                 value={Array.isArray(recoveryState?.nearbyCitySuggestions)

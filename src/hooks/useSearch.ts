@@ -20,6 +20,7 @@ export interface SearchParams {
   lat?: number;
   lng?: number;
   limit?: number;
+  enabled?: boolean;
 }
 
 /** Groups search results by city (≤2 cities nearest to the requested city). */
@@ -78,9 +79,11 @@ async function fetchSearch(params: SearchParams): Promise<SearchApiResponse> {
 }
 
 export function useSearch(params: SearchParams = {}) {
+  const enabled = isSearchEnabled(params);
   const query = useQuery<SearchApiResponse>({
     queryKey: buildSearchQueryKey(params),
     queryFn: () => fetchSearch(params),
+    enabled,
     staleTime: 1000 * 60 * 2, // 2 min — slots change frequently
     refetchOnWindowFocus: true,
     retry: 2,
@@ -123,8 +126,12 @@ export function useSearch(params: SearchParams = {}) {
     suggestions: data?.suggestions ?? [],
     recoveryState: data?.recoveryState,
     debug: data?.debug,
-    isLoading: query.isLoading,
+    isLoading: enabled ? query.isLoading : false,
     isFetching: query.isFetching,
     error: query.error,
   };
+}
+
+export function isSearchEnabled(params: Pick<SearchParams, "enabled" | "city">) {
+  return (params.enabled ?? true) && Boolean(params.city);
 }
