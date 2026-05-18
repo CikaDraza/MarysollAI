@@ -19,6 +19,7 @@
 
 export interface SearchQueryKeyInput {
   city?: string;
+  savedCity?: string;
   category?: string;
   subcategory?: string;
   query?: string;
@@ -61,5 +62,6 @@ export function buildSearchQueryKey(
     input.query ?? EMPTY,
     input.service ?? EMPTY,
     input.routeCategory ?? EMPTY,
+    input.savedCity ?? EMPTY,
   ];
 }

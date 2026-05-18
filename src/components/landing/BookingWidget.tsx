@@ -77,17 +77,28 @@ export default function BookingWidget() {
   // still gets its strict preview so the discovery rows can avoid repeating it.
   const ranked = useMemo(() => {
     const policy = resolveFallbackPolicy("bookingwidget", { kind: "discovery" });
-    const sourceSlots = results.length > 0 ? results : discovery;
     const shouldTrustEffectiveCity =
       recoveryState?.recoveryScenario === "exact_in_nearest_city" ||
       recoveryState?.recoveryScenario === "related_in_nearest_city";
     // When the selected city has no salons/slots, BookingWidget enters cascade
-    // mode. The policy filter can drop everything if the marketplace slots
-    // lack the expected origins metadata — bypass it so the cascade always
-    // has raw discovery data to bucket by city.
+    // mode. Two important deviations from the default source policy:
+    //  1. `results` is already collapsed to a single effective city by the
+    //     server recovery scenario — using it would feed the cascade exactly
+    //     one bucket. We need the wider `discovery` array (slots from every
+    //     expanded city) so the cascade can sort by distance.
+    //  2. The policy filter can drop everything if marketplace slots lack the
+    //     expected origins metadata — bypass it so the cascade always has raw
+    //     data to bucket by city.
     const cityRecovery =
       recoveryState?.reason === "no_city_salons" ||
       recoveryState?.reason === "no_city_slots";
+    const sourceSlots = cityRecovery
+      ? discovery.length > 0
+        ? discovery
+        : results
+      : results.length > 0
+        ? results
+        : discovery;
     const eligible =
       shouldTrustEffectiveCity || cityRecovery
         ? sourceSlots
@@ -143,6 +154,7 @@ export default function BookingWidget() {
         timeWindowEnd,
       },
       userCity,
+      savedCity: geoSignals.saved?.city,
       userLocation: distanceOrigin
         ? { lat: distanceOrigin.lat, lng: distanceOrigin.lng }
         : undefined,
@@ -158,6 +170,7 @@ export default function BookingWidget() {
       distanceOrigin?.lat,
       distanceOrigin?.lng,
       userCity,
+      geoSignals.saved?.city,
       searchQuery,
       category,
       subcategoryFilter,

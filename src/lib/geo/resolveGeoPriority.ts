@@ -1,32 +1,36 @@
 // src/lib/geo/resolveGeoPriority.ts
 //
-// Phase 2.5A+ Task 18 — Centralized geo priority resolver.
+// Centralized geo priority resolver.
 //
 // Priority chain (HIGHER WINS):
-//   1. explicit  — user picked a city in the UI                  (manual)
-//   2. gps       — browser geolocation API                        (precise)
-//   3. saved     — localStorage city from previous session        (warm)
-//   4. ip        — server-side IP city lookup                     (cold)
-//   5. trending  — fallback to a popular city in the platform     (last resort)
+//   1. explicit          — user picked a city in the UI                  (manual)
+//   2. gps (high-accuracy) — browser geolocation accuracy ≤ 1 km          (precise)
+//   3. saved             — localStorage city from previous session        (warm)
+//   4. trending          — fallback to a popular city                     (last resort)
+//
+// GPS gating: a GPS signal whose accuracy is worse than
+// HIGH_ACCURACY_GPS_THRESHOLD_METERS does NOT change the city — it stays
+// useful for distance sorting through resolveDistanceOrigin (≤ 10 km), but
+// the user keeps their saved city until a precise fix arrives. This prevents
+// Wi-Fi triangulation pseudo-fixes from teleporting the user.
 //
 // CRITICAL RULE: explicit ALWAYS wins. Never override a manually selected
-// city with a geo guess — that would be a UX trust violation. The resolver
-// returns the highest-priority source available; downstream code never has
-// to reason about "should I use the GPS or the saved city".
+// city with a geo guess — that would be a UX trust violation.
 //
 // The resolver is data-only. It does NOT trigger geolocation prompts or
-// network requests — caller passes pre-fetched signals. This keeps the
-// function pure + testable.
+// network requests — caller passes pre-fetched signals.
 
-export type GeoSource = "explicit" | "gps" | "saved" | "ip" | "trending";
+import { isHighAccuracyGps } from "./resolveDistanceOrigin";
+
+export type GeoSource = "explicit" | "gps" | "saved" | "trending";
 
 export interface GeoSignal {
   source: GeoSource;
   /** City display name (Serbian-language, properly capitalized). */
   city?: string;
-  /** Latitude (precise: gps; approximate: ip; null: city only). */
+  /** Latitude (precise: gps; null: city only). */
   lat?: number;
-  /** Longitude (precise: gps; approximate: ip; null: city only). */
+  /** Longitude (precise: gps; null: city only). */
   lng?: number;
 }
 
@@ -37,8 +41,6 @@ export interface GeoSignals {
   gps?: { lat: number; lng: number; city?: string; accuracyMeters?: number };
   /** localStorage saved city from previous session. */
   saved?: { city: string };
-  /** Server-side IP-based city lookup. */
-  ip?: { city: string; lat?: number; lng?: number };
   /** Trending city — final fallback when nothing else is known. */
   trending?: { city: string };
 }
@@ -58,11 +60,11 @@ export interface ResolvedGeo extends GeoSignal {
  * has explicitly picked a city in this session.
  */
 export function resolveGeoPriority(signals: GeoSignals): ResolvedGeo {
+  const gpsHighAccuracy = isHighAccuracyGps(signals.gps);
   const available: GeoSource[] = [];
   if (signals.explicit) available.push("explicit");
-  if (signals.gps) available.push("gps");
+  if (signals.gps && gpsHighAccuracy) available.push("gps");
   if (signals.saved) available.push("saved");
-  if (signals.ip) available.push("ip");
   if (signals.trending) available.push("trending");
 
   // 1. Explicit user choice — never overridden.
@@ -76,8 +78,10 @@ export function resolveGeoPriority(signals: GeoSignals): ResolvedGeo {
     };
   }
 
-  // 2. GPS — precise coordinates, optional reverse-geocoded city.
-  if (signals.gps) {
+  // 2. GPS — only when accuracy meets the high-precision threshold. Low-
+  //    accuracy fixes are kept for distance sorting elsewhere, but they
+  //    must not move the user across city boundaries.
+  if (signals.gps && gpsHighAccuracy) {
     return {
       source: "gps",
       city: signals.gps.city,
@@ -87,7 +91,8 @@ export function resolveGeoPriority(signals: GeoSignals): ResolvedGeo {
     };
   }
 
-  // 3. Saved city from previous session.
+  // 3. Saved city from previous session — warms the page while we wait for
+  //    a precise GPS fix (or instead of one, if GPS is denied / inaccurate).
   if (signals.saved) {
     return {
       source: "saved",
@@ -96,18 +101,7 @@ export function resolveGeoPriority(signals: GeoSignals): ResolvedGeo {
     };
   }
 
-  // 4. IP-based fallback.
-  if (signals.ip) {
-    return {
-      source: "ip",
-      city: signals.ip.city,
-      lat: signals.ip.lat,
-      lng: signals.ip.lng,
-      available,
-    };
-  }
-
-  // 5. Trending fallback — best-effort guess.
+  // 4. Trending fallback — best-effort guess.
   if (signals.trending) {
     return {
       source: "trending",
@@ -141,8 +135,6 @@ export function geoConfidence(source: GeoSource): number {
       return 0.9; // city-level only, but trustworthy
     case "saved":
       return 0.7;
-    case "ip":
-      return 0.5;
     case "trending":
       return 0.1;
   }

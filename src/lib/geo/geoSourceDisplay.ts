@@ -47,8 +47,6 @@ function sourceLabel(source: GeoSource) {
   switch (source) {
     case "gps":
       return "GPS";
-    case "ip":
-      return "IP";
     case "saved":
       return "sačuvana prethodna lokacija";
     case "trending":

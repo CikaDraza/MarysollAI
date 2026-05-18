@@ -3,8 +3,10 @@
 import type { SearchResult } from "@/types/slots";
 import type { SearchRecoveryState } from "@/types/searchRecovery";
 import type { RankedSlot } from "./rankSearchResults";
-import { CITY_POPULARITY, SERBIAN_CITIES, findCity, haversineKm } from "@/lib/cities";
+import { CITY_POPULARITY } from "@/lib/cities";
 import { stripDiacritics } from "@/lib/intent/parseIntent";
+import { canonicalCity } from "@/lib/geo/canonicalCity";
+import { cityProximityRank } from "@/lib/geo/cityProximityRank";
 
 export type BookingDiscoveryMode =
   | "initial_load"
@@ -79,6 +81,9 @@ interface BuildBookingDiscoveryGroupsInput {
   query: BookingDiscoveryQuery;
   userLocation?: { lat: number; lng: number };
   userCity?: string;
+  /** Warm-start city from localStorage. Used as a fallback anchor in the
+   * cascade when there is no explicit requested city. */
+  savedCity?: string;
   fallbackLevel: number;
   mode?: BookingDiscoveryMode;
   recoveryState?: Partial<SearchRecoveryState>;
@@ -334,35 +339,9 @@ function makeGroup(params: {
   };
 }
 
-/**
- * Map any free-form city string (DB casing, missing diacritics, stray
- * whitespace) to the canonical SERBIAN_CITIES name. Returns the input
- * untouched when there is no match so we still bucket unknown cities.
- */
-function canonicalCity(input: string | undefined): string {
-  if (!input) return "";
-  const norm = stripDiacritics(input).trim();
-  const match = SERBIAN_CITIES.find(
-    (c) => stripDiacritics(c.name) === norm,
-  );
-  return match ? match.name : input.trim();
-}
-
-/**
- * Distance from a candidate city to the requested city. Both names are
- * canonicalised so casing/diacritic mismatches don't fall through to
- * Infinity (which would silently push the city to the end of the cascade).
- */
-function cityDistanceFromRequested(
-  candidate: string,
-  requestedCity: string | undefined,
-): number {
-  if (!requestedCity) return Number.POSITIVE_INFINITY;
-  const a = findCity(canonicalCity(candidate));
-  const b = findCity(canonicalCity(requestedCity));
-  if (a && b) return haversineKm(a.lat, a.lng, b.lat, b.lng);
-  return Number.POSITIVE_INFINITY;
-}
+// canonicalCity / cityProximityRank live in src/lib/geo/. Shared across
+// selectEffectiveCity, the cascade builder, and groupAndSortByCityPriority
+// on the server so all three sort orders agree.
 
 /**
  * Cascade fallback: when the requested city has no salons or no slots,
@@ -374,6 +353,9 @@ function cityDistanceFromRequested(
 function buildCityCascadeGroups(params: {
   trustworthy: RankedSlot[];
   requestedCity: string | undefined;
+  /** Fallback anchor used when no requested city is set — typically the
+   * user's saved (localStorage) city. */
+  anchorCity: string | undefined;
   quickAccessIds: Set<string>;
   usedSlotKeys: Set<string>;
   usedSalonService: Set<string>;
@@ -413,17 +395,24 @@ function buildCityCascadeGroups(params: {
 
   if (byCity.size === 0) return { groups, debug, expandedToCities: [] };
 
-  // Order cities: distance to requested first, then popularity, then slot count.
+  // Anchor for city-to-city ranking: prefer the user's explicit request,
+  // fall back to their saved (warm) city. Only when neither exists do we
+  // fall through to popularity as the last-resort tiebreaker.
+  const anchor = params.requestedCity || params.anchorCity;
+
   const orderedCities = [...byCity.keys()].sort((a, b) => {
-    const da = cityDistanceFromRequested(a, params.requestedCity);
-    const db = cityDistanceFromRequested(b, params.requestedCity);
+    const da = cityProximityRank(a, anchor);
+    const db = cityProximityRank(b, anchor);
     if (Number.isFinite(da) || Number.isFinite(db)) {
       if (da !== db) return da - db;
     }
+    // No anchor (or both cities unknown) — by-count first, popularity last.
+    const countA = byCity.get(a)?.length ?? 0;
+    const countB = byCity.get(b)?.length ?? 0;
+    if (countA !== countB) return countB - countA;
     const popA = CITY_POPULARITY[a] ?? 0;
     const popB = CITY_POPULARITY[b] ?? 0;
-    if (popA !== popB) return popB - popA;
-    return (byCity.get(b)?.length ?? 0) - (byCity.get(a)?.length ?? 0);
+    return popB - popA;
   });
 
   const expandedToCities: string[] = [];
@@ -439,7 +428,7 @@ function buildCityCascadeGroups(params: {
       relaxUsedWhenEmpty: true,
     });
     const inputCount = pool.length;
-    const distanceKm = cityDistanceFromRequested(cityName, params.requestedCity);
+    const distanceKm = cityProximityRank(cityName, anchor);
     const isFirst = expandedToCities.length === 0;
     const distanceLabel = Number.isFinite(distanceKm)
       ? ` (~${Math.round(distanceKm)} km)`
@@ -514,6 +503,7 @@ export function buildBookingDiscoveryGroups(
     const cascade = buildCityCascadeGroups({
       trustworthy: cascadePool,
       requestedCity,
+      anchorCity: input.savedCity,
       quickAccessIds,
       usedSlotKeys,
       usedSalonService,

@@ -17,17 +17,9 @@ export interface GpsResolutionInput {
   accuracyMeters?: number;
 }
 
-export interface IpResolutionInput {
-  status: GeoResolutionStatus;
-  city?: string | null;
-  lat?: number | null;
-  lng?: number | null;
-}
-
 export interface ResolveInitialGeoStateInput {
   storedCity?: string | null;
   initialCity?: string | null;
-  ipResult?: IpResolutionInput;
   gpsResult?: GpsResolutionInput;
   manualSelection?: string | null;
   timeoutExpired?: boolean;
@@ -84,25 +76,8 @@ export function buildGeoSignals(
     };
   }
 
-  if (input.ipResult?.status === "success") {
-    const lat = input.ipResult.lat;
-    const lng = input.ipResult.lng;
-    const hasCoords = validNumber(lat) && validNumber(lng);
-    const city = hasCoords
-      ? nearestCity(lat, lng).name
-      : normalizeCityName(input.ipResult.city);
-
-    if (city || hasCoords) {
-      signals.ip = {
-        city: city ?? input.ipResult.city ?? "",
-        lat: hasCoords ? lat : undefined,
-        lng: hasCoords ? lng : undefined,
-      };
-    }
-  }
-
   const hasAnyResolvedSignal =
-    signals.explicit || signals.gps || signals.saved || signals.ip;
+    signals.explicit || signals.gps || signals.saved;
   if (input.timeoutExpired && !hasAnyResolvedSignal) {
     signals.trending = { city: TRENDING_CITY };
   }
@@ -120,16 +95,13 @@ export function resolveInitialGeoState(
   const gpsDone =
     input.gpsResult?.status === "success" ||
     input.gpsResult?.status === "failed";
-  const ipDone =
-    input.ipResult?.status === "success" || input.ipResult?.status === "failed";
 
   const geoReady =
     explicitReady ||
     Boolean(signals.gps) ||
     Boolean(input.timeoutExpired) ||
     Boolean(signals.saved && gpsDone) ||
-    Boolean(signals.ip && gpsDone) ||
-    Boolean(gpsDone && ipDone);
+    Boolean(gpsDone);
 
   const cityToApply = resolved.city
     ? normalizeCityName(resolved.city) ?? resolved.city

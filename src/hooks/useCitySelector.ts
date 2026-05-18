@@ -15,12 +15,16 @@ import {
   GEO_RESOLUTION_TIMEOUT_MS,
   TRENDING_CITY,
 } from "@/lib/geo/resolveInitialGeoState";
-import { resolveUserLocationOrigin } from "@/lib/geo/resolveDistanceOrigin";
+import {
+  isHighAccuracyGps,
+  resolveUserLocationOrigin,
+} from "@/lib/geo/resolveDistanceOrigin";
 import { aiLog } from "@/lib/ai/debug-log";
 import { trackSearchEvent } from "@/lib/search/searchAnalytics";
 
 const STORAGE_KEY = "marysoll_city";
-const BACKGROUND_GPS_TIMEOUT_MS = 10000;
+const FAST_GPS_TIMEOUT_MS = 4000;
+const PRECISE_GPS_TIMEOUT_MS = 10000;
 const APPROXIMATE_GPS_THRESHOLD_METERS = 10000;
 const log = aiLog("SEARCH_ENGINE");
 const isDev = process.env.NODE_ENV !== "production";
@@ -38,6 +42,7 @@ export interface UseCitySelectorReturn {
   requestGpsLocation: (options?: {
     updateCity?: boolean;
     promoteToExplicit?: boolean;
+    accuracyMode?: GpsAccuracyMode;
   }) => Promise<GpsLocationRequestResult>;
   /** Raw geo signals — exposed so consumers (preload, ranking) can read them. */
   signals: GeoSignals;
@@ -51,12 +56,15 @@ export interface UseCitySelectorReturn {
   isApproximateLocation: boolean;
 }
 
+export type GpsAccuracyMode = "fast" | "precise";
+
 export type GpsLocationRequestResult =
   | {
       ok: true;
       city: SerbianCity;
       accuracyMeters?: number;
       isApproximate: boolean;
+      isHighAccuracy: boolean;
     }
   | { ok: false; reason: "unavailable" | "denied" | "failed" };
 
@@ -125,7 +133,11 @@ export function useCitySelector(initialCity?: string): UseCitySelectorReturn {
   );
 
   const requestGpsLocation = useCallback(
-    (options?: { updateCity?: boolean; promoteToExplicit?: boolean }) => {
+    (options?: {
+      updateCity?: boolean;
+      promoteToExplicit?: boolean;
+      accuracyMode?: GpsAccuracyMode;
+    }) => {
       if (typeof navigator === "undefined" || !navigator.geolocation) {
         gpsDone.current = true;
         updateSignals((prev) => prev, "gps-unavailable");
@@ -138,6 +150,24 @@ export function useCitySelector(initialCity?: string): UseCitySelectorReturn {
 
       const updateCity = options?.updateCity === true;
       const promoteToExplicit = options?.promoteToExplicit === true;
+      const accuracyMode: GpsAccuracyMode = options?.accuracyMode ?? "precise";
+      // Fast: settle for whatever the browser cached (Wi-Fi/cell triangulation).
+      // Used as Phase 1 of background acquisition for a quick warm result.
+      // Precise: force a fresh, high-accuracy fix. Used on user-triggered
+      // requests and as Phase 2 of background acquisition.
+      const positionOptions: PositionOptions =
+        accuracyMode === "fast"
+          ? {
+              enableHighAccuracy: false,
+              timeout: FAST_GPS_TIMEOUT_MS,
+              maximumAge: 60_000,
+            }
+          : {
+              enableHighAccuracy: true,
+              timeout: PRECISE_GPS_TIMEOUT_MS,
+              maximumAge: 0,
+            };
+
       setGeoLoading(true);
       return new Promise<GpsLocationRequestResult>((resolve) => {
         navigator.geolocation.getCurrentPosition(
@@ -153,6 +183,7 @@ export function useCitySelector(initialCity?: string): UseCitySelectorReturn {
             city: nearest.name,
             accuracyMeters,
           };
+          const highAccuracy = isHighAccuracyGps(gpsSignal);
 
           updateSignals(
             (prev) => ({
@@ -168,7 +199,7 @@ export function useCitySelector(initialCity?: string): UseCitySelectorReturn {
                   }
                 : {}),
             }),
-            "gps-success",
+            `gps-success-${accuracyMode}`,
           );
 
           if (promoteToExplicit) {
@@ -177,17 +208,31 @@ export function useCitySelector(initialCity?: string): UseCitySelectorReturn {
             markGeoReady("gps-promoted-explicit");
           }
 
-          if ((updateCity && !sessionExplicit.current) || promoteToExplicit) {
+          // Only persist when we have a high-accuracy fix — Wi-Fi triangulation
+          // is too unreliable to warm-start future visits with.
+          if (
+            ((updateCity && !sessionExplicit.current) || promoteToExplicit) &&
+            highAccuracy
+          ) {
             try {
               window.localStorage.setItem(STORAGE_KEY, nearest.name);
             } catch {
               /* ignore */
             }
-            log("geo.gps_resolved", { city: nearest.name });
+            log("geo.gps_resolved", {
+              city: nearest.name,
+              accuracyMeters,
+              accuracyMode,
+            });
           } else if (sessionExplicit.current) {
-            geoLog("late GPS ignored", { city: nearest.name });
+            geoLog("late GPS ignored", { city: nearest.name, accuracyMode });
           } else {
-            log("geo.gps_signal", { city: nearest.name });
+            log("geo.gps_signal", {
+              city: nearest.name,
+              accuracyMeters,
+              highAccuracy,
+              accuracyMode,
+            });
           }
 
           setGeoLoading(false);
@@ -198,18 +243,19 @@ export function useCitySelector(initialCity?: string): UseCitySelectorReturn {
             isApproximate:
               typeof accuracyMeters === "number" &&
               accuracyMeters > APPROXIMATE_GPS_THRESHOLD_METERS,
+            isHighAccuracy: highAccuracy,
           });
         },
         (error) => {
           gpsDone.current = true;
           setGeoLoading(false);
-          updateSignals((prev) => prev, "gps-failed");
+          updateSignals((prev) => prev, `gps-failed-${accuracyMode}`);
           resolve({
             ok: false,
             reason: error.code === error.PERMISSION_DENIED ? "denied" : "failed",
           });
         },
-        { timeout: BACKGROUND_GPS_TIMEOUT_MS },
+        positionOptions,
         );
       });
     },
@@ -275,9 +321,30 @@ export function useCitySelector(initialCity?: string): UseCitySelectorReturn {
     }
     if (collected.explicit) markGeoReady("explicit-initial");
 
-    // Background GPS is the only live user-location signal. It may update
-    // distance/search coordinates later, but explicit city still owns display.
-    requestGpsLocation({ updateCity: !collected.explicit });
+    // Background GPS acquisition runs in two phases so the page renders
+    // results from the saved city quickly while we still upgrade to a
+    // precise fix in the background.
+    //   Phase 1 — fast (cached / Wi-Fi triangulation). Cheap; may be low
+    //             accuracy. Low-accuracy fixes feed distance sorting but do
+    //             NOT change the city (gated by isHighAccuracyGps in the
+    //             priority resolver).
+    //   Phase 2 — precise (enableHighAccuracy=true). Skipped if Phase 1 was
+    //             already high-accuracy. If Phase 2 returns a high-accuracy
+    //             fix in a different city, TanStack Query refetches search
+    //             automatically because cityName flips.
+    const updateCityFromBackground = !collected.explicit;
+    void (async () => {
+      const fast = await requestGpsLocation({
+        updateCity: updateCityFromBackground,
+        accuracyMode: "fast",
+      });
+      if (sessionExplicit.current) return;
+      if (fast.ok && fast.isHighAccuracy) return;
+      await requestGpsLocation({
+        updateCity: updateCityFromBackground,
+        accuracyMode: "precise",
+      });
+    })();
 
     const timeout = window.setTimeout(() => {
       timeoutExpired.current = true;

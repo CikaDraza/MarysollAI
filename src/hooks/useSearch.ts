@@ -8,6 +8,10 @@ import { trackSearchEvent } from "@/lib/search/searchAnalytics";
 
 export interface SearchParams {
   city?: string;
+  /** Warm anchor from localStorage. Sent to the server so the marketplace
+   * fan-out can sort cities by distance from the user's saved city when
+   * the request has no GPS and no explicit city. */
+  savedCity?: string;
   category?: string;
   subcategory?: string;
   query?: string;
@@ -32,6 +36,9 @@ export interface CitySlots {
 async function fetchSearch(params: SearchParams): Promise<SearchApiResponse> {
   const qs = new URLSearchParams();
   if (params.city) qs.set("city", params.city);
+  if (params.savedCity && params.savedCity !== params.city) {
+    qs.set("savedCity", params.savedCity);
+  }
   if (params.category) qs.set("category", params.category);
   if (params.subcategory) qs.set("subcategory", params.subcategory);
   if (params.query) qs.set("query", params.query);

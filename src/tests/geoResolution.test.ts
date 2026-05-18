@@ -16,12 +16,11 @@ import { isSearchEnabled } from "@/hooks/useSearch";
 import { resolveIpGeoFromHeaders } from "@/app/api/geo/ip/route";
 
 describe("resolveGeoPriority", () => {
-  it("explicit beats gps, saved, ip, and trending", () => {
+  it("explicit beats gps, saved, and trending", () => {
     const signals: GeoSignals = {
       explicit: { city: "Beograd", lat: 44.8176, lng: 20.4569 },
-      gps: { city: "Novi Sad", lat: 45.2671, lng: 19.8335 },
+      gps: { city: "Novi Sad", lat: 45.2671, lng: 19.8335, accuracyMeters: 200 },
       saved: { city: "Bor" },
-      ip: { city: "Niš", lat: 43.3209, lng: 21.8954 },
       trending: { city: TRENDING_CITY },
     };
 
@@ -31,47 +30,51 @@ describe("resolveGeoPriority", () => {
     });
   });
 
-  it("gps beats saved and ip", () => {
+  it("high-accuracy gps beats saved", () => {
     expect(
       resolveGeoPriority({
-        gps: { city: "Novi Sad", lat: 45.2671, lng: 19.8335 },
+        gps: { city: "Novi Sad", lat: 45.2671, lng: 19.8335, accuracyMeters: 300 },
         saved: { city: "Beograd" },
-        ip: { city: "Bor" },
       }),
     ).toMatchObject({ source: "gps", city: "Novi Sad" });
   });
 
-  it("saved beats ip", () => {
+  it("low-accuracy gps does NOT beat saved (city stays warm)", () => {
     expect(
       resolveGeoPriority({
+        gps: {
+          city: "Novi Sad",
+          lat: 45.2671,
+          lng: 19.8335,
+          accuracyMeters: 5000,
+        },
         saved: { city: "Beograd" },
-        ip: { city: "Bor" },
       }),
     ).toMatchObject({ source: "saved", city: "Beograd" });
   });
 
-  it("ip beats trending", () => {
+  it("gps without accuracy is treated as unverified (does not beat saved)", () => {
     expect(
       resolveGeoPriority({
-        ip: { city: "Bor" },
+        gps: { city: "Novi Sad", lat: 45.2671, lng: 19.8335 },
+        saved: { city: "Beograd" },
+      }),
+    ).toMatchObject({ source: "saved", city: "Beograd" });
+  });
+
+  it("saved beats trending", () => {
+    expect(
+      resolveGeoPriority({
+        saved: { city: "Beograd" },
         trending: { city: TRENDING_CITY },
       }),
-    ).toMatchObject({ source: "ip", city: "Bor" });
+    ).toMatchObject({ source: "saved", city: "Beograd" });
   });
 
   it("trending is used when nothing else exists", () => {
     expect(
       resolveGeoPriority({ trending: { city: TRENDING_CITY } }),
     ).toMatchObject({ source: "trending", city: TRENDING_CITY });
-  });
-
-  it("ip with city but no coordinates still resolves city", () => {
-    expect(resolveGeoPriority({ ip: { city: "Bor" } })).toMatchObject({
-      source: "ip",
-      city: "Bor",
-      lat: undefined,
-      lng: undefined,
-    });
   });
 });
 
@@ -106,10 +109,15 @@ describe("resolveInitialGeoState", () => {
     expect(state.resolved).toMatchObject({ source: "explicit", city: "Bor" });
   });
 
-  it("saved plus GPS success resolves to GPS", () => {
+  it("saved plus high-accuracy GPS success resolves to GPS", () => {
     const state = resolveInitialGeoState({
       storedCity: "Beograd",
-      gpsResult: { status: "success", lat: 45.2671, lng: 19.8335 },
+      gpsResult: {
+        status: "success",
+        lat: 45.2671,
+        lng: 19.8335,
+        accuracyMeters: 250,
+      },
     });
 
     expect(state.resolved).toMatchObject({
@@ -119,11 +127,10 @@ describe("resolveInitialGeoState", () => {
     expect(state.cityToApply).toBe("Novi Sad");
   });
 
-  it("saved plus no GPS plus IP resolves to saved", () => {
+  it("saved plus failed GPS resolves to saved", () => {
     const state = resolveInitialGeoState({
       storedCity: "Beograd",
       gpsResult: { status: "failed" },
-      ipResult: { status: "success", city: "Bor" },
     });
 
     expect(state.resolved).toMatchObject({
@@ -133,33 +140,9 @@ describe("resolveInitialGeoState", () => {
     expect(state.geoReady).toBe(true);
   });
 
-  it("no saved plus IP city only applies IP city after GPS is unavailable", () => {
-    const state = resolveInitialGeoState({
-      gpsResult: { status: "failed" },
-      ipResult: { status: "success", city: "Bor", lat: null, lng: null },
-    });
-
-    expect(state.resolved).toMatchObject({ source: "ip", city: "Bor" });
-    expect(state.cityToApply).toBe("Bor");
-    expect(state.geoReady).toBe(true);
-  });
-
-  it("no saved plus IP coords snaps to nearest city", () => {
-    const state = resolveInitialGeoState({
-      gpsResult: { status: "failed" },
-      ipResult: { status: "success", lat: 45.2671, lng: 19.8335 },
-    });
-
-    expect(state.resolved).toMatchObject({
-      source: "ip",
-      city: "Novi Sad",
-    });
-  });
-
   it("no signals plus timeout uses trending fallback", () => {
     const state = resolveInitialGeoState({
       gpsResult: { status: "failed" },
-      ipResult: { status: "failed" },
       timeoutExpired: true,
     });
 
@@ -173,19 +156,12 @@ describe("resolveInitialGeoState", () => {
   it("late GPS does not override manual explicit", () => {
     const state = resolveInitialGeoState({
       manualSelection: "Beograd",
-      gpsResult: { status: "success", lat: 45.2671, lng: 19.8335 },
-    });
-
-    expect(state.resolved).toMatchObject({
-      source: "explicit",
-      city: "Beograd",
-    });
-  });
-
-  it("late IP does not override manual explicit", () => {
-    const state = resolveInitialGeoState({
-      manualSelection: "Beograd",
-      ipResult: { status: "success", city: "Bor" },
+      gpsResult: {
+        status: "success",
+        lat: 45.2671,
+        lng: 19.8335,
+        accuracyMeters: 200,
+      },
     });
 
     expect(state.resolved).toMatchObject({
@@ -213,7 +189,7 @@ describe("resolveInitialGeoState", () => {
   });
 });
 
-describe("api geo ip resolver", () => {
+describe("api geo ip resolver (legacy route, not wired into client)", () => {
   it("non-RS country returns empty", () => {
     const headers = new Headers({ "x-vercel-ip-country": "DE" });
 

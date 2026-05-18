@@ -18,7 +18,8 @@ import {
 } from "@/lib/search/normalizeSearch";
 import { fetchCategories } from "@/lib/search/fetchCategories";
 import { findBestSlots, pickDiverseSlots } from "@/lib/search/findBestSlots";
-import { SERBIAN_CITIES, haversineKm, CITY_POPULARITY } from "@/lib/cities";
+import { SERBIAN_CITIES, haversineKm, CITY_POPULARITY, findCity } from "@/lib/cities";
+import { canonicalCity } from "@/lib/geo/canonicalCity";
 import { stripDiacritics } from "@/lib/intent/parseIntent";
 import { enrichGeoSignals } from "@/lib/search/enrichGeoSignals";
 import { normalizeSearchIntent } from "@/lib/search/normalizeSearchIntent";
@@ -54,6 +55,7 @@ function groupAndSortByCityPriority(
   results: SearchResult[],
   requestedCity: string,
   cityRef: { lat: number; lng: number } | undefined,
+  savedCity: string | undefined,
 ): { city: string; slots: SearchResult[] }[] {
   const cityMap = new Map<string, SearchResult[]>();
   for (const r of results) {
@@ -64,6 +66,24 @@ function groupAndSortByCityPriority(
   }
 
   const requestedNorm = requestedCity.toLowerCase().trim();
+  // Build a deterministic ranking anchor in this priority order:
+  // 1. user GPS coordinates (cityRef)
+  // 2. requested city coordinates (from SERBIAN_CITIES)
+  // 3. saved (localStorage) city coordinates
+  const rankingAnchor =
+    cityRef ??
+    (() => {
+      const fromRequested = findCity(canonicalCity(requestedCity));
+      if (fromRequested) {
+        return { lat: fromRequested.lat, lng: fromRequested.lng };
+      }
+      const fromSaved = savedCity
+        ? findCity(canonicalCity(savedCity))
+        : undefined;
+      return fromSaved
+        ? { lat: fromSaved.lat, lng: fromSaved.lng }
+        : undefined;
+    })();
 
   const sortedCities = [...cityMap.keys()].sort((a, b) => {
     // Requested city always first
@@ -72,18 +92,33 @@ function groupAndSortByCityPriority(
     if (aIsRequested && !bIsRequested) return -1;
     if (bIsRequested && !aIsRequested) return 1;
 
-    // Then sort by distance if we have coordinates
-    if (cityRef) {
+    // Distance-aware: use whatever anchor is available (GPS > requested > saved).
+    if (rankingAnchor) {
       const aCoords = SERBIAN_CITIES.find((c) => c.name === a);
       const bCoords = SERBIAN_CITIES.find((c) => c.name === b);
       if (aCoords && bCoords) {
-        const distA = haversineKm(cityRef.lat, cityRef.lng, aCoords.lat, aCoords.lng);
-        const distB = haversineKm(cityRef.lat, cityRef.lng, bCoords.lat, bCoords.lng);
+        const distA = haversineKm(
+          rankingAnchor.lat,
+          rankingAnchor.lng,
+          aCoords.lat,
+          aCoords.lng,
+        );
+        const distB = haversineKm(
+          rankingAnchor.lat,
+          rankingAnchor.lng,
+          bCoords.lat,
+          bCoords.lng,
+        );
         if (Math.abs(distA - distB) > 5) return distA - distB;
       }
     }
 
-    // National popularity as tiebreaker
+    // No usable anchor (or both cities outside SERBIAN_CITIES, or tied
+    // within 5 km): prefer cities with more available slots first, then
+    // fall back to popularity as the absolute last resort.
+    const countA = cityMap.get(a)?.length ?? 0;
+    const countB = cityMap.get(b)?.length ?? 0;
+    if (countA !== countB) return countB - countA;
     const popA = CITY_POPULARITY[a] ?? 0;
     const popB = CITY_POPULARITY[b] ?? 0;
     return popB - popA;
@@ -189,6 +224,8 @@ export async function GET(req: Request): Promise<NextResponse> {
   const { searchParams } = new URL(req.url);
 
   const categories = await fetchCategories();
+  const savedCityParam = searchParams.get("savedCity") ?? undefined;
+  const savedCity = savedCityParam ? canonicalCity(savedCityParam) : undefined;
   const rawQuery =
     searchParams.get("query") ??
     searchParams.get("q") ??
@@ -372,6 +409,7 @@ export async function GET(req: Request): Promise<NextResponse> {
   });
   const scenario = resolveSearchRecoveryScenario({
     requestedCity: params.cityDisplay,
+    savedCity,
     normalizedIntent: intent,
     ...recoveryPartitions,
     userLocation:
@@ -389,6 +427,7 @@ export async function GET(req: Request): Promise<NextResponse> {
     geoRef.lat != null && geoRef.lng != null
       ? { lat: geoRef.lat, lng: geoRef.lng }
       : params.cityRef,
+    savedCity,
   );
   const recoveryState = scenario.recoveryState;
   const selectedCityHasSlots = strictGeoResults.some((slot) =>

@@ -50,6 +50,10 @@ export function SearchProvider({ children }: { children: ReactNode }) {
 
   const { results, discovery, slotsByCity, bestSlot, fallbackLevel, suggestions, recoveryState, debug, isLoading, totalSalons } = useSearch({
     city: cityName,
+    // Warm anchor from localStorage. Only forwarded when distinct from the
+    // active city so the server can use it as a city-to-city distance
+    // anchor when GPS and explicit city are both absent.
+    savedCity: geoSignals.saved?.city,
     lat: distanceOrigin?.lat,
     lng: distanceOrigin?.lng,
     category: category || undefined,

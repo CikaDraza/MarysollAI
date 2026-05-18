@@ -42,6 +42,7 @@ function citySuggestions(input: {
   exactOtherCitySlots: SearchResult[];
   relatedOtherCitySlots: SearchResult[];
   requestedCity?: string;
+  savedCity?: string;
   userLocation?: { lat: number; lng: number };
 }): NearbyCitySuggestion[] {
   const byCity = new Map<string, NearbyCitySuggestion>();
@@ -56,7 +57,12 @@ function citySuggestions(input: {
       count: (prev?.count ?? 0) + 1,
       distanceKm:
         prev?.distanceKm ??
-        distanceToCityKm(slot.city, input.userLocation, input.requestedCity),
+        distanceToCityKm(
+          slot.city,
+          input.userLocation,
+          input.requestedCity,
+          input.savedCity,
+        ),
       reason: prev?.reason === "exact_service" ? prev.reason : reason,
     });
   };
@@ -76,6 +82,10 @@ function citySuggestions(input: {
 
 export function resolveSearchRecoveryScenario(input: {
   requestedCity?: string;
+  /** Warm anchor from localStorage. Lets recovery rank nearby cities by
+   * distance from the user's saved city when there's no GPS and no
+   * explicit requestedCity. */
+  savedCity?: string;
   normalizedIntent: NormalizedSearchIntent;
   exactRequestedCitySlots: SearchResult[];
   relatedRequestedCitySlots: SearchResult[];
@@ -91,12 +101,14 @@ export function resolveSearchRecoveryScenario(input: {
   const exactCity = selectEffectiveCity({
     slots: input.exactOtherCitySlots,
     requestedCity,
+    savedCity: input.savedCity,
     userLocation: input.userLocation,
     reason: "nearest_with_exact_service",
   });
   const relatedCity = selectEffectiveCity({
     slots: input.relatedOtherCitySlots,
     requestedCity,
+    savedCity: input.savedCity,
     userLocation: input.userLocation,
     reason: "nearest_with_related_service",
   });

@@ -89,7 +89,15 @@ describe("BookingWidget discovery recovery", () => {
       "utf8",
     );
 
-    expect(source).toContain("const sourceSlots = results.length > 0 ? results : discovery");
+    // BookingWidget falls back to the discovery pool whenever the strict
+    // `results` array is empty, and prefers it whole-sale in city-recovery
+    // mode so the cascade can bucket by city. The exact expression has
+    // moved from one ternary to a guarded branch — both forms below cover
+    // the legacy and the cascade-aware shape.
+    expect(source).toMatch(
+      /results\.length\s*>\s*0\s*\?\s*results\s*:\s*discovery/,
+    );
+    expect(source).toMatch(/discovery\.length\s*>\s*0\s*\?\s*discovery\s*:\s*results/);
     expect(source).toContain('recoveryState?.reason === "no_city_salons"');
     expect(source).toContain("mogući termin");
     expect(source).not.toContain("<RecoveryCTA");

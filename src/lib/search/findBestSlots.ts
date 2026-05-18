@@ -972,13 +972,70 @@ export function findBestSlots(
   // REAL AVAILABILITY PRECEDENCE: This block runs only because L1–L5 above
   // returned zero real candidates. Synthetic is never parallel to real results.
   //
-  // Same-city salons are sorted first so the global cap fills with same-city
-  // slots before cross-city slots (Task 5 — same-city priority).
-  const sortedForSynthetic = [...salons].sort((a, b) => {
-    const aMatch = stripDiacritics(a.city ?? "") === stripDiacritics(params.cityDisplay) ? 0 : 1;
-    const bMatch = stripDiacritics(b.city ?? "") === stripDiacritics(params.cityDisplay) ? 0 : 1;
-    return aMatch - bMatch;
+  // Same-city salons go first so the global cap fills with same-city slots
+  // before cross-city slots. After that, salons are sorted round-robin per
+  // city, ordered by city distance from the requested city — this prevents
+  // a single popular city from monopolising SYNTHETIC_GLOBAL_CAP and starving
+  // other cities of the discovery surface.
+  const syntheticAnchor =
+    params.lat != null && params.lng != null
+      ? { lat: params.lat, lng: params.lng }
+      : params.cityRef;
+  const salonDistanceFromAnchor = (s: PlatformSalon): number => {
+    if (!syntheticAnchor) return Number.POSITIVE_INFINITY;
+    const coords = resolveSalonCoordinates(s);
+    if (coords.lat == null || coords.lng == null) return Number.POSITIVE_INFINITY;
+    return haversineKm(
+      syntheticAnchor.lat,
+      syntheticAnchor.lng,
+      coords.lat,
+      coords.lng,
+    );
+  };
+
+  // Step 1: split into same-city vs other-city pools.
+  const sameCityPool: PlatformSalon[] = [];
+  const otherCityPool: PlatformSalon[] = [];
+  for (const s of salons) {
+    if (stripDiacritics(s.city ?? "") === stripDiacritics(params.cityDisplay)) {
+      sameCityPool.push(s);
+    } else {
+      otherCityPool.push(s);
+    }
+  }
+
+  // Step 2: group other-city salons by city, sort cities by distance from
+  // the requested-city anchor, then interleave salons round-robin so the
+  // cap is shared fairly across cities rather than monopolised by the city
+  // that happens to have the most salons in the DB.
+  const otherByCity = new Map<string, PlatformSalon[]>();
+  for (const s of otherCityPool) {
+    const key = s.city ?? "__unknown__";
+    const list = otherByCity.get(key) ?? [];
+    list.push(s);
+    otherByCity.set(key, list);
+  }
+  const orderedCities = [...otherByCity.keys()].sort((a, b) => {
+    const da = salonDistanceFromAnchor((otherByCity.get(a) ?? [])[0]);
+    const db = salonDistanceFromAnchor((otherByCity.get(b) ?? [])[0]);
+    return da - db;
   });
+  const interleaved: PlatformSalon[] = [];
+  let cursor = 0;
+  let drained = false;
+  while (!drained) {
+    drained = true;
+    for (const cityName of orderedCities) {
+      const list = otherByCity.get(cityName) ?? [];
+      if (cursor < list.length) {
+        interleaved.push(list[cursor]);
+        drained = false;
+      }
+    }
+    cursor += 1;
+  }
+
+  const sortedForSynthetic = [...sameCityPool, ...interleaved];
 
   const accumDebug: SyntheticDebugAccum = {
     generated: 0,

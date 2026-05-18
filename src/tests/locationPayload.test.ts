@@ -83,25 +83,17 @@ describe("slot location payload", () => {
     expect(payload.mapsLink).not.toContain("19.2606");
   });
 
-  it("resolves distance origin by gps, then selected city; ip is ignored", () => {
+  it("resolves distance origin by gps, then selected city", () => {
     const selectedCity = { name: "Beograd", lat: 44.8176, lng: 20.4569 };
 
     expect(
       resolveDistanceOrigin(
         {
           gps: { lat: 45.2671, lng: 19.8335, city: "Novi Sad" },
-          ip: { lat: 43.3209, lng: 21.8954, city: "Niš" },
         },
         selectedCity,
       ),
     ).toMatchObject({ source: "gps", city: "Novi Sad" });
-
-    expect(
-      resolveDistanceOrigin(
-        { ip: { lat: 43.3209, lng: 21.8954, city: "Niš" } },
-        selectedCity,
-      ),
-    ).toMatchObject({ source: "city", city: "Beograd" });
 
     expect(resolveDistanceOrigin({}, selectedCity)).toMatchObject({
       source: "city",
@@ -129,21 +121,14 @@ describe("slot location payload", () => {
     expect(resolveUserLocationOrigin(signals)).toBeUndefined();
   });
 
-  it("resolves user location only from gps, never ip or selected city", () => {
+  it("resolves user location only from gps, never selected city or saved", () => {
     const selectedCity = { name: "Beograd", lat: 44.8176, lng: 20.4569 };
 
     expect(
       resolveUserLocationOrigin({
         gps: { lat: 45.2671, lng: 19.8335, city: "Novi Sad" },
-        ip: { lat: 43.3209, lng: 21.8954, city: "Niš" },
       }),
     ).toMatchObject({ source: "gps", city: "Novi Sad" });
-
-    expect(
-      resolveUserLocationOrigin({
-        ip: { lat: 43.3209, lng: 21.8954, city: "Niš" },
-      }),
-    ).toBeUndefined();
 
     expect(resolveUserLocationOrigin({ saved: { city: selectedCity.name } })).toBeUndefined();
   });

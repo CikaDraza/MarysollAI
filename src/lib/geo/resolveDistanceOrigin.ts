@@ -4,6 +4,7 @@ import type { GeoSignals } from "@/lib/geo/resolveGeoPriority";
 
 export type DistanceOriginSource = "gps" | "city";
 export const MAX_DISTANCE_GPS_ACCURACY_METERS = 10000;
+export const HIGH_ACCURACY_GPS_THRESHOLD_METERS = 1000;
 
 export interface DistanceOrigin {
   lat: number;
@@ -63,4 +64,21 @@ export function isUsableGpsForDistance(gps?: {
   if (!hasGeoCoordinates(gps)) return false;
   if (typeof accuracyMeters !== "number") return true;
   return accuracyMeters <= MAX_DISTANCE_GPS_ACCURACY_METERS;
+}
+
+/**
+ * Whether a GPS fix is precise enough to override the user's `saved` city.
+ * Low-accuracy fixes (Wi-Fi triangulation, cell tower) still feed
+ * isUsableGpsForDistance() (≤ 10 km is fine for sorting nearby salons) but
+ * must NOT silently move the user into a different city's result set.
+ */
+export function isHighAccuracyGps(gps?: {
+  lat?: number;
+  lng?: number;
+  accuracyMeters?: number;
+}): boolean {
+  const accuracyMeters = gps?.accuracyMeters;
+  if (!hasGeoCoordinates(gps)) return false;
+  if (typeof accuracyMeters !== "number") return false;
+  return accuracyMeters <= HIGH_ACCURACY_GPS_THRESHOLD_METERS;
 }

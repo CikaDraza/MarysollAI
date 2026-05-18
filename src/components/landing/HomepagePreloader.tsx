@@ -28,11 +28,15 @@ const log = aiLog("SEARCH_ENGINE");
 
 async function fetchSearchPreload(opts: {
   city?: string;
+  savedCity?: string;
   lat?: number;
   lng?: number;
 }): Promise<SearchApiResponse> {
   const qs = new URLSearchParams();
   if (opts.city) qs.set("city", opts.city);
+  if (opts.savedCity && opts.savedCity !== opts.city) {
+    qs.set("savedCity", opts.savedCity);
+  }
   if (opts.lat != null) qs.set("lat", String(opts.lat));
   if (opts.lng != null) qs.set("lng", String(opts.lng));
   const res = await fetch(`/api/search?${qs.toString()}`);
@@ -53,6 +57,7 @@ export default function HomepagePreloader() {
   const lat = distanceOrigin?.lat;
   const lng = distanceOrigin?.lng;
   const searchCity = cityName;
+  const savedCity = geoSignals.saved?.city;
 
   useEffect(() => {
     if (!geoReady) return;
@@ -62,14 +67,15 @@ export default function HomepagePreloader() {
 
     void queryClient
       .prefetchQuery({
-        queryKey: buildSearchQueryKey({ city: searchCity, lat, lng }),
-        queryFn: () => fetchSearchPreload({ city: searchCity, lat, lng }),
+        queryKey: buildSearchQueryKey({ city: searchCity, savedCity, lat, lng }),
+        queryFn: () =>
+          fetchSearchPreload({ city: searchCity, savedCity, lat, lng }),
         staleTime: 1000 * 60 * 2, // match useSearch staleTime
       })
       .then(() => log("preload.complete", { city: searchCity }))
       .catch((err) => log("preload.failed", { error: String(err) }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [geoReady, searchCity, lat, lng]);
+  }, [geoReady, searchCity, savedCity, lat, lng]);
 
   return null;
 }
