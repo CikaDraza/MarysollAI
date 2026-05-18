@@ -126,12 +126,38 @@ function resolveCategory(
     return { slug: fromCanonical, canonical: raw };
   }
 
-  // DB-driven fuzzy match (synonyms + subcategory synonyms from platform)
+  // DB-driven fuzzy match (category-level synonyms from platform)
   if (categories?.length) {
     const dbKey = resolveCategoryOnly(raw, categories);
     if (dbKey && dbKey in SLUG_TO_CANONICAL) {
       const slug = dbKey as CategorySlug;
       return { slug, canonical: SLUG_TO_CANONICAL[slug] };
+    }
+
+    // Batch 3 — subcategory.synonyms fallback. When the user types a
+    // service-level term like "akril" or "balayage" that no category-level
+    // synonym matches, walk subcategories[].{key,label,synonyms} and derive
+    // the parent category from the subcategory hit. This is the live win
+    // of dynamic DB synonyms: salons can add a service with custom synonyms
+    // and search picks it up within the 5-min cache window.
+    const norm = stripDiacritics(raw.toLowerCase().trim());
+    for (const cat of categories) {
+      for (const sub of cat.subcategories ?? []) {
+        const terms = [sub.key, sub.label, ...(sub.synonyms ?? [])]
+          .filter(Boolean)
+          .map((t) => stripDiacritics(t.toLowerCase()));
+        if (
+          terms.some(
+            (t) =>
+              t === norm || norm.includes(t) || (t.length >= 3 && t.includes(norm)),
+          )
+        ) {
+          if (cat.key in SLUG_TO_CANONICAL) {
+            const slug = cat.key as CategorySlug;
+            return { slug, canonical: SLUG_TO_CANONICAL[slug] };
+          }
+        }
+      }
     }
   }
 

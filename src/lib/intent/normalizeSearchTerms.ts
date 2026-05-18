@@ -22,6 +22,7 @@ import { CATEGORY_MAP, type CategorySlug } from "./categoryMap";
 import {
   normalizeServiceQuery,
   normalizeServicePhrase,
+  type SynonymCanonicalMap,
 } from "./serviceSynonyms";
 
 export interface NormalizedTerms {
@@ -53,7 +54,10 @@ function detectCategoryFromText(norm: string): CategorySlug | null {
  * Run a free-text query through every normalization layer once.
  * Always safe to call with empty/undefined input.
  */
-export function normalizeSearchTerms(input: string | undefined): NormalizedTerms {
+export function normalizeSearchTerms(
+  input: string | undefined,
+  dynamicMap?: SynonymCanonicalMap,
+): NormalizedTerms {
   const raw = input ?? "";
   if (!raw.trim()) {
     return {
@@ -72,8 +76,8 @@ export function normalizeSearchTerms(input: string | undefined): NormalizedTerms
   return {
     raw,
     normalized,
-    canonicalService: normalizeServiceQuery(raw),
-    canonicalPhrase: normalizeServicePhrase(raw),
+    canonicalService: normalizeServiceQuery(raw, dynamicMap),
+    canonicalPhrase: normalizeServicePhrase(raw, dynamicMap),
     category: detectCategoryFromText(normalized),
     tokens,
   };
@@ -85,10 +89,14 @@ export function normalizeSearchTerms(input: string | undefined): NormalizedTerms
  * matching in the search engine without forcing every match site to call
  * stripDiacritics + normalize manually.
  */
-export function matchesNormalized(query: string, target: string): boolean {
+export function matchesNormalized(
+  query: string,
+  target: string,
+  dynamicMap?: SynonymCanonicalMap,
+): boolean {
   if (!query || !target) return false;
-  const q = normalizeSearchTerms(query);
-  const t = normalizeSearchTerms(target);
+  const q = normalizeSearchTerms(query, dynamicMap);
+  const t = normalizeSearchTerms(target, dynamicMap);
   if (!q.normalized || !t.normalized) return false;
   if (t.normalized.includes(q.normalized)) return true;
   if (q.canonicalService && t.canonicalService === q.canonicalService) return true;

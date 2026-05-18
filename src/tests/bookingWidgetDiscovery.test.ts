@@ -84,23 +84,28 @@ describe("BookingWidget discovery recovery", () => {
   });
 
   it("BookingWidget uses discovery fallback and marks synthetic slots", () => {
-    const source = readFileSync(
+    const widgetSource = readFileSync(
       path.join(process.cwd(), "src/components/landing/BookingWidget.tsx"),
       "utf8",
     );
+    // After Batch 3 the cascade source-selection + policy filter lives in
+    // SearchContext and BookingWidget just reads the ranked output. Verify
+    // both halves: the source policy in SearchContext, the runtime markers
+    // in BookingWidget.
+    const contextSource = readFileSync(
+      path.join(process.cwd(), "src/context/landing/SearchContext.tsx"),
+      "utf8",
+    );
 
-    // BookingWidget falls back to the discovery pool whenever the strict
-    // `results` array is empty, and prefers it whole-sale in city-recovery
-    // mode so the cascade can bucket by city. The exact expression has
-    // moved from one ternary to a guarded branch — both forms below cover
-    // the legacy and the cascade-aware shape.
-    expect(source).toMatch(
+    expect(contextSource).toMatch(
       /results\.length\s*>\s*0\s*\?\s*results\s*:\s*discovery/,
     );
-    expect(source).toMatch(/discovery\.length\s*>\s*0\s*\?\s*discovery\s*:\s*results/);
-    expect(source).toContain('recoveryState?.reason === "no_city_salons"');
-    expect(source).toContain("mogući termin");
-    expect(source).not.toContain("<RecoveryCTA");
+    expect(contextSource).toMatch(
+      /discovery\.length\s*>\s*0\s*\?\s*discovery\s*:\s*results/,
+    );
+    expect(contextSource).toContain('recoveryReason === "no_city_salons"');
+    expect(widgetSource).toContain("mogući termin");
+    expect(widgetSource).not.toContain("<RecoveryCTA");
   });
 
   it("search API keeps QuickAccess results strict while BookingWidget gets broad discovery", () => {

@@ -5,6 +5,7 @@
 // has already provided. Lives in a Zustand store so non-React code (orchestrator,
 // agents) can read/write it.
 import { create } from "zustand";
+import { persist, createJSONStorage } from "zustand/middleware";
 
 export type BookingFlowState =
   | "idle"
@@ -37,6 +38,10 @@ interface BookingFlowValue {
   collected: CollectedBookingFields;
   /** Last user-stated intent ("Hocu masaza sutra ujutru"). Used for prompt context. */
   lastIntent: string;
+  /** Epoch ms when the current flow snapshot was last touched. Used to drop
+   * stale state on hydration so a 3-day-old browser tab doesn't resume a
+   * conversation the user has long forgotten. */
+  updatedAt: number;
 }
 
 interface BookingFlowActions {
@@ -52,29 +57,64 @@ const initialState: BookingFlowValue = {
   state: "idle",
   collected: {},
   lastIntent: "",
+  updatedAt: 0,
 };
 
-export const useBookingFlow = create<BookingFlowValue & BookingFlowActions>(
-  (set) => ({
-    ...initialState,
+/** Persist progress for one hour so a refresh in the middle of a booking
+ * flow doesn't wipe the user's selections. Anything older is treated as a
+ * fresh session. */
+const BOOKING_FLOW_TTL_MS = 60 * 60 * 1_000;
+const BOOKING_FLOW_STORAGE_KEY = "marysoll_booking_flow";
 
-    setState: (state) => set({ state }),
+const touch = <T extends Partial<BookingFlowValue>>(patch: T): T & { updatedAt: number } => ({
+  ...patch,
+  updatedAt: Date.now(),
+});
 
-    collect: (fields) =>
-      set((prev) => {
-        const next: CollectedBookingFields = { ...prev.collected };
-        for (const [k, v] of Object.entries(fields)) {
-          if (v !== undefined && v !== "") {
-            (next as Record<string, string | number | null | undefined>)[k] = v;
+export const useBookingFlow = create<BookingFlowValue & BookingFlowActions>()(
+  persist(
+    (set) => ({
+      ...initialState,
+
+      setState: (state) => set(touch({ state })),
+
+      collect: (fields) =>
+        set((prev) => {
+          const next: CollectedBookingFields = { ...prev.collected };
+          for (const [k, v] of Object.entries(fields)) {
+            if (v !== undefined && v !== "") {
+              (next as Record<string, string | number | null | undefined>)[k] = v;
+            }
           }
-        }
-        return { collected: next };
+          return touch({ collected: next });
+        }),
+
+      setLastIntent: (intent) => set(touch({ lastIntent: intent })),
+
+      reset: () => set({ ...initialState, updatedAt: 0 }),
+    }),
+    {
+      name: BOOKING_FLOW_STORAGE_KEY,
+      storage: createJSONStorage(() => localStorage),
+      // Only persist the snapshot fields; actions are re-attached on rehydrate.
+      partialize: (state) => ({
+        state: state.state,
+        collected: state.collected,
+        lastIntent: state.lastIntent,
+        updatedAt: state.updatedAt,
       }),
-
-    setLastIntent: (intent) => set({ lastIntent: intent }),
-
-    reset: () => set({ ...initialState }),
-  }),
+      // Drop hydrated state if it exceeds the TTL — keeps the flow fresh
+      // without leaking stale context across sessions.
+      merge: (persistedState, currentState) => {
+        const persisted = persistedState as Partial<BookingFlowValue> | undefined;
+        if (!persisted || !persisted.updatedAt) return currentState;
+        if (Date.now() - persisted.updatedAt > BOOKING_FLOW_TTL_MS) {
+          return currentState;
+        }
+        return { ...currentState, ...persisted };
+      },
+    },
+  ),
 );
 
 /** Returns the list of REQUIRED fields still missing for a booking. */

@@ -15,7 +15,16 @@ export async function GET(req: Request) {
 
   try {
     const raw = await platformClient.getAvailableSlots({ salonId, serviceId, date });
-    return NextResponse.json(raw.map(mapSlot));
+    return NextResponse.json(raw.map(mapSlot), {
+      headers: {
+        // Slot availability is volatile but identical for everyone hitting
+        // the same (salonId, serviceId, date) tuple. A 30 s CDN window plus
+        // 60 s stale-while-revalidate cuts platform load without making
+        // race-conditions worse than they already are — BookingModal still
+        // recovers from 409 conflicts when a slot is taken concurrently.
+        "Cache-Control": "public, s-maxage=30, stale-while-revalidate=60",
+      },
+    });
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Failed to fetch slots" },

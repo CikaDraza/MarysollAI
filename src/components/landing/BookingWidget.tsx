@@ -22,18 +22,10 @@ import {
   resolveDistanceOrigin,
   resolveUserLocationOrigin,
 } from "@/lib/geo/resolveDistanceOrigin";
-import {
-  rankSearchResults,
-  type RankedSlot,
-} from "@/lib/search/rankSearchResults";
-import {
-  resolveFallbackPolicy,
-  applyFallbackPolicy,
-} from "@/lib/availability/fallbackPolicy";
+import type { RankedSlot } from "@/lib/search/rankSearchResults";
 import { bookingWidgetRecoveryCopy } from "@/lib/search/bookingWidgetRecoveryCopy";
 import {
   buildBookingDiscoveryGroups,
-  bookingSlotId,
   type BookingDiscoveryGroup,
   type BookingDiscoveryMode,
 } from "@/lib/search/buildBookingDiscoveryGroups";
@@ -55,8 +47,9 @@ function cityGroupLabel(
 export default function BookingWidget() {
   const { city, cityName: userCity, geoSignals } = useCityContext();
   const {
-    results,
-    discovery,
+    rankedDiscovery,
+    quickAccessPreviewIds,
+    discoveryFallback,
     fallbackLevel,
     recoveryState,
     isLoading: loading,
@@ -73,61 +66,6 @@ export default function BookingWidget() {
   const distanceOrigin = resolveDistanceOrigin(geoSignals, city);
   const userLocationOrigin = resolveUserLocationOrigin(geoSignals);
 
-  // BookingWidget needs a broad, policy-safe marketplace pool. QuickAccess
-  // still gets its strict preview so the discovery rows can avoid repeating it.
-  const ranked = useMemo(() => {
-    const policy = resolveFallbackPolicy("bookingwidget", { kind: "discovery" });
-    const shouldTrustEffectiveCity =
-      recoveryState?.recoveryScenario === "exact_in_nearest_city" ||
-      recoveryState?.recoveryScenario === "related_in_nearest_city";
-    // When the selected city has no salons/slots, BookingWidget enters cascade
-    // mode. Two important deviations from the default source policy:
-    //  1. `results` is already collapsed to a single effective city by the
-    //     server recovery scenario — using it would feed the cascade exactly
-    //     one bucket. We need the wider `discovery` array (slots from every
-    //     expanded city) so the cascade can sort by distance.
-    //  2. The policy filter can drop everything if marketplace slots lack the
-    //     expected origins metadata — bypass it so the cascade always has raw
-    //     data to bucket by city.
-    const cityRecovery =
-      recoveryState?.reason === "no_city_salons" ||
-      recoveryState?.reason === "no_city_slots";
-    const sourceSlots = cityRecovery
-      ? discovery.length > 0
-        ? discovery
-        : results
-      : results.length > 0
-        ? results
-        : discovery;
-    const eligible =
-      shouldTrustEffectiveCity || cityRecovery
-        ? sourceSlots
-        : applyFallbackPolicy(sourceSlots, policy);
-    const userLocation = distanceOrigin
-      ? { lat: distanceOrigin.lat, lng: distanceOrigin.lng }
-      : undefined;
-
-    const quickAccessPreview = rankSearchResults({
-      slots: eligible,
-      strategy: "quickaccess",
-      userLocation,
-      fallbackLevel,
-    });
-
-    const discoveryRanked = rankSearchResults({
-      slots: eligible,
-      strategy: "searchpage",
-      limit: 50,
-      userLocation,
-      fallbackLevel,
-    });
-
-    return {
-      ...discoveryRanked,
-      quickAccessSlotIds: quickAccessPreview.slots.map(bookingSlotId),
-    };
-  }, [results, discovery, distanceOrigin?.lat, distanceOrigin?.lng, fallbackLevel, recoveryState?.recoveryScenario, recoveryState?.reason]);
-
   const discoveryBuild = useMemo(() => {
     const hasSearchIntent = Boolean(
       searchQuery || category || subcategoryFilter || dateFilter || timeWindowStart != null || timeWindowEnd != null,
@@ -143,8 +81,8 @@ export default function BookingWidget() {
             : "initial_load";
 
     return buildBookingDiscoveryGroups({
-      slots: ranked.slots,
-      quickAccessSlotIds: ranked.quickAccessSlotIds,
+      slots: rankedDiscovery,
+      quickAccessSlotIds: quickAccessPreviewIds,
       query: {
         city: userCity,
         category: category || undefined,
@@ -164,9 +102,9 @@ export default function BookingWidget() {
     });
     },
     [
-      ranked.slots,
-      ranked.quickAccessSlotIds,
-      ranked.fallback.label,
+      rankedDiscovery,
+      quickAccessPreviewIds,
+      discoveryFallback.label,
       distanceOrigin?.lat,
       distanceOrigin?.lng,
       userCity,

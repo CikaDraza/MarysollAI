@@ -5,18 +5,8 @@ import { XMarkIcon, SparklesIcon } from "@heroicons/react/24/outline";
 import { LayoutEngine } from "@/components/layout/LayoutEngine";
 import { useWorkspace } from "@/context/landing/WorkspaceContext";
 import { useAIContext } from "@/context/landing/AIContext";
+import { getBlockLabel } from "@/lib/ai/block-registry";
 import { useEffect, useRef } from "react";
-
-const BLOCK_LABELS: Record<string, string> = {
-  AuthBlock: "Prijava",
-  CalendarBlock: "Termini",
-  AppointmentCalendarBlock: "Zakazivanje",
-  AppointmentCancelConfirmBlock: "Otkazivanje",
-  ServicePriceBlock: "Cenovnik",
-  TestimonialBlock: "Utisci",
-  CityListBlock: "Izaberi grad",
-  SalonListBlock: "Izaberi salon",
-};
 
 const enterTransition = {
   duration: 0.42,
@@ -106,7 +96,7 @@ export default function AIWorkspace() {
                   flex: 1,
                 }}
               >
-                {BLOCK_LABELS[activeBlock.type] ?? "AI asistent"}
+                {getBlockLabel(activeBlock.type)}
               </span>
               <button
                 onClick={dismissWorkspace}

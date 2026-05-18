@@ -92,7 +92,12 @@ export function useSearch(params: SearchParams = {}) {
     queryFn: () => fetchSearch(params),
     enabled,
     staleTime: 1000 * 60 * 2, // 2 min — slots change frequently
-    refetchOnWindowFocus: true,
+    // refetchOnWindowFocus=true caused a refetch every time the user
+    // tabbed back, even within the 2 min stale window. That meant a
+    // /api/search round-trip (60 platform fan-outs) for free with no UX
+    // gain. Mutations that book a slot still invalidate the cache
+    // (BookingModal), so freshness on actual state change is preserved.
+    refetchOnWindowFocus: false,
     retry: 2,
   });
 

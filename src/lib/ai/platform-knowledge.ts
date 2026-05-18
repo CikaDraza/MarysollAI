@@ -94,9 +94,12 @@ async function _fetchPlatformKnowledge(): Promise<PlatformKnowledge> {
   };
 }
 
-// Cached at the Next.js data layer — survives across serverless invocations
+// Cached at the Next.js data layer — survives across serverless invocations.
+// Batch 3 — TTL dropped to 5 min and tagged so platform-side mutations
+// (new salon service, edited synonyms) can call
+// revalidateTag("category-synonyms") for near-instant propagation.
 export const fetchPlatformKnowledge = unstable_cache(
   _fetchPlatformKnowledge,
   ["platform-knowledge"],
-  { revalidate: 3600 },
+  { revalidate: 300, tags: ["category-synonyms", "platform-knowledge"] },
 );

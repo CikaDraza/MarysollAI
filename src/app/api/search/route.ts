@@ -45,6 +45,31 @@ function geoReference(params: {
   };
 }
 
+const PLATFORM_FETCH_TIMEOUT_MS = 3000;
+
+/**
+ * Race a platform request against a fixed budget. When the platform is
+ * slow on a single salon, this prevents one tail-latency call from
+ * blocking the rest of the /api/search response. On timeout the promise
+ * rejects with a tagged error so Promise.allSettled callers can treat it
+ * the same as any other platform failure.
+ */
+function withTimeout<T>(
+  promise: Promise<T>,
+  ms = PLATFORM_FETCH_TIMEOUT_MS,
+): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<T>((_, reject) => {
+    timeoutId = setTimeout(
+      () => reject(new Error(`platform_timeout:${ms}ms`)),
+      ms,
+    );
+  });
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    if (timeoutId) clearTimeout(timeoutId);
+  });
+}
+
 /**
  * Groups results by city and sorts cities by priority:
  * 1. User's requested city (exact match)
@@ -323,17 +348,23 @@ export async function GET(req: Request): Promise<NextResponse> {
 
   // Fetch working hours + full service data per salon in parallel.
   // Full services include `type`, `variants`, and `basePrice` needed for price resolution.
+  // Per-request 3 s budget per platform call. allSettled keeps the response
+  // alive when a single salon fails, but it still waits for the slowest one
+  // before resolving. withTimeout() bounds that wait so one slow salon can't
+  // hold up the whole /api/search response.
   salons = await Promise.all(
     salons.map(async (s) => {
       const id = s.id ?? s._id ?? "";
       if (!id) return s;
       const [wh, fullServices] = await Promise.allSettled([
-        platformClient.getSalonWorkingHours(id),
-        platformClient.getSalonServices(id),
+        withTimeout(platformClient.getSalonWorkingHours(id)),
+        withTimeout(platformClient.getSalonServices(id)),
       ]);
       return {
         ...s,
-        ...(wh.status === "fulfilled" ? { workingHours: convertWorkingHours(wh.value) } : {}),
+        ...(wh.status === "fulfilled"
+          ? { workingHours: convertWorkingHours(wh.value) }
+          : {}),
         ...(fullServices.status === "fulfilled" && fullServices.value.length > 0
           ? { services: fullServices.value }
           : {}),

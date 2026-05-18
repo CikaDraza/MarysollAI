@@ -398,9 +398,14 @@ export default function ClientBlockAppointments({
 
   const confirmCancel = () => {
     if (!cancelTarget?._id) return;
+    // Batch 6 — pass aiAssisted: true so useCancelAppointment.onSuccess
+    // emits the AGENT_RESPONSE chat event. Without this the cancel
+    // succeeds but the chat goes silent — user has no in-thread
+    // confirmation that the action happened.
     cancelAppointment.mutate({
       id: cancelTarget._id,
       appointment: cancelTarget,
+      aiAssisted: true,
     });
     setCancelTarget(null);
   };

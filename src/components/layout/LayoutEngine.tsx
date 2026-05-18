@@ -16,17 +16,13 @@ import { SparklesIcon } from "@heroicons/react/24/outline";
 import { BaseBlock, BlockTypes } from "@/types/landing-block";
 import { blockFactory } from "./blockFactory";
 import { blockOrchestrator } from "@/lib/ai/block-orchestrator";
+import {
+  blockHasRequiredMetadata,
+  getBlockFollowUp,
+} from "@/lib/ai/block-registry";
 import { aiLog } from "@/lib/ai/debug-log";
 
 const log = aiLog("LAYOUT_ENGINE");
-
-const AI_FOLLOWUPS: Partial<Record<BlockTypes, string>> = {
-  AppointmentCalendarBlock: "Preporuči mi slobodan termin za ovu nedelju",
-  AuthBlock: "Imam problem sa prijavom, treba mi pomoć",
-  ServicePriceBlock: "Koji tretman preporučuješ za opuštanje?",
-  TestimonialBlock: "Prikaži mi najnovije utiske klijenata",
-  CalendarBlock: "Koji termini su slobodni ove sedmice?",
-};
 
 interface Props {
   blocks: BaseBlock[] | BaseBlock | null;
@@ -63,6 +59,14 @@ export function LayoutEngine({
       // Dedupe within this render pass first (e.g. AI returned LoginBlock twice)
       if (seenInThisPass.has(b.type)) continue;
       seenInThisPass.add(b.type);
+
+      // Registry guard — refuse to mount blocks that are missing the
+      // metadata they need to be meaningful (e.g. AppointmentCalendarBlock
+      // without slots). Better to render nothing than an empty shell.
+      if (!blockHasRequiredMetadata(b)) {
+        log("dedupe.missing_required_metadata", { type: b.type });
+        continue;
+      }
 
       if (ownedRef.current.has(b.type)) {
         // We already mounted it earlier — keep rendering it.
@@ -123,7 +127,7 @@ export function LayoutEngine({
       {toRender
         .sort((a, b) => (a.priority || 0) - (b.priority || 0))
         .map((block) => {
-          const followUp = AI_FOLLOWUPS[block.type];
+          const followUp = getBlockFollowUp(block.type);
           return (
             <div
               key={block.id || block.type}

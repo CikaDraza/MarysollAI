@@ -9,5 +9,9 @@ export function useLandingCampaigns() {
       const res = await axios.get("/api/campaigns");
       return res.data;
     },
+    // Campaign lists rarely change between page mounts. Without an
+    // explicit staleTime, every focus/remount triggers a fresh fetch.
+    staleTime: 1000 * 60 * 5,
+    refetchOnWindowFocus: false,
   });
 }

@@ -14,8 +14,8 @@ export interface BookingIntent {
   category: CategorySlug | null;
   subcategory: string | null;
   datetime: {
-    type: "today" | "tomorrow" | "date" | "any";
-    value?: string;  // ISO date "YYYY-MM-DD", only when type === "date"
+    type: "today" | "tomorrow" | "day_after_tomorrow" | "date" | "any";
+    value?: string;  // ISO date "YYYY-MM-DD", only when type === "date" or "day_after_tomorrow"
     time?: string;   // "HH:MM" — specific time or representative time-of-day
     timeWindowStart?: number; // hour (inclusive), set for time-of-day phrases
     timeWindowEnd?: number;   // hour (inclusive)
@@ -196,6 +196,19 @@ function detectDatetime(norm: string, raw: string): BookingIntent["datetime"] {
 
   if (norm.includes("danas") || norm.includes("today")) {
     return { type: "today", ...timeResult };
+  }
+
+  // "prekosutra" / "day after tomorrow" must be checked BEFORE "sutra"
+  // because "prekosutra".includes("sutra") would otherwise short-circuit
+  // to tomorrow.
+  if (norm.includes("prekosutra") || norm.includes("day after tomorrow")) {
+    const d = new Date();
+    d.setDate(d.getDate() + 2);
+    return {
+      type: "day_after_tomorrow",
+      value: d.toISOString().slice(0, 10),
+      ...timeResult,
+    };
   }
 
   if (

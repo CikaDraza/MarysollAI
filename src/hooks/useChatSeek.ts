@@ -61,6 +61,35 @@ const CHAT_SESSIONS_KEY = "chat_sessions";
 const MAX_SESSIONS = 10;
 const INACTIVITY_TIMEOUT_MS = 60 * 60 * 1000;
 
+// Batch 5 (Phase A) — paced choreography. Maria's reply is often a hardcoded
+// preflight string returned in < 50 ms by the route. Without a deliberate
+// beat, the user sees "Maria's reply" and "Claudia's handoff message"
+// rendered in the same paint, which reads as a single chaotic flash.
+// These delays let the user actually parse Maria's sentence before
+// the specialist takes over.
+
+/** Minimum time the typing indicator stays visible while Maria "thinks".
+ * Hardcoded preflight branches complete in ~30 ms; this floor makes them
+ * feel deliberate. Real DeepSeek calls already take longer than this so
+ * the delay is effectively a no-op for them. */
+const MARIA_THINKING_FLOOR_MS = 350;
+
+/** Pause between Maria's reply landing in the thread and the specialist
+ * handoff firing. Tuned per agent type — booking does the heaviest follow-up
+ * (search → render slots) so the lead-in is slightly longer. */
+const HANDOFF_DELAYS: Record<AgentType, number> = {
+  booking: 900,
+  appointments: 600,
+  prices: 600,
+  auth: 600,
+  testimonials: 600,
+};
+const HANDOFF_DELAY_FALLBACK_MS = 700;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export function useChatSeek(
   options: UseChatWithAIOptions = {},
 ): UseChatWithAIReturn {
@@ -72,6 +101,10 @@ export function useChatSeek(
   const [showUsage, setShowUsage] = useState(false);
 
   const abortControllerRef = useRef<AbortController | null>(null);
+  // Batch 5 — pending handoff timer. Held in a ref so clearChat / abort
+  // can cancel a scheduled CALL_AGENT emission if the user resets the
+  // conversation during the deliberate pause.
+  const handoffTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastOfferedSlotsRef = useRef<SearchResult[]>([]);
   const selectedSlotRef = useRef<SearchResult | undefined>(undefined);
   const aiBookingStateRef = useRef<AiBookingState | undefined>(undefined);
@@ -193,9 +226,16 @@ export function useChatSeek(
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
       }
+      // Cancel any pending handoff from a previous turn — a new user message
+      // supersedes the prior handoff.
+      if (handoffTimerRef.current) {
+        clearTimeout(handoffTimerRef.current);
+        handoffTimerRef.current = null;
+      }
 
       const controller = new AbortController();
       abortControllerRef.current = controller;
+      const sendStartedAt = Date.now();
 
       try {
         const now = Date.now();
@@ -301,6 +341,15 @@ export function useChatSeek(
               }
             : null;
 
+        // Maria "thinking" floor — hardcoded preflight branches return in
+        // ~30 ms which paints unnaturally fast. Pad to a deliberate floor
+        // so the typing indicator (isSending) feels intentional. Real
+        // DeepSeek calls already exceed this floor and pay no extra cost.
+        const elapsed = Date.now() - sendStartedAt;
+        if (elapsed < MARIA_THINKING_FLOOR_MS) {
+          await sleep(MARIA_THINKING_FLOOR_MS - elapsed);
+        }
+
         return { message: assistantMessage, usage: usageData, agentCall };
       } finally {
         abortControllerRef.current = null;
@@ -332,7 +381,16 @@ export function useChatSeek(
           },
           timestamp: Date.now(),
         };
-        chatEvents.emit(callEvent);
+        // Defer the handoff so the user has time to read Maria's sentence
+        // before the specialist takes over. Without this pause, Maria's
+        // reply and Claudia's first message land in the same paint frame
+        // and read as a single chaotic flash.
+        const delay =
+          HANDOFF_DELAYS[agentCall.type] ?? HANDOFF_DELAY_FALLBACK_MS;
+        handoffTimerRef.current = setTimeout(() => {
+          handoffTimerRef.current = null;
+          chatEvents.emit(callEvent);
+        }, delay);
       }
 
       options.onSuccess?.(message, usage);
@@ -362,6 +420,10 @@ export function useChatSeek(
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
+    }
+    if (handoffTimerRef.current) {
+      clearTimeout(handoffTimerRef.current);
+      handoffTimerRef.current = null;
     }
     if (currentSession) {
       updateSession(currentSession.id, { messages: [] });
@@ -395,6 +457,10 @@ export function useChatSeek(
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
     }
+    if (handoffTimerRef.current) {
+      clearTimeout(handoffTimerRef.current);
+      handoffTimerRef.current = null;
+    }
     const newSession = createNewSession();
     setCurrentSessionId(newSession.id);
     lastOfferedSlotsRef.current = [];
@@ -412,6 +478,9 @@ export function useChatSeek(
     return () => {
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
+      }
+      if (handoffTimerRef.current) {
+        clearTimeout(handoffTimerRef.current);
       }
     };
   }, []);

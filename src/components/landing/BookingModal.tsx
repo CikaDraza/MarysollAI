@@ -7,6 +7,7 @@ import {
   XMarkIcon,
   CheckCircleIcon,
 } from "@heroicons/react/24/outline";
+import { useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 import { useAuthActions } from "@/hooks/useAuthActions";
 import { useBookingModal } from "@/context/landing/BookingModalContext";
@@ -107,6 +108,7 @@ export default function BookingModal() {
   const { setConfirmed, setConfirmedTime, setDrawerOpen } = useLandingUI();
   const { sendToOrchestrator } = useAIContext();
   const { user, isLoading: authLoading } = useAuthActions();
+  const queryClient = useQueryClient();
   const bookingPayload = useMemo(() => normalizeBookingPayload(slot), [slot]);
 
   const onConfirm = () => {
@@ -409,6 +411,12 @@ export default function BookingModal() {
         }
         throw new Error(mapBookingErrorMessage(data.error));
       }
+      // The slot is gone now; invalidate every cache that could still show
+      // it as free. Without this, useSearch/useSlots keep serving the stale
+      // slot for up to staleTime (2 min / 30 s) and the user sees ghosts.
+      queryClient.invalidateQueries({ queryKey: ["slots"] });
+      queryClient.invalidateQueries({ queryKey: ["search"] });
+      queryClient.invalidateQueries({ queryKey: ["salons"] });
       toast.success("Termin uspešno zakazan!");
       showLocationToast({
         salonName: normalized.salonName,

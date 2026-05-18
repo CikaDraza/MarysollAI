@@ -56,7 +56,14 @@ export async function GET(req: Request) {
       }
       return s;
     });
-    return NextResponse.json(salons);
+    return NextResponse.json(salons, {
+      headers: {
+        // Salon profile data (working hours, services, location) changes
+        // rarely. A 1 min CDN cache absorbs the homepage's salon fan-out
+        // for every visitor while still picking up edits within minutes.
+        "Cache-Control": "public, s-maxage=60, stale-while-revalidate=300",
+      },
+    });
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Failed to fetch salons" },
