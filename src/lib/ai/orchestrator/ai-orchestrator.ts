@@ -167,6 +167,7 @@ export async function handleMariaResponse(
         salonId,
         salonName,
       } = safeResponse.payload;
+      const beforeCollected = { ...bookingFlow.get().collected };
       bookingFlow.get().collect({
         category: typeof category === "string" ? category : undefined,
         subcategory: typeof subcategory === "string" ? subcategory : undefined,
@@ -184,6 +185,24 @@ export async function handleMariaResponse(
             : undefined,
         salonId: typeof salonId === "string" ? salonId : undefined,
         salonName: typeof salonName === "string" ? salonName : undefined,
+      });
+      console.debug("[BOOKING_MEMORY_MERGE]", {
+        before: beforeCollected,
+        incoming: {
+          category,
+          subcategory,
+          service,
+          serviceId,
+          serviceName,
+          city,
+          date,
+          time,
+          timeWindowStart,
+          timeWindowEnd,
+          salonId,
+          salonName,
+        },
+        after: bookingFlow.get().collected,
       });
       if (typeof safeResponse.payload.intent === "string") {
         bookingFlow.get().setLastIntent(safeResponse.payload.intent);

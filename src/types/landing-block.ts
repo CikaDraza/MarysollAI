@@ -17,8 +17,15 @@ export type BlockTypes =
   | "ResetPasswordBlock"
   | "TestimonialBlock"
   | "WhyChooseUsBlock"
+  | "HeroPrimaryBlock"
+  | "HeroVisualBlock"
+  | "ArticleSectionBlock"
+  | "ContentSplitBlock"
+  | "CTABlock"
+  | "FeatureGridBlock"
   | "CityListBlock"
   | "SalonListBlock"
+  | "NotifyMeBlock"
   | "none";
 
 export type AuthMode = "login" | "register" | "forgot" | "reset" | "logout";
@@ -55,6 +62,8 @@ export interface BaseBlock {
     selectedSlot?: SearchResult;
     appointmentId?: string;
     appointment?: IAppointment;
+    salons?: SalonItem[];
+    cities?: CityItem[];
   };
   query?: string;
 }

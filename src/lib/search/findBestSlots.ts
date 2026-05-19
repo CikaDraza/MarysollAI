@@ -61,6 +61,15 @@ function formatTimeLabel(iso: string): string {
   return iso.slice(11, 16);
 }
 
+function hourInBelgrade(iso: string): number {
+  const hour = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/Belgrade",
+    hour: "2-digit",
+    hourCycle: "h23",
+  }).format(new Date(iso));
+  return Number(hour);
+}
+
 const MONTHS_SR = [
   "jan", "feb", "mar", "apr", "maj", "jun",
   "jul", "avg", "sep", "okt", "nov", "dec",
@@ -124,7 +133,7 @@ function computeRelevance(
   let score = 1000 - fallbackLevel * 100;
 
   // Use Belgrade-aware hour
-  const slotHour = new Date(slot.startTime).getHours();
+  const slotHour = hourInBelgrade(slot.startTime);
 
   if (params.requestedHour !== undefined) {
     const diff = Math.abs(slotHour - params.requestedHour);
@@ -196,6 +205,8 @@ interface MakeCandidatesOpts {
   workingHoursContext?: "working_hours_only" | "synthetic_projection";
   /** Date used for calendar-verified generation from appointments. */
   requestedDate?: string;
+  timeWindowStart?: number | null;
+  timeWindowEnd?: number | null;
 }
 
 function readSalonAppointments(salon: PlatformSalon): AvailabilityAppointment[] {
@@ -393,6 +404,8 @@ function makeCandidates(
           cityMatch,
           // geoConfidence omitted — defaults to 'none' (most conservative)
           maxTotal: Math.min(SYNTHETIC_MAX_TOTAL_PER_CALL, remainingGlobal),
+          timeWindowStart: opts.timeWindowStart,
+          timeWindowEnd: opts.timeWindowEnd,
           context: opts.workingHoursContext ?? "synthetic_projection",
         });
 
@@ -417,7 +430,7 @@ function makeCandidates(
             service: svc,
             category,
             serviceName,
-            isSynthetic: true,
+            isSynthetic: g.isSynthetic,
             availabilityConfidence: g.availabilityConfidence,
             slotOrigins: [...g.slotOrigins],
           });
@@ -734,14 +747,10 @@ function filterCandidates(
     }
 
     // Time window filter
-    if (
-      opts.requireTimeWindow &&
-      params.timeWindowStart != null &&
-      params.timeWindowEnd != null
-    ) {
-      const slotHour = new Date(c.startTime).getHours();
-      if (slotHour < params.timeWindowStart || slotHour > params.timeWindowEnd)
-        return false;
+    if (params.timeWindowStart != null) {
+      const slotHour = hourInBelgrade(c.startTime);
+      if (slotHour < params.timeWindowStart) return false;
+      if (params.timeWindowEnd != null && slotHour > params.timeWindowEnd) return false;
     }
 
     // Subcategory filter
@@ -844,6 +853,8 @@ export function findBestSlots(
     maxSyntheticTotal: 30, // lower cap — augmentation only, not recovery
     workingHoursContext: "working_hours_only",
     requestedDate: params.date,
+    timeWindowStart: params.timeWindowStart,
+    timeWindowEnd: params.timeWindowEnd,
   };
   const workingHoursCandidates = makeCandidates(sameCitySalons, true, workingHoursAugOpts);
 
@@ -901,8 +912,8 @@ export function findBestSlots(
       let sorted = l2;
       if (params.requestedHour != null) {
         sorted = [...l2].sort((a, b) => {
-          const da = Math.abs(new Date(a.startTime).getHours() - params.requestedHour!);
-          const db = Math.abs(new Date(b.startTime).getHours() - params.requestedHour!);
+          const da = Math.abs(hourInBelgrade(a.startTime) - params.requestedHour!);
+          const db = Math.abs(hourInBelgrade(b.startTime) - params.requestedHour!);
           return da - db;
         });
       }
@@ -912,7 +923,7 @@ export function findBestSlots(
   }
 
   // ── Level 3: city + related categories + date ─────────────────────────────
-  if (params.category) {
+  if (params.category && !params.explicitServiceIntent) {
     const l3 = filterCandidates(augmentedCandidates, params, {
       requireCity: true,
       requireCategory: true,
@@ -930,7 +941,7 @@ export function findBestSlots(
   // ── Level 4: city + any category + nearest future slots ───────────────────
   const l4 = filterCandidates(augmentedCandidates, params, {
     requireCity: true,
-    requireCategory: false,
+    requireCategory: params.explicitServiceIntent ? true : false,
     requireDate: false,
     requireTimeWindow: false,
     nowMs,
@@ -950,16 +961,18 @@ export function findBestSlots(
     userLng: params.lng,
     preferredCity: params.cityDisplay,
     maxSyntheticTotal: SYNTHETIC_GLOBAL_CAP,
+    timeWindowStart: params.timeWindowStart,
+    timeWindowEnd: params.timeWindowEnd,
   };
   const l5Pool = opts.augmentWithSynthetic
     ? makeCandidates(salons, true, syntheticOpts)
     : allCandidates;
   const l5 = filterCandidates(l5Pool, params, {
     requireCity: false,
-    requireCategory: false,
+    requireCategory: params.explicitServiceIntent ? true : false,
     requireDate: false,
     requireTimeWindow: false,
-    maxDistanceKm: 200,
+    maxDistanceKm: params.explicitServiceIntent ? undefined : 200,
     nowMs,
   });
   if (l5.length > 0) {
@@ -1061,7 +1074,7 @@ export function findBestSlots(
   if (withSynthetic.length > 0) {
     const l6 = filterCandidates(withSynthetic, params, {
       requireCity: false,
-      requireCategory: false,
+      requireCategory: params.explicitServiceIntent ? true : false,
       requireDate: false,
       requireTimeWindow: false,
       nowMs,

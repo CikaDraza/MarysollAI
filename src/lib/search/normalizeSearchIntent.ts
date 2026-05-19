@@ -9,6 +9,8 @@ import {
   normalizeSemanticTerm,
   uniqueTerms,
 } from "@/lib/search/serviceSemanticMap";
+import { SERBIAN_CITIES } from "@/lib/cities";
+import { stripDiacritics } from "@/lib/intent/parseIntent";
 
 export type SearchQueryType =
   | "empty"
@@ -24,12 +26,69 @@ export interface NormalizedSearchIntent {
   city?: string;
   categoryKey?: CategorySlug;
   canonicalCategory?: string;
+  timeWindowStart?: number | null;
+  timeWindowEnd?: number | null;
   serviceCandidates: string[];
   categoryCandidates: string[];
   queryType: SearchQueryType;
   shouldSearchCategoryBucket: boolean;
   shouldSearchExactService: boolean;
   shouldUseSemanticExpansion: boolean;
+}
+
+function cityFromQuery(query: string): string | undefined {
+  const normalized = stripDiacritics(query).toLowerCase();
+  return SERBIAN_CITIES.find((city) => {
+    const cityNorm = stripDiacritics(city.name).toLowerCase();
+    return new RegExp(`(^|\\s)${cityNorm}(\\s|$)`).test(normalized);
+  })?.name;
+}
+
+function stripCityAndTimeTerms(query: string, city?: string): string {
+  let next = query;
+  if (city) {
+    next = next.replace(new RegExp(city.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i"), " ");
+  }
+  return next
+    .replace(/\b(posle|nakon|oko|pre|do)\s*\d{1,2}(?::\d{2})?\s*h?\b/gi, " ")
+    .replace(/\b\d{1,2}(?::\d{2})?\s*h\b/gi, " ")
+    .replace(/\b(danas|sutra|ujutru|jutros|prepodne|popodne|poslepodne|uvece|uveče|veceras|večeras)\b/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function parseTimeWindow(query: string): {
+  timeWindowStart?: number | null;
+  timeWindowEnd?: number | null;
+} {
+  const normalized = stripDiacritics(query).toLowerCase();
+  const afterMatch = normalized.match(/\b(?:posle|nakon)\s*(\d{1,2})(?::\d{2})?\s*h?\b/);
+  if (afterMatch) {
+    const hour = Number(afterMatch[1]);
+    if (Number.isFinite(hour) && hour >= 0 && hour <= 23) {
+      return { timeWindowStart: hour, timeWindowEnd: null };
+    }
+  }
+
+  const beforeMatch = normalized.match(/\b(?:pre|do)\s*(\d{1,2})(?::\d{2})?\s*h?\b/);
+  if (beforeMatch) {
+    const hour = Number(beforeMatch[1]);
+    if (Number.isFinite(hour) && hour >= 0 && hour <= 23) {
+      return { timeWindowStart: 0, timeWindowEnd: hour };
+    }
+  }
+
+  if (/\b(prepodne|ujutru|jutros)\b/.test(normalized)) {
+    return { timeWindowStart: 8, timeWindowEnd: 12 };
+  }
+  if (/\b(popodne|poslepodne)\b/.test(normalized)) {
+    return { timeWindowStart: 12, timeWindowEnd: 17 };
+  }
+  if (/\b(uvece|vece|veceras|večeras)\b/.test(normalized)) {
+    return { timeWindowStart: 18, timeWindowEnd: null };
+  }
+
+  return {};
 }
 
 const ROUTE_CATEGORY_ALIASES: Record<string, CategorySlug> = {
@@ -65,7 +124,11 @@ export function normalizeSearchIntent(input: {
   service?: string;
   routeCategory?: string;
 }): NormalizedSearchIntent {
-  const originalQuery = (input.rawQuery ?? input.service ?? "").trim();
+  const rawOriginalQuery = (input.rawQuery ?? input.service ?? "").trim();
+  const queryCity = cityFromQuery(rawOriginalQuery);
+  const city = queryCity ?? input.city;
+  const timeWindow = parseTimeWindow(rawOriginalQuery);
+  const originalQuery = stripCityAndTimeTerms(rawOriginalQuery, queryCity);
   const normalizedQuery = normalizeSemanticTerm(originalQuery);
   const routeCategoryKey = resolveCategoryKey(input.routeCategory);
   const explicitCategoryKey = resolveCategoryKey(input.category);
@@ -96,17 +159,19 @@ export function normalizeSearchIntent(input: {
   ]);
 
   let queryType: SearchQueryType = "unknown";
-  if (!normalizedQuery && !categoryKey) queryType = input.city ? "city_only" : "empty";
+  if (!normalizedQuery && !categoryKey) queryType = city ? "city_only" : "empty";
   else if (categoryOnly || queryIsCategory) queryType = "category";
-  else if (normalizedQuery && input.city) queryType = "service_and_city";
+  else if (normalizedQuery && city) queryType = "service_and_city";
   else if (normalizedQuery && categoryKey) queryType = "service";
 
   return {
     originalQuery,
     normalizedQuery,
-    city: input.city,
+    city,
     categoryKey,
     canonicalCategory,
+    timeWindowStart: timeWindow.timeWindowStart,
+    timeWindowEnd: timeWindow.timeWindowEnd,
     serviceCandidates: categoryOnly ? [] : serviceTerms,
     categoryCandidates: categoryTerms,
     queryType,

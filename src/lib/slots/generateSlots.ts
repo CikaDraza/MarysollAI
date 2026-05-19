@@ -61,6 +61,10 @@ export interface SyntheticGenerationOptions {
   // Hard cap overrides (default to SYNTHETIC_MAX_* constants)
   maxPerDay?: number;
   maxTotal?: number;
+  /** Inclusive local Europe/Belgrade hour lower bound. */
+  timeWindowStart?: number | null;
+  /** Inclusive local Europe/Belgrade hour upper bound; null means open-ended. */
+  timeWindowEnd?: number | null;
   /**
    * Availability context controls slot tagging:
    * - "working_hours_only" (default): real salon + real working hours, no calendar data.
@@ -206,6 +210,10 @@ export function generateSlotsFromWorkingHours(
     let perDayCount = 0;
 
     for (let m = range.openMin; m + serviceDuration <= range.closeMin; m += step) {
+      const slotHour = Math.floor(m / 60);
+      if (opts.timeWindowStart != null && slotHour < opts.timeWindowStart) continue;
+      if (opts.timeWindowEnd != null && slotHour > opts.timeWindowEnd) continue;
+
       if (debug.accepted >= effectiveMaxTotal) {
         debug.capHit = true;
         break;

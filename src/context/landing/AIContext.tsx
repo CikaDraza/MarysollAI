@@ -19,6 +19,9 @@ import {
   type ClaudiaSubAgent,
 } from "@/store/ai/agent-state";
 import { resetAgentState } from "@/lib/ai/orchestrator/ai-orchestrator";
+import {
+  legacyActionTextToSystemAction,
+} from "@/lib/ai/events/systemActionDispatcher";
 
 // Public ActiveAgent for legacy consumers — derived from the Zustand store.
 // Kept for backward compatibility with components reading `useAIContext().activeAgent`.
@@ -63,6 +66,7 @@ interface AIContextValue {
         userName: string;
       };
       handoffPayload?: Record<string, unknown>;
+      suppressUserMessage?: boolean;
     },
   ) => Promise<void>;
   /** Routes directly to Claudia — use for block interaction callbacks. */
@@ -187,6 +191,9 @@ export function AIProvider({ children }: { children: ReactNode }) {
   // Maria response to sequence against here).
   const sendToOrchestrator = useCallback(
     (q: string, handoffPayload?: Record<string, unknown>) => {
+      const mappedSystemAction = legacyActionTextToSystemAction(q, "LayoutEngine");
+      if (mappedSystemAction) return;
+
       if (activeAgentRef.current === "maria") {
         setActiveAgentInStore("claudia", "booking");
       }
@@ -217,7 +224,12 @@ export function AIProvider({ children }: { children: ReactNode }) {
         invokeClaudia: claudia.askAI,
         sendToOrchestrator,
         clearChat,
-        streamingText: claudia.streamingText ?? undefined,
+        // Phase B SSE — Maria now streams tokens too. Claudia wins when both
+        // are technically streaming (handoff window) since her output is the
+        // one the user is waiting on at that point.
+        streamingText:
+          claudia.streamingText ??
+          (maria.streamingText ? maria.streamingText : undefined),
         isStreaming: maria.isStreaming || claudia.isStreaming,
         streamingAgent: claudia.isStreaming ? "claudia" : "maria",
         activeAgent,

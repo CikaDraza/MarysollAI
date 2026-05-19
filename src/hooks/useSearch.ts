@@ -20,7 +20,7 @@ export interface SearchParams {
   date?: string;
   time?: string;
   timeWindowStart?: number;
-  timeWindowEnd?: number;
+  timeWindowEnd?: number | null;
   lat?: number;
   lng?: number;
   limit?: number;

@@ -4,6 +4,7 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useRef,
   useState,
   type ReactNode,
@@ -12,30 +13,18 @@ import {
   normalizeBookingPayload,
   validateBookingPayload,
   type BookingModalSlot,
-  type NormalizedBookingPayload,
 } from "@/lib/booking/bookingPayload";
+import { uiCommandBus } from "@/lib/ai/ui/ui-command-executor";
+import { handleRecoveryEvent } from "@/lib/ai/recovery/recovery-engine";
+import type { RecoveryReason } from "@/lib/ai/recovery/recovery-types";
 
 const PENDING_BOOKING_KEY = "marysoll_pending_booking_slot";
-
-export type BookingRecoveryReason =
-  | "missing_salon"
-  | "missing_start_time"
-  | "missing_required_fields";
-
-export interface BookingRecoveryRequest {
-  reason: BookingRecoveryReason;
-  originalSlot: BookingModalSlot;
-  normalizedPayload: NormalizedBookingPayload | null;
-  missingFields: string[];
-}
 
 interface BookingModalContextValue {
   modalSlot: BookingModalSlot | null;
   pendingSlot: BookingModalSlot | null;
-  recoveryRequest: BookingRecoveryRequest | null;
   openModal: (slot: BookingModalSlot, onSuccess?: () => void) => void;
   closeModal: () => void;
-  clearRecovery: () => void;
   persistPendingBooking: (slot: BookingModalSlot) => void;
   consumePendingBooking: () => BookingModalSlot | null;
   triggerSuccess: () => void;
@@ -45,8 +34,6 @@ const BookingModalContext = createContext<BookingModalContextValue | null>(null)
 
 export function BookingModalProvider({ children }: { children: ReactNode }) {
   const [modalSlot, setModalSlot] = useState<BookingModalSlot | null>(null);
-  const [recoveryRequest, setRecoveryRequest] =
-    useState<BookingRecoveryRequest | null>(null);
   const [pendingSlot, setPendingSlot] = useState<BookingModalSlot | null>(() => {
     if (typeof window === "undefined") return null;
     try {
@@ -62,18 +49,34 @@ export function BookingModalProvider({ children }: { children: ReactNode }) {
     const normalizedPayload = normalizeBookingPayload(slot);
     const validation = validateBookingPayload(normalizedPayload);
     if (!validation.ok) {
-      const reason: BookingRecoveryReason =
+      const reason: RecoveryReason =
         validation.missingFields.includes("salonId") ||
         validation.missingFields.includes("salonName")
           ? "missing_salon"
-          : validation.missingFields.includes("startTime")
+          : validation.missingFields.includes("startTime") ||
+              validation.missingFields.includes("date") ||
+              validation.missingFields.includes("time")
             ? "missing_start_time"
-            : "missing_required_fields";
-      setRecoveryRequest({
+            : validation.missingFields.includes("serviceId") ||
+                validation.missingFields.includes("serviceName")
+              ? "missing_service"
+              : "unknown";
+      handleRecoveryEvent({
+        type: "recovery",
         reason,
-        originalSlot: slot,
-        normalizedPayload,
-        missingFields: validation.missingFields,
+        severity: "recoverable",
+        source: "BookingModal",
+        payload: {
+          selectedSlot: slot,
+          missingFields: validation.missingFields,
+          service: normalizedPayload?.serviceName || slot.serviceName,
+          city: normalizedPayload?.city || slot.city,
+          date: normalizedPayload?.date,
+          time: normalizedPayload?.time,
+        },
+        notifyAgent: true,
+        visibleInThread: false,
+        timestamp: Date.now(),
       });
       setModalSlot(null);
       return;
@@ -81,7 +84,6 @@ export function BookingModalProvider({ children }: { children: ReactNode }) {
 
     if (!normalizedPayload) return;
 
-    setRecoveryRequest(null);
     setModalSlot(normalizedPayload.originalSlot);
     onSuccessRef.current = onSuccess;
   }, []);
@@ -89,10 +91,6 @@ export function BookingModalProvider({ children }: { children: ReactNode }) {
   const closeModal = useCallback(() => {
     setModalSlot(null);
     onSuccessRef.current = undefined;
-  }, []);
-
-  const clearRecovery = useCallback(() => {
-    setRecoveryRequest(null);
   }, []);
 
   const persistPendingBooking = useCallback((slot: BookingModalSlot) => {
@@ -124,15 +122,25 @@ export function BookingModalProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  useEffect(() => {
+    return uiCommandBus.subscribe((command) => {
+      if (command.type === "OPEN_BOOKING_MODAL") {
+        openModal(command.payload);
+        return;
+      }
+      if (command.type === "CLOSE_BOOKING_MODAL") {
+        closeModal();
+      }
+    });
+  }, [closeModal, openModal]);
+
   return (
     <BookingModalContext.Provider
       value={{
         modalSlot,
         pendingSlot,
-        recoveryRequest,
         openModal,
         closeModal,
-        clearRecovery,
         persistPendingBooking,
         consumePendingBooking,
         triggerSuccess,

@@ -22,7 +22,8 @@ export interface NormalizedSearch {
   date: string; // YYYY-MM-DD in Europe/Belgrade
   requestedHour?: number;
   timeWindowStart?: number; // hour (inclusive lower bound, requestedHour - 1)
-  timeWindowEnd?: number; // hour (inclusive upper bound, requestedHour + 2)
+  timeWindowEnd?: number | null; // hour (inclusive upper bound, null means open-ended)
+  explicitServiceIntent?: boolean;
   lat?: number;
   lng?: number;
   limit: number;
@@ -178,8 +179,8 @@ export function normalizeSearch(params: {
   subcategory?: string;
   date?: string;
   time?: string;
-  timeWindowStart?: string | number;
-  timeWindowEnd?: string | number;
+  timeWindowStart?: string | number | null;
+  timeWindowEnd?: string | number | null;
   lat?: string | number;
   lng?: string | number;
   limit?: string | number;
@@ -196,15 +197,15 @@ export function normalizeSearch(params: {
 
   let requestedHour: number | undefined;
   let timeWindowStart: number | undefined;
-  let timeWindowEnd: number | undefined;
+  let timeWindowEnd: number | null | undefined;
 
   // Explicit window from intent parser takes precedence over derived window
   const explicitStart =
-    params.timeWindowStart !== undefined && params.timeWindowStart !== ""
+    params.timeWindowStart != null && params.timeWindowStart !== ""
       ? Number(params.timeWindowStart)
       : undefined;
   const explicitEnd =
-    params.timeWindowEnd !== undefined && params.timeWindowEnd !== ""
+    params.timeWindowEnd != null && params.timeWindowEnd !== ""
       ? Number(params.timeWindowEnd)
       : undefined;
 
@@ -212,7 +213,7 @@ export function normalizeSearch(params: {
     timeWindowStart = Math.max(0, explicitStart);
     timeWindowEnd = explicitEnd != null && !isNaN(explicitEnd)
       ? Math.min(23, explicitEnd)
-      : Math.min(23, explicitStart + 3);
+      : null;
     requestedHour = Math.round((timeWindowStart + (timeWindowEnd ?? timeWindowStart)) / 2);
   } else if (params.time) {
     const parts = params.time.split(":");
@@ -234,6 +235,7 @@ export function normalizeSearch(params: {
         .filter(Boolean),
     ),
   ];
+  const explicitServiceIntent = Boolean(subcategoryNorm || serviceCandidateNorms.length > 0);
 
   const lat =
     params.lat !== undefined && params.lat !== ""
@@ -260,6 +262,7 @@ export function normalizeSearch(params: {
     requestedHour,
     timeWindowStart,
     timeWindowEnd,
+    explicitServiceIntent,
     lat,
     lng,
     limit,

@@ -178,6 +178,21 @@ export function resolveFallbackPolicy(
     return { ...base, maxFallbackLevel: maxLevel, ...overrides };
   }
 
+  if (
+    strategy === "bookingwidget" &&
+    (intent.kind === "explicit_service" ||
+      intent.kind === "explicit_city_service" ||
+      intent.kind === "explicit_full")
+  ) {
+    return {
+      ...base,
+      allowNearbyCities: true,
+      allowRelaxedTime: true,
+      allowServiceVariants: true,
+      allowCategoryDrift: false,
+    };
+  }
+
   return base;
 }
 
@@ -220,10 +235,6 @@ export function evaluateFallbackPolicy(
 
   if (!surfaceDecision.accepted) return surfaceDecision;
 
-  // Confidence is the primary MVP trust gate. Trusted availability stays
-  // displayable even when it came from a relaxed fallback level such as L4.
-  if (hasTrustworthyAvailability(slot)) return { accepted: true, reason: "none" };
-
   const origins = slot.slotOrigins ?? [];
   if (!policy.allowNearbyCities && origins.includes("nearby_city")) {
     return { accepted: false, reason: "nearby_city" };
@@ -231,6 +242,11 @@ export function evaluateFallbackPolicy(
   if (!policy.allowCategoryDrift && origins.includes("related_service")) {
     return { accepted: false, reason: "category_drift" };
   }
+
+  // Confidence is the primary MVP trust gate. Trusted availability stays
+  // displayable even when it came from a relaxed fallback level such as L4,
+  // but never bypasses explicit surface policy such as category-drift bans.
+  if (hasTrustworthyAvailability(slot)) return { accepted: true, reason: "none" };
 
   if (slot.fallbackLevel > policy.maxFallbackLevel) {
     return { accepted: false, reason: "fallback_level" };

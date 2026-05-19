@@ -14,6 +14,7 @@ export function bookingWidgetRecoveryCopy(input: {
   recoveryState?: Partial<SearchRecoveryState>;
   hasSearchIntent?: boolean;
   categoryLabel?: string;
+  serviceLabel?: string;
 }): { title: string; body?: string } | null {
   const city = input.recoveryState?.requestedCity ?? input.city;
   switch (input.recoveryState?.reason) {
@@ -37,6 +38,12 @@ export function bookingWidgetRecoveryCopy(input: {
         title: "Predlozi termina na osnovu radnog vremena",
       };
     case "no_service_match":
+      if (input.categoryLabel || input.serviceLabel) {
+        return {
+          title: `Nema slobodnih termina za ${input.serviceLabel ?? input.categoryLabel}${city ? ` u ${inCity(city)}` : ""}.`,
+          body: "Prikazujemo najbliže dostupne opcije.",
+        };
+      }
       return {
         title: "Nismo prepoznali tačno ovu uslugu.",
         body: "Pogledajte dostupne kategorije.",

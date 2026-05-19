@@ -264,17 +264,24 @@ export async function GET(req: Request): Promise<NextResponse> {
     service: searchParams.get("service") ?? searchParams.get("subcategory") ?? undefined,
     routeCategory: searchParams.get("routeCategory") ?? undefined,
   });
+  const effectiveCity = intent.city ?? searchParams.get("city") ?? undefined;
+  const effectiveServiceQuery =
+    searchParams.get("subcategory") ??
+    searchParams.get("service") ??
+    intent.originalQuery ??
+    rawQuery ??
+    undefined;
 
   const params = normalizeSearch({
-    city: searchParams.get("city") ?? undefined,
+    city: effectiveCity,
     category: intent.categoryKey ?? searchParams.get("category") ?? undefined,
     subcategory: intent.shouldSearchCategoryBucket
       ? undefined
-      : (searchParams.get("subcategory") ?? searchParams.get("service") ?? rawQuery ?? undefined),
+      : effectiveServiceQuery,
     date: searchParams.get("date") ?? undefined,
     time: searchParams.get("time") ?? undefined,
-    timeWindowStart: searchParams.get("timeWindowStart") ?? undefined,
-    timeWindowEnd: searchParams.get("timeWindowEnd") ?? undefined,
+    timeWindowStart: searchParams.get("timeWindowStart") ?? intent.timeWindowStart ?? undefined,
+    timeWindowEnd: searchParams.get("timeWindowEnd") ?? intent.timeWindowEnd ?? undefined,
     lat: searchParams.get("lat") ?? undefined,
     lng: searchParams.get("lng") ?? undefined,
     limit: searchParams.get("limit") ?? undefined,
@@ -297,11 +304,19 @@ export async function GET(req: Request): Promise<NextResponse> {
     date: params.date,
     time:
       params.timeWindowStart != null
-        ? `${params.timeWindowStart}:00–${params.timeWindowEnd}:00`
+        ? `${params.timeWindowStart}:00–${params.timeWindowEnd ?? "∞"}`
         : null,
     lat: params.lat ?? null,
     lng: params.lng ?? null,
     limit: params.limit,
+  });
+  console.debug("[SEARCH_INTENT]", {
+    query: rawQuery,
+    city: params.cityDisplay,
+    service: intent.originalQuery || searchParams.get("service") || searchParams.get("subcategory"),
+    category: params.category ?? null,
+    timeWindowStart: params.timeWindowStart ?? null,
+    timeWindowEnd: params.timeWindowEnd ?? null,
   });
 
   // ─────────────────────────────────────────────────────────────────
@@ -387,14 +402,15 @@ export async function GET(req: Request): Promise<NextResponse> {
           ...params,
           // Force the BookingWidget discovery pass past L1-L4 when the selected
           // city has no salons. Keep cityRef so L5 can sort nearby cities from
-          // the selected city, and clear service/category filters so L6 can
-          // always find broad working-hours suggestions.
+          // the selected city. For explicit service searches, keep category
+          // and service filters so discovery can expand city/time without
+          // drifting into unrelated categories.
           cityDisplay: "__bookingwidget_discovery__",
-          category: undefined,
-          canonicalCategory: undefined,
-          subcategoryNorm: undefined,
-          serviceCandidateNorms: undefined,
-          rawQuery: undefined,
+          category: params.explicitServiceIntent ? params.category : undefined,
+          canonicalCategory: params.explicitServiceIntent ? params.canonicalCategory : undefined,
+          subcategoryNorm: params.explicitServiceIntent ? params.subcategoryNorm : undefined,
+          serviceCandidateNorms: params.explicitServiceIntent ? params.serviceCandidateNorms : undefined,
+          rawQuery: params.explicitServiceIntent ? params.rawQuery : undefined,
           limit: Math.max(params.limit, 30),
         }
       : { ...params, limit: Math.max(params.limit, 30) };
@@ -551,7 +567,7 @@ export async function GET(req: Request): Promise<NextResponse> {
       searchDate: params.date,
       timeWindow:
         params.timeWindowStart != null
-          ? `${params.timeWindowStart}:00–${params.timeWindowEnd}:00`
+          ? `${params.timeWindowStart}:00–${params.timeWindowEnd ?? "∞"}`
           : null,
       timezone: "Europe/Belgrade",
       totalSlotsFound: discoveryGeoResults.length,

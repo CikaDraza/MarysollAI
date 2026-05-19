@@ -7,6 +7,8 @@ import {
   useEffect,
   type ReactNode,
 } from "react";
+import toast from "react-hot-toast";
+import { uiCommandBus } from "@/lib/ai/ui/ui-command-executor";
 
 interface LandingUIContextValue {
   theme: "light" | "dark";
@@ -30,6 +32,24 @@ export function LandingUIProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
   }, [theme]);
+
+  useEffect(() => {
+    return uiCommandBus.subscribe((command) => {
+      if (command.type === "OPEN_DRAWER") {
+        setDrawerOpen(true);
+        return;
+      }
+      if (command.type === "CLOSE_DRAWER") {
+        setDrawerOpen(false);
+        return;
+      }
+      if (command.type === "SHOW_TOAST") {
+        if (command.variant === "success") toast.success(command.message);
+        else if (command.variant === "error") toast.error(command.message);
+        else toast(command.message);
+      }
+    });
+  }, []);
 
   return (
     <LandingUIContext.Provider

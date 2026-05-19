@@ -44,6 +44,9 @@ interface UseChatWithAIReturn {
   isSending: boolean;
   error: Error | null;
   isStreaming: boolean;
+  /** Live token text from Maria while her SSE stream is in flight. Empty
+   * once the stream closes and the message lands in the session. */
+  streamingText: string;
   isEmpty: boolean;
   usage: UsageStats | null;
   showUsage: boolean;
@@ -55,6 +58,39 @@ interface UseChatWithAIReturn {
   deleteSession: (sessionId: string) => void;
   getSessionTitle: (messages: Message[]) => string;
   createNewChat: () => void;
+}
+
+/** Extract the (possibly incomplete) `message` field from a partial Maria
+ * JSON string. Maria's content always has the shape
+ * `{"type":"answer","message":"...","targetAgent":"..."}`. While the JSON is
+ * still being streamed we lift out the message text using a tolerant regex
+ * — full JSON.parse would throw on incomplete input. */
+function extractPartialMariaMessage(rawSoFar: string): string {
+  const match = rawSoFar.match(/"message"\s*:\s*"((?:[^"\\]|\\.)*)/);
+  if (!match) return "";
+  // Decode the standard JSON string escapes that DeepSeek can emit mid-stream.
+  return match[1]
+    .replace(/\\n/g, "\n")
+    .replace(/\\t/g, "\t")
+    .replace(/\\"/g, '"')
+    .replace(/\\\\/g, "\\");
+}
+
+interface SSEDoneEventPayload {
+  ok: boolean;
+  message: string;
+  intent?: StructuredBookingIntent;
+  recoveryState?: SearchRecoveryState;
+  slots?: SearchResult[];
+  suggestions?: unknown[];
+  selectedSlot?: SearchResult;
+  aiBookingState?: AiBookingState;
+  pendingContact?: AiBookingContact;
+  aiDebug?: Record<string, unknown>;
+  error?: string;
+  choices: Array<{ message: { content: string } }>;
+  usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
+  model?: string;
 }
 
 const CHAT_SESSIONS_KEY = "chat_sessions";
@@ -99,6 +135,10 @@ export function useChatSeek(
   );
   const [usage, setUsage] = useState<UsageStats | null>(null);
   const [showUsage, setShowUsage] = useState(false);
+  // Phase B SSE — exposed so the chat UI can render Maria's reply as
+  // tokens arrive instead of waiting for the assistant message to appear
+  // in a single paint frame.
+  const [streamingText, setStreamingText] = useState("");
 
   const abortControllerRef = useRef<AbortController | null>(null);
   // Batch 5 — pending handoff timer. Held in a ref so clearChat / abort
@@ -282,11 +322,60 @@ export function useChatSeek(
         });
 
         if (!response.ok) {
-          const errorData = await response.json();
+          // Pre-stream errors (route threw before opening the SSE) still come
+          // back as plain JSON. Errors *during* the stream are sent as the
+          // "done" event with payload.error set, and don't land here.
+          const errorData = await response.json().catch(() => ({}));
           throw new Error(errorData.error?.message || "Failed to send message");
         }
+        if (!response.body) {
+          throw new Error("SSE response has no body");
+        }
 
-        const data = await response.json();
+        // Phase B SSE — consume Maria's token + done event protocol.
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let accumulatedContent = "";
+        let data: SSEDoneEventPayload | null = null;
+        setStreamingText("");
+
+        try {
+          while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const frames = buffer.split("\n\n");
+            buffer = frames.pop() ?? "";
+            for (const frame of frames) {
+              const line = frame.trim();
+              if (!line.startsWith("data:")) continue;
+              const json = line.slice(5).trim();
+              if (!json) continue;
+              let evt: { type?: string; delta?: string; payload?: SSEDoneEventPayload };
+              try {
+                evt = JSON.parse(json);
+              } catch {
+                continue;
+              }
+              if (evt.type === "token" && typeof evt.delta === "string") {
+                accumulatedContent += evt.delta;
+                // Surface a partial `message` field as it grows so the chat
+                // UI can render Maria's reply token-by-token.
+                setStreamingText(extractPartialMariaMessage(accumulatedContent));
+              } else if (evt.type === "done" && evt.payload) {
+                data = evt.payload;
+              }
+            }
+          }
+        } finally {
+          reader.releaseLock();
+        }
+
+        if (!data) {
+          throw new Error("SSE stream closed without done event");
+        }
+
         if (Array.isArray(data.slots) && data.slots.length > 0) {
           lastOfferedSlotsRef.current = data.slots as SearchResult[];
         }
@@ -356,6 +445,9 @@ export function useChatSeek(
       }
     },
     onSuccess: ({ message, usage, agentCall }: MutationResult) => {
+      // Streaming text was a preview of `message.content`; once the message
+      // is appended to the session we don't need it any more.
+      setStreamingText("");
       if (currentSession) {
         updateSession(currentSession.id, {
           messages: [...currentSession.messages, message],
@@ -397,6 +489,7 @@ export function useChatSeek(
       queryClient.invalidateQueries({ queryKey: ["chat"] });
     },
     onError: (error: Error) => {
+      setStreamingText("");
       if (currentSession) {
         updateSession(currentSession.id, {
           messages: currentSession.messages.slice(0, -1),
@@ -437,6 +530,7 @@ export function useChatSeek(
     bookingFlow.get().reset();
     lastActivityAtRef.current = Date.now();
     setUsage(null);
+    setStreamingText("");
   }, [currentSession, updateSession]);
 
   const retryLastMessage = useCallback(async (): Promise<void> => {
@@ -472,6 +566,7 @@ export function useChatSeek(
     bookingFlow.get().reset();
     lastActivityAtRef.current = Date.now();
     setUsage(null);
+    setStreamingText("");
   }, [createNewSession]);
 
   useEffect(() => {
@@ -493,6 +588,7 @@ export function useChatSeek(
     isSending: sendMessageMutation.isPending,
     error: sendMessageMutation.error,
     isStreaming: sendMessageMutation.isPending,
+    streamingText,
     isEmpty: messages.length === 0,
     usage,
     showUsage,

@@ -2,16 +2,15 @@
 
 import { useState } from "react";
 import { AppointmentCalendarBlockType } from "@/types/landing-block";
-import { useBookingModal } from "@/context/landing/BookingModalContext";
 import { Reveal } from "@/components/motion/Reveal";
 import { formatDatePretty } from "@/helpers/formatISODate";
+import { blockActionToSystemAction } from "@/lib/ai/layout/blockActionToSystemAction";
 
 interface Props {
   block: AppointmentCalendarBlockType;
 }
 
 export default function LandingConfirmBlock({ block }: Props) {
-  const { openModal } = useBookingModal();
   const [opened, setOpened] = useState(false);
 
   const meta = block.metadata;
@@ -30,18 +29,20 @@ export default function LandingConfirmBlock({ block }: Props) {
   const handleConfirm = () => {
     if (opened) return;
     setOpened(true);
-    openModal({
-      salonId,
-      salonName,
-      city,
-      serviceId: meta.serviceId || null,
-      serviceName,
-      category: meta.category ?? "",
-      startTime,
-      duration: meta.duration,
-      price: meta.price,
-      date,
-      time,
+    blockActionToSystemAction("AppointmentCalendarBlock", "slot_selected", {
+      selectedSlot: {
+        salonId,
+        salonName,
+        city,
+        serviceId: meta.serviceId || null,
+        serviceName,
+        category: meta.category ?? "",
+        startTime,
+        duration: meta.duration,
+        price: meta.price,
+        date,
+        time,
+      },
     });
   };
 

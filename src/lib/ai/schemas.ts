@@ -16,6 +16,7 @@ const blockEnum = [
   "WhyChooseUsBlock",
   "CityListBlock",
   "SalonListBlock",
+  "NotifyMeBlock",
 ] as const;
 
 export const unifiedSchema = {

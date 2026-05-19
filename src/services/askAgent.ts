@@ -2,7 +2,17 @@
 import { ThreadItem } from "@/types/ai/chat-thread";
 import OpenAI from "openai";
 import { ClaudiaIntentSchema } from "@/lib/ai/schemas/claudia.schema";
+import {
+  claudiaContractToLegacyResponse,
+  type ClaudiaContract,
+} from "@/lib/ai/schemas/claudia-contract.schema";
 import { fetchPlatformKnowledge } from "@/lib/ai/platform-knowledge";
+import { platformClient } from "@/lib/api/platformClient";
+import {
+  describeBookingService,
+  matchingCityItems,
+  matchingSalonItems,
+} from "@/lib/ai/booking/booking-block-data";
 import type { CollectedBookingFields } from "@/lib/ai/booking-flow-state";
 import type { AiBookingContact } from "@/types/aiBooking";
 import { runBookingSearch } from "@/lib/search/runBookingSearch";
@@ -134,6 +144,7 @@ ServicePriceBlock:
 CityListBlock:
   metadata: {
     "service": "naziv usluge",
+    "category": "kategorija usluge",
     "cities": [ { "name": "Beograd" }, { "name": "Novi Sad" } ]
   }
   ⚠ Popuni "cities" iz GRADOVI sekcije. Svaki element MORA imati polje "name".
@@ -142,6 +153,7 @@ SalonListBlock:
   metadata: {
     "city": "naziv grada",
     "service": "naziv usluge",
+    "category": "kategorija usluge",
     "salons": [ { "id": "id_iz_SALONI_sekcije", "name": "naziv salona" } ]
   }
   ⚠ Popuni "salons" iz SALONI sekcije, filtriraj po gradu. Svaki element MORA imati "id" i "name".
@@ -201,7 +213,9 @@ Blok sam učitava termine.
 # SMART UX RULES
 
 ## ZAKAZIVANJE (booking)
-Ako imaš i grad i uslugu → odmah AppointmentCalendarBlock
+Ako imaš uslugu ali nemaš grad → CityListBlock
+Ako imaš grad i uslugu ali nemaš salon → SalonListBlock filtriran po gradu i usluzi/kategoriji
+Ako imaš grad, uslugu i salon → AppointmentCalendarBlock
 Ako nedostaje grad → CityListBlock sa dostupnim gradovima
 Ako nedostaje usluga → postavi JEDNO pitanje
 Gost može da gleda slotove. Login tek pri finalnoj potvrdi.
@@ -267,6 +281,192 @@ function streamJson(body: unknown): ReadableStream {
   });
 }
 
+function shouldLogClaudiaContract(): boolean {
+  return process.env.NODE_ENV !== "production";
+}
+
+function logClaudiaContract(contract: ClaudiaContract): void {
+  if (!shouldLogClaudiaContract()) return;
+  console.debug("[CLAUDIA_CONTRACT]", {
+    kind: contract.kind,
+    workflow: contract.workflow,
+    nextAction: contract.nextAction.type,
+    intentType: contract.intent.type,
+    entityKeys: Object.keys(contract.intent.entities),
+    blockTypes: contract.ui.blocks.map((block) => block.type),
+  });
+}
+
+function logClaudiaLegacyAdapter(
+  contract: ClaudiaContract,
+  legacy: ReturnType<typeof claudiaContractToLegacyResponse>,
+): void {
+  if (!shouldLogClaudiaContract()) return;
+  console.debug("[CLAUDIA_LEGACY_ADAPTER]", {
+    kind: contract.kind,
+    messageCount: legacy.messages.length,
+    layoutTypes: legacy.layout.map((block) => block.type),
+    intentKeys: legacy.intent ? Object.keys(legacy.intent) : [],
+  });
+}
+
+function streamClaudiaContract(contract: ClaudiaContract): ReadableStream {
+  const legacy = claudiaContractToLegacyResponse(contract);
+  logClaudiaContract(contract);
+  logClaudiaLegacyAdapter(contract, legacy);
+  return streamJson(legacy);
+}
+
+function makeClaudiaContract(input: {
+  kind: ClaudiaContract["kind"];
+  message: string;
+  workflowDomain: ClaudiaContract["workflow"]["domain"];
+  step: string;
+  nextAction: ClaudiaContract["nextAction"]["type"];
+  intentType?: string;
+  blocks?: unknown[];
+  entities?: Record<string, unknown>;
+  status?: ClaudiaContract["workflow"]["status"];
+  reason?: string;
+  confidence?: number;
+  missingFields?: string[];
+}): ClaudiaContract {
+  return {
+    kind: input.kind,
+    message: input.message,
+    workflow: {
+      domain: input.workflowDomain,
+      step: input.step,
+      status: input.status ?? "ready",
+    },
+    nextAction: {
+      type: input.nextAction,
+      reason: input.reason,
+    },
+    ui: {
+      blocks: (input.blocks ?? []) as ClaudiaContract["ui"]["blocks"],
+      hideBlocks: [],
+      showBlocks: [],
+    },
+    intent: {
+      type: input.intentType,
+      confidence: input.confidence ?? 1,
+      entities: (input.entities ?? {}) as ClaudiaContract["intent"]["entities"],
+      missingFields: input.missingFields ?? [],
+    },
+  };
+}
+
+function makeClarificationContract(input: {
+  message: string;
+  workflowDomain?: ClaudiaContract["workflow"]["domain"];
+  step: string;
+  intentType?: string;
+  entities?: Record<string, unknown>;
+  missingFields?: string[];
+}): ClaudiaContract {
+  return makeClaudiaContract({
+    kind: "clarification",
+    message: input.message,
+    workflowDomain: input.workflowDomain ?? "booking",
+    step: input.step,
+    nextAction: "ASK_CLARIFICATION",
+    intentType: input.intentType,
+    entities: input.entities,
+    status: "waiting_for_user",
+    reason: input.step,
+    confidence: 0.8,
+    missingFields: input.missingFields,
+  });
+}
+
+function makeAuthContract(input: {
+  message: string;
+  intentType: string;
+  blocks: unknown[];
+  step?: string;
+}): ClaudiaContract {
+  return makeClaudiaContract({
+    kind: "auth",
+    message: input.message,
+    workflowDomain: "auth",
+    step: input.step ?? "login",
+    nextAction: "SHOW_AUTH",
+    intentType: input.intentType,
+    blocks: input.blocks,
+    status: "waiting_for_user",
+    reason: input.intentType,
+  });
+}
+
+function makeAppointmentsContract(input: {
+  message: string;
+  intentType: string;
+  blocks: unknown[];
+  step?: string;
+  entities?: Record<string, unknown>;
+  status?: ClaudiaContract["workflow"]["status"];
+}): ClaudiaContract {
+  return makeClaudiaContract({
+    kind: "appointments",
+    message: input.message,
+    workflowDomain: "appointments",
+    step: input.step ?? input.intentType,
+    nextAction: "SHOW_APPOINTMENTS",
+    intentType: input.intentType,
+    blocks: input.blocks,
+    entities: input.entities,
+    status: input.status,
+    reason: input.intentType,
+  });
+}
+
+function makeBookingResultContract(input: {
+  message: string;
+  intentType: string;
+  blocks: unknown[];
+  entities?: Record<string, unknown>;
+  step?: string;
+  nextAction?: ClaudiaContract["nextAction"]["type"];
+  status?: ClaudiaContract["workflow"]["status"];
+}): ClaudiaContract {
+  return makeClaudiaContract({
+    kind: "booking_result",
+    message: input.message,
+    workflowDomain: "booking",
+    step: input.step ?? input.intentType,
+    nextAction: input.nextAction ?? (input.blocks.length > 0 ? "SHOW_SLOTS" : "NONE"),
+    intentType: input.intentType,
+    blocks: input.blocks,
+    entities: input.entities,
+    status: input.status,
+    reason: input.intentType,
+  });
+}
+
+function makeRecoveryContract(input: {
+  message: string;
+  intentType: string;
+  blocks: unknown[];
+  entities?: Record<string, unknown>;
+  step?: string;
+  status?: ClaudiaContract["workflow"]["status"];
+  nextAction?: ClaudiaContract["nextAction"]["type"];
+}): ClaudiaContract {
+  return makeClaudiaContract({
+    kind: "recovery",
+    message: input.message,
+    workflowDomain: "recovery",
+    step: input.step ?? input.intentType,
+    nextAction: input.nextAction ?? (input.blocks.length > 0 ? "SHOW_RECOVERY_ALTERNATIVES" : "NONE"),
+    intentType: input.intentType,
+    blocks: input.blocks,
+    entities: input.entities,
+    status: input.status,
+    reason: input.step ?? input.intentType,
+  });
+}
+
 function buildAppointmentBlock(input: {
   service?: string;
   category?: string;
@@ -302,6 +502,65 @@ function buildAppointmentBlock(input: {
       slots: input.slots,
     },
   };
+}
+
+async function fetchBookingSalons() {
+  try {
+    return await platformClient.getSalonProfiles();
+  } catch (error) {
+    console.warn("[CLAUDIA_BOOKING_BLOCK_DATA]", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return [];
+  }
+}
+
+function buildCityListBlock(input: {
+  service?: string;
+  category?: string;
+  cities: ReturnType<typeof matchingCityItems>;
+}) {
+  return {
+    type: "CityListBlock",
+    priority: 1,
+    metadata: {
+      serviceId: "",
+      serviceName: input.service ?? "",
+      variantName: "",
+      service: input.service ?? "",
+      category: input.category ?? "",
+      cities: input.cities,
+    },
+  };
+}
+
+function buildSalonListBlock(input: {
+  city?: string;
+  service?: string;
+  category?: string;
+  salons: ReturnType<typeof matchingSalonItems>;
+}) {
+  return {
+    type: "SalonListBlock",
+    priority: 1,
+    metadata: {
+      serviceId: "",
+      serviceName: input.service ?? "",
+      variantName: "",
+      service: input.service ?? "",
+      category: input.category ?? "",
+      city: input.city ?? "",
+      salons: input.salons,
+    },
+  };
+}
+
+function inCity(city: string): string {
+  if (city === "Bor") return "Boru";
+  if (city === "Novi Sad") return "Novom Sadu";
+  if (city === "Beograd") return "Beogradu";
+  if (city === "Sremska Mitrovica") return "Sremskoj Mitrovici";
+  return city;
 }
 
 function asString(value: unknown): string | undefined {
@@ -462,175 +721,174 @@ export async function askAgent(
     const intentParse = ClaudiaIntentSchema.safeParse(handoffPayload.intent);
     if (!intentParse.success) {
       console.error("[askAgent] Unknown intent from Maria, refusing LLM fallback:", handoffPayload.intent);
-      return streamJson({
-        messages: [{ role: "assistant", content: "Ne razumem zahtev. Pokušajte ponovo." }],
-        layout: [],
-        intent: {},
-      });
+      return streamClaudiaContract(
+        makeClarificationContract({
+          message: "Ne razumem zahtev. Pokušajte ponovo.",
+          workflowDomain: "unknown",
+          step: "unknown_intent",
+          intentType: "unknown",
+        }),
+      );
     }
   }
 
   if (handoffPayload?.intent === "appointments") {
-    return streamJson({
-      messages: [
-        {
-          role: "assistant",
-          content: isAuthenticated
-            ? "Pozdrav, izvolite vaše termine."
-            : "Prijavi se da vidiš svoje termine.",
-          attachToBlockType: isAuthenticated ? "CalendarBlock" : "AuthBlock",
-        },
-      ],
-      layout: [
-        isAuthenticated
-          ? {
-              type: "CalendarBlock",
-              priority: 1,
-              metadata: {
-                mode: "list",
-                appointmentListMode: "all",
-                serviceId: "",
-                serviceName: "",
-                variantName: "",
-              },
-            }
-          : {
-              type: "AuthBlock",
-              priority: 1,
-              metadata: {
-                mode: "login",
-                intent: "appointments",
-                serviceId: "",
-                serviceName: "",
-                variantName: "",
-              },
+    const message = isAuthenticated
+      ? "Pozdrav, izvolite vaše termine."
+      : "Prijavi se da vidiš svoje termine.";
+    const blocks = [
+      isAuthenticated
+        ? {
+            type: "CalendarBlock",
+            priority: 1,
+            metadata: {
+              mode: "list",
+              appointmentListMode: "all",
+              serviceId: "",
+              serviceName: "",
+              variantName: "",
             },
-      ],
-      intent: { type: "appointments" },
-    });
+          }
+        : {
+            type: "AuthBlock",
+            priority: 1,
+            metadata: {
+              mode: "login",
+              intent: "appointments",
+              serviceId: "",
+              serviceName: "",
+              variantName: "",
+            },
+          },
+    ];
+    return streamClaudiaContract(
+      makeClaudiaContract({
+        kind: isAuthenticated ? "appointments" : "auth",
+        message,
+        workflowDomain: isAuthenticated ? "appointments" : "auth",
+        step: "appointments",
+        nextAction: isAuthenticated ? "SHOW_APPOINTMENTS" : "SHOW_AUTH",
+        intentType: "appointments",
+        blocks,
+        status: isAuthenticated ? "ready" : "waiting_for_user",
+        reason: "appointments",
+      }),
+    );
   }
 
   if (handoffPayload?.intent === "cancel_appointment") {
     const cancellableAppointments = readCancellableAppointments(handoffPayload);
     if (!isAuthenticated) {
-      return streamJson({
-        messages: [
-          {
-            role: "assistant",
-            content: "Prijavi se da možeš da otkažeš termin.",
-            attachToBlockType: "AuthBlock",
-          },
-        ],
-        layout: [
-          {
-            type: "AuthBlock",
-            priority: 1,
-            metadata: {
-              mode: "login",
-              intent: "cancel_appointment",
-              serviceId: "",
-              serviceName: "",
-              variantName: "",
+      return streamClaudiaContract(
+        makeAuthContract({
+          message: "Prijavi se da možeš da otkažeš termin.",
+          intentType: "cancel_appointment",
+          blocks: [
+            {
+              type: "AuthBlock",
+              priority: 1,
+              metadata: {
+                mode: "login",
+                intent: "cancel_appointment",
+                serviceId: "",
+                serviceName: "",
+                variantName: "",
+              },
             },
-          },
-        ],
-        intent: { type: "cancel_appointment" },
-      });
+          ],
+          step: "cancel_appointment",
+        }),
+      );
     }
     if (cancellableAppointments.length === 1) {
       const appointment = cancellableAppointments[0];
       const service = String(appointment.serviceName ?? "termin");
-      return streamJson({
-        messages: [
+      const message = `Pronašla sam termin za ${service} ${appointmentDateTimeText(appointment)}. Možeš odmah da ga otkažeš.`;
+      return streamClaudiaContract(
+        makeClaudiaContract({
+          kind: "confirmation",
+          message,
+          workflowDomain: "appointments",
+          step: "confirm_cancel_appointment",
+          nextAction: "SHOW_CANCEL_CONFIRMATION",
+          intentType: "confirm_cancel_appointment",
+          entities: { appointmentId: appointment._id },
+          blocks: [
           {
-            role: "assistant",
-            content: `Pronašla sam termin za ${service} ${appointmentDateTimeText(appointment)}. Možeš odmah da ga otkažeš.`,
-            attachToBlockType: "AppointmentCancelConfirmBlock",
-          },
-        ],
-        layout: [
-          {
-            type: "AppointmentCancelConfirmBlock",
-            priority: 1,
-            metadata: {
-              serviceId: "",
-              serviceName: service,
-              variantName: "",
-              appointmentId: appointment._id,
-              appointment,
+              type: "AppointmentCancelConfirmBlock",
+              priority: 1,
+              metadata: {
+                serviceId: "",
+                serviceName: service,
+                variantName: "",
+                appointmentId: appointment._id,
+                appointment,
+              },
             },
-          },
-        ],
-        intent: {
-          type: "confirm_cancel_appointment",
-          appointmentId: appointment._id,
-        },
-      });
+          ],
+          reason: "confirm_cancel_appointment",
+        }),
+      );
     }
     if (cancellableAppointments.length > 1 || !handoffPayload?.appointments) {
-      return streamJson({
-        messages: [
-          {
-            role: "assistant",
-            content: "Izaberi termin koji želiš da otkažeš.",
-            attachToBlockType: "CalendarBlock",
-          },
-        ],
-        layout: [
-          {
-            type: "CalendarBlock",
-            priority: 1,
-            metadata: {
-              mode: "list",
-              appointmentListMode: "can_cancel",
-              intent: "cancel_appointment",
-              serviceId: "",
-              serviceName: "",
-              variantName: "",
+      return streamClaudiaContract(
+        makeAppointmentsContract({
+          message: "Izaberi termin koji želiš da otkažeš.",
+          intentType: "cancel_appointment",
+          step: "cancel_appointment",
+          blocks: [
+            {
+              type: "CalendarBlock",
+              priority: 1,
+              metadata: {
+                mode: "list",
+                appointmentListMode: "can_cancel",
+                intent: "cancel_appointment",
+                serviceId: "",
+                serviceName: "",
+                variantName: "",
+              },
             },
-          },
-        ],
-        intent: { type: "cancel_appointment" },
-      });
+          ],
+        }),
+      );
     }
-    return streamJson({
-      messages: [
-        {
-          role: "assistant",
-          content: "Nemate termina koje trenutno možete da otkažete.",
-        },
-      ],
-      layout: [],
-      intent: { type: "cancel_appointment" },
-    });
+    return streamClaudiaContract(
+      makeClaudiaContract({
+        kind: "appointments",
+        message: "Nemate termina koje trenutno možete da otkažete.",
+        workflowDomain: "appointments",
+        step: "cancel_appointment",
+        nextAction: "NONE",
+        intentType: "cancel_appointment",
+        reason: "no_cancellable_appointments",
+      }),
+    );
   }
 
   if (handoffPayload?.intent === "update_appointment") {
     const activeAppointments = readActiveAppointments(handoffPayload);
     if (!isAuthenticated) {
-      return streamJson({
-        messages: [
-          {
-            role: "assistant",
-            content: "Prijavi se da možeš da promeniš termin.",
-            attachToBlockType: "AuthBlock",
-          },
-        ],
-        layout: [
-          {
-            type: "AuthBlock",
-            priority: 1,
-            metadata: {
-              mode: "login",
-              intent: "update_appointment",
-              serviceId: "",
-              serviceName: "",
-              variantName: "",
+      return streamClaudiaContract(
+        makeAuthContract({
+          message: "Prijavi se da možeš da promeniš termin.",
+          intentType: "update_appointment",
+          blocks: [
+            {
+              type: "AuthBlock",
+              priority: 1,
+              metadata: {
+                mode: "login",
+                intent: "update_appointment",
+                serviceId: "",
+                serviceName: "",
+                variantName: "",
+              },
             },
-          },
-        ],
-        intent: { type: "update_appointment" },
-      });
+          ],
+          step: "update_appointment",
+        }),
+      );
     }
     if (activeAppointments.length === 1) {
       const appointment = activeAppointments[0];
@@ -648,92 +906,88 @@ export async function askAgent(
         const alternatives = searchResult.results
           .filter((slot) => !salonId || slot.salonId === salonId)
           .slice(0, 3);
-        return streamJson({
-          messages: [
-            {
-              role: "assistant",
-              content:
-                alternatives.length > 0
-                  ? "Pronašla sam nekoliko slobodnih alternativa za isti termin."
-                  : "Trenutno ne vidim slobodne alternative za taj termin.",
-              attachToBlockType:
-                alternatives.length > 0 ? "AppointmentCalendarBlock" : "none",
-            },
-          ],
-          layout:
-            alternatives.length > 0
-              ? [
-                  buildAppointmentBlock({
-                    service,
-                    city,
-                    salonId: salonId || undefined,
-                    salonName: salonName || undefined,
-                    slots: alternatives,
-                  }),
-                ]
-              : [],
-          intent: {
-            type: "confirm_update_appointment",
-            appointmentId: appointment._id,
-          },
-        });
+        const blocks =
+          alternatives.length > 0
+            ? [
+                buildAppointmentBlock({
+                  service,
+                  city,
+                  salonId: salonId || undefined,
+                  salonName: salonName || undefined,
+                  slots: alternatives,
+                }),
+              ]
+            : [];
+        return streamClaudiaContract(
+          makeBookingResultContract({
+            message:
+              alternatives.length > 0
+                ? "Pronašla sam nekoliko slobodnih alternativa za isti termin."
+                : "Trenutno ne vidim slobodne alternative za taj termin.",
+            intentType: "confirm_update_appointment",
+            step: "confirm_update_appointment",
+            blocks,
+            entities: { appointmentId: appointment._id },
+            nextAction: alternatives.length > 0 ? "SHOW_SLOTS" : "NONE",
+          }),
+        );
       }
     }
 
-    return streamJson({
-      messages: [
-        {
-          role: "assistant",
-          content:
-            activeAppointments.length === 1
-              ? "Proveravam najbliže slobodne alternative za isti termin."
-              : "Izaberi termin koji želiš da promeniš.",
-          attachToBlockType: "CalendarBlock",
-        },
-      ],
-      layout: [
-        {
-          type: "CalendarBlock",
-          priority: 1,
-          metadata: {
-            mode: "list",
-            appointmentListMode: "all",
-            intent: "update_appointment",
-            serviceId: "",
-            serviceName: "",
-            variantName: "",
+    return streamClaudiaContract(
+      makeAppointmentsContract({
+        message:
+          activeAppointments.length === 1
+            ? "Proveravam najbliže slobodne alternative za isti termin."
+            : "Izaberi termin koji želiš da promeniš.",
+        intentType: "update_appointment",
+        step: "update_appointment",
+        blocks: [
+          {
+            type: "CalendarBlock",
+            priority: 1,
+            metadata: {
+              mode: "list",
+              appointmentListMode: "all",
+              intent: "update_appointment",
+              serviceId: "",
+              serviceName: "",
+              variantName: "",
+            },
           },
-        },
-      ],
-      intent: { type: "update_appointment" },
-    });
+        ],
+      }),
+    );
   }
 
   if (handoffPayload?.intent === "prices") {
     const city = asString(handoffPayload.city) ?? collectedBookingFields?.city;
     if (!city) {
-      return streamJson({
-        messages: [
-          {
-            role: "assistant",
-            content: "Za koji grad želiš da vidiš cenovnik?",
-            attachToBlockType: "CityListBlock",
-          },
-        ],
-        layout: [
-          {
-            type: "CityListBlock",
-            priority: 1,
-            metadata: {
-              serviceId: "",
-              serviceName: "",
-              variantName: "",
-              service: "",
+      return streamClaudiaContract(
+        makeClaudiaContract({
+          kind: "prices",
+          message: "Za koji grad želiš da vidiš cenovnik?",
+          workflowDomain: "prices",
+          step: "missing_city",
+          nextAction: "ASK_CLARIFICATION",
+          intentType: "prices",
+          blocks: [
+            {
+              type: "CityListBlock",
+              priority: 1,
+              metadata: {
+                serviceId: "",
+                serviceName: "",
+                variantName: "",
+                service: "",
+              },
             },
-          },
-        ],
-        intent: { type: "prices" },
-      });
+          ],
+          status: "waiting_for_user",
+          reason: "prices_missing_city",
+          missingFields: ["city"],
+        }),
+      );
     }
     // City is already known — fall through to LLM which applies CENOVNIK FLOW step 2/3
     // (booking memory section injects the city so Claudia goes straight to SalonListBlock).
@@ -752,34 +1006,102 @@ export async function askAgent(
           .map((salon) => ({ id: salon.id, name: salon.name }))
       : [];
 
-    return streamJson({
-      messages: [
-        {
-          role: "assistant",
-          content: "Izaberi salon za ovaj termin.",
-          attachToBlockType: "SalonListBlock",
-        },
-      ],
-      layout: [
-        {
-          type: "SalonListBlock",
-          priority: 1,
-          metadata: {
-            serviceId: "",
-            serviceName: service,
-            variantName: "",
-            service,
-            city,
-            salons,
+    return streamClaudiaContract(
+      makeRecoveryContract({
+        message: "Izaberi salon za ovaj termin.",
+        intentType: "recover_missing_salon",
+        step: "recover_missing_salon",
+        entities: { city, service },
+        nextAction: "SHOW_SALONS",
+        blocks: [
+          {
+            type: "SalonListBlock",
+            priority: 1,
+            metadata: {
+              serviceId: "",
+              serviceName: service,
+              variantName: "",
+              service,
+              city,
+              salons,
+            },
           },
-        },
-      ],
-      intent: { type: "recover_missing_salon", city, service },
-    });
+        ],
+      }),
+    );
   }
 
   if (handoffPayload?.intent === "booking") {
     const intent = buildIntentFromHandoff(handoffPayload, collectedBookingFields);
+    const serviceDescriptor = describeBookingService(intent.service, intent.category);
+
+    if (intent.service && !intent.city) {
+      const salons = await fetchBookingSalons();
+      const cities = matchingCityItems(salons, {
+        service: intent.service,
+        category: intent.category,
+      });
+      return streamClaudiaContract(
+        makeClaudiaContract({
+          kind: "clarification",
+          message: `U kom gradu želiš termin za ${intent.service}?`,
+          workflowDomain: "booking",
+          step: "booking_missing_city",
+          nextAction: "ASK_CLARIFICATION",
+          intentType: "booking",
+          blocks: [
+            buildCityListBlock({
+              service: intent.service,
+              category: serviceDescriptor.category,
+              cities,
+            }),
+          ],
+          entities: {
+            ...intent,
+            category: serviceDescriptor.category,
+            cities,
+          },
+          status: "waiting_for_user",
+          reason: "booking_missing_city",
+          missingFields: ["city"],
+        }),
+      );
+    }
+
+    if (intent.service && intent.city && !intent.salonId && !intent.salonName) {
+      const salons = await fetchBookingSalons();
+      const matchingSalons = matchingSalonItems(salons, {
+        city: intent.city,
+        service: intent.service,
+        category: intent.category,
+      });
+      return streamClaudiaContract(
+        makeBookingResultContract({
+          message:
+            matchingSalons.length > 0
+              ? `Dostupni saloni u ${inCity(intent.city)} za ${intent.service}.`
+              : `Nema salona za ${intent.service} u ${inCity(intent.city)}. Prikazujem najbliže dostupne opcije.`,
+          intentType: "booking",
+          step: "booking_select_salon",
+          blocks: [
+            buildSalonListBlock({
+              city: intent.city,
+              service: intent.service,
+              category: serviceDescriptor.category,
+              salons: matchingSalons,
+            }),
+          ],
+          entities: {
+            ...intent,
+            category: serviceDescriptor.category,
+            salons: matchingSalons,
+          },
+          nextAction: "SHOW_SALONS",
+          status: matchingSalons.length > 0 ? "waiting_for_user" : "ready",
+        }),
+      );
+    }
+
     console.debug("[CLAUDIA_SEARCH]", {
       originalUserMessage: userInput,
       parsedPayload: handoffPayload,
@@ -811,39 +1133,36 @@ export async function askAgent(
       selectedSlot: filtered.bestSlot,
     });
 
-    return streamJson({
-      messages: [
-        {
-          role: "assistant",
-          content: message,
-          attachToBlockType: slots.length > 0 ? "AppointmentCalendarBlock" : "none",
-        },
-      ],
-      layout:
-        slots.length > 0
-          ? [
-              buildAppointmentBlock({
-                category: intent.category,
-                subcategory: intent.subcategory,
-                service: intent.service,
-                serviceId: intent.serviceId,
-                serviceName: intent.serviceName,
-                city: intent.requestedCity ?? intent.city,
-                date: intent.date,
-                time: intent.time,
-                timeWindowStart: intent.timeWindowStart,
-                timeWindowEnd: intent.timeWindowEnd,
-                salonId: intent.salonId,
-                salonName: intent.salonName,
-                slots,
-              }),
-            ]
-          : [],
-      intent: {
-        ...intent,
-        type: "booking",
-      },
-    });
+    const blocks =
+      slots.length > 0
+        ? [
+            buildAppointmentBlock({
+              category: intent.category,
+              subcategory: intent.subcategory,
+              service: intent.service,
+              serviceId: intent.serviceId,
+              serviceName: intent.serviceName,
+              city: intent.requestedCity ?? intent.city,
+              date: intent.date,
+              time: intent.time,
+              timeWindowStart: intent.timeWindowStart,
+              timeWindowEnd: intent.timeWindowEnd,
+              salonId: intent.salonId,
+              salonName: intent.salonName,
+              slots,
+            }),
+          ]
+        : [];
+    return streamClaudiaContract(
+      makeBookingResultContract({
+        message,
+        intentType: "booking",
+        step: "booking",
+        blocks,
+        entities: { ...intent },
+        nextAction: slots.length > 0 ? "SHOW_SLOTS" : "NONE",
+      }),
+    );
   }
 
   if (handoffPayload?.intent === "select_city") {
@@ -851,33 +1170,59 @@ export async function askAgent(
     const service = String(handoffPayload.service ?? collectedBookingFields?.service ?? "");
     const date = collectedBookingFields?.date ?? "";
     const time = collectedBookingFields?.time ?? "";
+    const timeWindowStart = collectedBookingFields?.timeWindowStart;
+    const timeWindowEnd = collectedBookingFields?.timeWindowEnd;
 
     if (!service) {
-      return streamJson({
-        messages: [
-          {
-            role: "assistant",
-            content: `Izabrala si ${city}. Koju uslugu želiš da zakažeš?`,
-          },
-        ],
-        layout: [],
-        intent: { type: "select_city", city },
-      });
+      return streamClaudiaContract(
+        makeClarificationContract({
+          message: `Izabrala si ${city}. Koju uslugu želiš da zakažeš?`,
+          step: "select_city_missing_service",
+          intentType: "select_city",
+          entities: { city },
+          missingFields: ["service"],
+        }),
+      );
     }
 
-    return streamJson({
-      messages: [
-        {
-          role: "assistant",
-          content: time
-            ? `Super, tražim ${service} u ${city} oko ${time}.`
-            : `Super, tražim ${service} u ${city}.`,
-          attachToBlockType: "AppointmentCalendarBlock",
-        },
-      ],
-      layout: [buildAppointmentBlock({ service, city, date, time })],
-      intent: { type: "select_city", city, service },
+    const serviceDescriptor = describeBookingService(service, collectedBookingFields?.category);
+    const salons = await fetchBookingSalons();
+    const matchingSalons = matchingSalonItems(salons, {
+      city,
+      service,
+      category: collectedBookingFields?.category,
     });
+
+    return streamClaudiaContract(
+      makeBookingResultContract({
+        message:
+          matchingSalons.length > 0
+            ? `Dostupni saloni u ${inCity(city)} za ${service}.`
+            : `Nema salona za ${service} u ${inCity(city)}. Prikazujem najbliže dostupne opcije.`,
+        intentType: "select_city",
+        step: "select_city",
+        blocks: [
+          buildSalonListBlock({
+            city,
+            service,
+            category: serviceDescriptor.category,
+            salons: matchingSalons,
+          }),
+        ],
+        entities: {
+          city,
+          service,
+          category: serviceDescriptor.category,
+          date,
+          time,
+          timeWindowStart,
+          timeWindowEnd,
+          salons: matchingSalons,
+        },
+        nextAction: "SHOW_SALONS",
+        status: "waiting_for_user",
+      }),
+    );
   }
 
   if (handoffPayload?.intent === "select_salon") {
@@ -889,40 +1234,37 @@ export async function askAgent(
     const time = collectedBookingFields?.time ?? "";
 
     if (!service) {
-      return streamJson({
-        messages: [
-          {
-            role: "assistant",
-            content: `Izabrala si ${salonName}. Koju uslugu želiš da zakažeš?`,
-          },
-        ],
-        layout: [],
-        intent: { type: "select_salon", city, salonId, salonName },
-      });
+      return streamClaudiaContract(
+        makeClarificationContract({
+          message: `Izabrala si ${salonName}. Koju uslugu želiš da zakažeš?`,
+          step: "select_salon_missing_service",
+          intentType: "select_salon",
+          entities: { city, salonId, salonName },
+          missingFields: ["service"],
+        }),
+      );
     }
 
-    return streamJson({
-      messages: [
-        {
-          role: "assistant",
-          content: time
-            ? `Izabrala si ${salonName}. Nastavljamo sa ${service} u ${time}.`
-            : `Izabrala si ${salonName}. Nastavljamo sa ${service}.`,
-          attachToBlockType: "AppointmentCalendarBlock",
-        },
-      ],
-      layout: [
-        buildAppointmentBlock({
-          service,
-          city,
-          date,
-          time,
-          salonId,
-          salonName,
-        }),
-      ],
-      intent: { type: "select_salon", city, service, salonId, salonName },
-    });
+    return streamClaudiaContract(
+      makeBookingResultContract({
+        message: time
+          ? `Izabrala si ${salonName}. Nastavljamo sa ${service} u ${time}.`
+          : `Izabrala si ${salonName}. Nastavljamo sa ${service}.`,
+        intentType: "select_salon",
+        step: "select_salon",
+        blocks: [
+          buildAppointmentBlock({
+            service,
+            city,
+            date,
+            time,
+            salonId,
+            salonName,
+          }),
+        ],
+        entities: { city, service, salonId, salonName },
+      }),
+    );
   }
 
   if (
@@ -930,34 +1272,31 @@ export async function askAgent(
     handoffPayload?.intent === "login_for_booking"
   ) {
     const selectedSlot = handoffPayload.selectedSlot as SearchResult | undefined;
-    const body = {
-      messages: [
-        {
-          role: "assistant",
-          content:
-            handoffPayload.intent === "login_for_booking"
-              ? "Prijavi se da nastavimo sa zakazivanjem."
-              : "Prijavi se da nastavimo.",
-          attachToBlockType: "AuthBlock",
-        },
-      ],
-      layout: [
-        {
-          type: "AuthBlock",
-          priority: 1,
-          metadata: {
-            mode: "login",
-            serviceId: "",
-            serviceName: "",
-            variantName: "",
-            selectedSlot,
-          },
-        },
-      ],
-      intent: { type: handoffPayload.intent },
-    };
+    const message =
+      handoffPayload.intent === "login_for_booking"
+        ? "Prijavi se da nastavimo sa zakazivanjem."
+        : "Prijavi se da nastavimo.";
 
-    return streamJson(body);
+    return streamClaudiaContract(
+      makeAuthContract({
+        message,
+        intentType: String(handoffPayload.intent),
+        blocks: [
+        {
+            type: "AuthBlock",
+            priority: 1,
+            metadata: {
+              mode: "login",
+              serviceId: "",
+              serviceName: "",
+              variantName: "",
+              selectedSlot,
+            },
+          },
+        ],
+        step: String(handoffPayload.intent),
+      }),
+    );
   }
 
   if (handoffPayload?.intent === "resume_booking_after_login") {
@@ -968,18 +1307,8 @@ export async function askAgent(
       authState: { isAuthenticated, userName },
       restoredBookingState: handoffPayload,
     });
-    const body = {
-      messages: [
-        {
-          role: "assistant",
-          content: selectedSlot
-            ? "Uspešno si prijavljena. Nastavljamo sa zakazivanjem."
-            : "Uspešno si prijavljena.",
-          attachToBlockType: selectedSlot ? "AppointmentCalendarBlock" : "none",
-        },
-      ],
-      layout: selectedSlot
-        ? [
+    const blocks = selectedSlot
+      ? [
             {
               type: "AppointmentCalendarBlock",
               priority: 1,
@@ -1001,11 +1330,19 @@ export async function askAgent(
               },
             },
           ]
-        : [],
-      intent: { type: "resume_booking_after_login" },
-    };
+      : [];
 
-    return streamJson(body);
+    return streamClaudiaContract(
+      makeBookingResultContract({
+        message: selectedSlot
+          ? "Uspešno si prijavljena. Nastavljamo sa zakazivanjem."
+          : "Uspešno si prijavljena.",
+        intentType: "resume_booking_after_login",
+        step: "resume_booking_after_login",
+        blocks,
+        nextAction: selectedSlot ? "SHOW_SLOTS" : "NONE",
+      }),
+    );
   }
 
   if (handoffPayload?.intent === "create_booking") {
@@ -1017,18 +1354,8 @@ export async function askAgent(
       authState: { isAuthenticated, userName },
       restoredBookingState: handoffPayload,
     });
-    const body = {
-      messages: [
-        {
-          role: "assistant",
-          content: contact?.name
-            ? `Spremno. Proveri podatke za termin za ${contact.name}.`
-            : "Spremno. Proveri podatke za termin.",
-          attachToBlockType: "AppointmentCalendarBlock",
-        },
-      ],
-      layout: selectedSlot
-        ? [
+    const blocks = selectedSlot
+      ? [
             {
               type: "AppointmentCalendarBlock",
               priority: 1,
@@ -1053,11 +1380,19 @@ export async function askAgent(
               },
             },
           ]
-        : [],
-      intent: { type: "create_booking" },
-    };
+      : [];
 
-    return streamJson(body);
+    return streamClaudiaContract(
+      makeBookingResultContract({
+        message: contact?.name
+          ? `Spremno. Proveri podatke za termin za ${contact.name}.`
+          : "Spremno. Proveri podatke za termin.",
+        intentType: "create_booking",
+        step: "create_booking",
+        blocks,
+        nextAction: selectedSlot ? "SHOW_SLOTS" : "NONE",
+      }),
+    );
   }
 
   if (handoffPayload?.intent === "booking_conflict") {
@@ -1139,38 +1474,37 @@ export async function askAgent(
       ? `Taj termin je u međuvremenu zauzet. Najbliži slobodan termin je ${dayLabel} u ${first.timeLabel} u ${first.salonName}. Želiš da ga rezervišem?`
       : "Taj termin je u međuvremenu zauzet. Nema više slobodnih termina za danas u ovom salonu. Mogu da proverim drugi dan ili drugu uslugu.";
 
-    return streamJson({
-      messages: [
-        {
-          role: "assistant",
-          content: message,
-          attachToBlockType:
-            alternatives.length > 0 ? "AppointmentCalendarBlock" : "none",
+    const blocks =
+      alternatives.length > 0
+        ? [
+            buildAppointmentBlock({
+              service,
+              city,
+              salonId: sameSalonSlots.length > 0 ? originalSalonId : undefined,
+              salonName: sameSalonSlots.length > 0 ? originalSalonName : undefined,
+              date: conflictDate,
+              timeWindowStart: conflictHour + 1,
+              timeWindowEnd: null,
+              slots: alternatives,
+            }),
+          ]
+        : [];
+
+    return streamClaudiaContract(
+      makeRecoveryContract({
+        message,
+        intentType: "booking_conflict",
+        step: "slot_taken",
+        blocks,
+        entities: {
+          service,
+          city,
+          salonId: originalSalonId,
+          salonName: originalSalonName,
         },
-      ],
-      layout:
-        alternatives.length > 0
-          ? [
-              buildAppointmentBlock({
-                service,
-                city,
-                salonId: sameSalonSlots.length > 0 ? originalSalonId : undefined,
-                salonName: sameSalonSlots.length > 0 ? originalSalonName : undefined,
-                date: conflictDate,
-                timeWindowStart: conflictHour + 1,
-                timeWindowEnd: null,
-                slots: alternatives,
-              }),
-            ]
-          : [],
-      intent: {
-        type: "booking_conflict",
-        service,
-        city,
-        salonId: originalSalonId,
-        salonName: originalSalonName,
-      },
-    });
+        status: alternatives.length > 0 ? "ready" : "waiting_for_user",
+      }),
+    );
   }
 
   const { salonsText, servicesText, citiesText, categoriesText } =

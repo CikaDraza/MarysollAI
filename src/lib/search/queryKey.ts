@@ -28,7 +28,7 @@ export interface SearchQueryKeyInput {
   date?: string;
   time?: string;
   timeWindowStart?: number;
-  timeWindowEnd?: number;
+  timeWindowEnd?: number | null;
   lat?: number;
   lng?: number;
 }

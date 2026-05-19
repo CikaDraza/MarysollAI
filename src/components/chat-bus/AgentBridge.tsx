@@ -14,6 +14,11 @@
 
 import { ReactNode, useEffect, useRef } from "react";
 import { chatEvents, isAgentCallEvent } from "@/lib/ai/events/chatEvents";
+import { isSystemActionEvent } from "@/lib/ai/events/chat-event-types";
+import {
+  logSystemActionEvent,
+  systemActionToAgentRequest,
+} from "@/lib/ai/events/systemActionDispatcher";
 import { useAIQuery } from "@/hooks/useAIQuery";
 import { useAuthActions } from "@/hooks/useAuthActions";
 import { ThreadItem } from "@/types/ai/chat-thread";
@@ -34,6 +39,7 @@ interface AgentBridgeProps {
         userName: string;
       };
       handoffPayload?: Record<string, unknown>;
+      suppressUserMessage?: boolean;
     },
   ) => Promise<void>;
 }
@@ -185,6 +191,73 @@ export function AgentBridge({ children, claudiaAskAI }: AgentBridgeProps) {
         );
       } catch (error) {
         console.error("[AgentBridge] handoff failed:", error);
+      } finally {
+        isProcessingRef.current = false;
+      }
+    });
+
+    return unsubscribe;
+  }, [askAI, ensureFreshAuth]);
+
+  useEffect(() => {
+    const unsubscribe = chatEvents.subscribe("system_action", async (event) => {
+      if (!isSystemActionEvent(event) || isProcessingRef.current) return;
+
+      const agentRequest = systemActionToAgentRequest(event);
+      if (!event.notifyAgent || !agentRequest) {
+        logSystemActionEvent("[EVENT_IGNORED]", event, {
+          reason: !event.notifyAgent ? "notifyAgent_false" : "no_agent_mapping",
+        });
+        return;
+      }
+
+      isProcessingRef.current = true;
+
+      try {
+        logSystemActionEvent("[EVENT_ROUTED]", event, {
+          targetAgent: agentRequest.agentType,
+          intent: agentRequest.handoffPayload.intent,
+        });
+
+        const requiresFreshAuth =
+          agentRequest.handoffPayload.intent === "appointments" ||
+          agentRequest.handoffPayload.intent === "cancel_appointment" ||
+          agentRequest.handoffPayload.intent === "update_appointment" ||
+          agentRequest.handoffPayload.intent === "create_booking" ||
+          agentRequest.handoffPayload.intent === "resume_booking_after_login";
+        let authSnapshot = authRef.current;
+
+        if (requiresFreshAuth) {
+          const freshUser = await ensureFreshAuth();
+          authSnapshot = {
+            isAuthenticated: !!freshUser,
+            userName: freshUser?.name || "Gost",
+          };
+          authRef.current = authSnapshot;
+        }
+
+        await handleMariaResponse(
+          {
+            type: "handoff",
+            message: "",
+            targetAgent: agentRequest.agentType as MariaTargetAgent,
+            payload: agentRequest.handoffPayload,
+          },
+          {
+            userMessage: agentRequest.input,
+            invokeClaudia: async (_input, payload) => {
+              await askAI(agentRequest.input, {
+                context: [],
+                preserveHistory: true,
+                explicitAuth: authSnapshot,
+                handoffPayload: payload,
+                suppressUserMessage: true,
+              });
+            },
+          },
+        );
+      } catch (error) {
+        console.error("[AgentBridge] system action failed:", error);
       } finally {
         isProcessingRef.current = false;
       }

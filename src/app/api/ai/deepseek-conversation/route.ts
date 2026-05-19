@@ -1,8 +1,25 @@
 // app/api/ai/deepseek-conversation/route.ts
-import { NextResponse } from "next/server";
+//
+// Phase B (Maria-side SSE) — Server-Sent Events boundary for Maria's reply.
+//
+// Every response, whether from a hardcoded preflight branch or from the
+// real DeepSeek LLM fallback, is emitted as an SSE stream with two event
+// types:
+//   { type: "token", delta: string }  — incremental text chunk
+//   { type: "done",  payload: {...} } — final metadata (same shape that
+//                                       was previously returned via JSON)
+//
+// Preflight branches emit one token event with the full content (one chunk)
+// followed by done. The DeepSeek fallback path proxies real token deltas
+// from DeepSeek's own SSE stream so the user sees Maria's reply build
+// token-by-token in real time.
 import { Message } from "@/types/ai/deepseek";
 import { fetchPlatformKnowledge } from "@/lib/ai/platform-knowledge";
-import { parseMariaResponse } from "@/lib/ai/schemas/maria.schema";
+import {
+  mariaContractToLegacyResponse,
+  parseMariaContract,
+  type MariaContract,
+} from "@/lib/ai/schemas/maria-contract.schema";
 import { extractBookingIntentFromConversation } from "@/lib/ai/extractBookingIntentFromConversation";
 import { detectCityAvailabilityQuestion } from "@/lib/ai/detectCityAvailabilityQuestion";
 import { detectSlotSelectionIntent } from "@/lib/ai/detectSlotSelectionIntent";
@@ -38,6 +55,135 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
   });
 }
 
+const SSE_HEADERS = {
+  "Content-Type": "text/event-stream; charset=utf-8",
+  "Cache-Control": "no-cache, no-transform",
+  Connection: "keep-alive",
+  // Disable proxy buffering (nginx/Vercel) so chunks reach the client live.
+  "X-Accel-Buffering": "no",
+} as const;
+
+/** Format a JSON object as an SSE `data:` frame (terminated by blank line). */
+function sseFrame(data: unknown): string {
+  return `data: ${JSON.stringify(data)}\n\n`;
+}
+
+interface FinalMariaPayload {
+  ok: boolean;
+  message: string;
+  intent?: StructuredBookingIntent;
+  recoveryState?: unknown;
+  slots?: unknown[];
+  suggestions?: unknown[];
+  selectedSlot?: SearchResult;
+  aiBookingState?: AiBookingState;
+  pendingContact?: AiBookingContact;
+  aiDebug?: Record<string, unknown>;
+  error?: string;
+  choices: Array<{ message: { content: string } }>;
+  usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
+  model: string;
+}
+
+/** One-shot SSE response: emits the full Maria content as a single token
+ * event, then the metadata payload, then closes. All preflight branches go
+ * through this path so the client only ever needs to parse SSE — no
+ * branching on Content-Type. */
+function streamingResponseFromPayload(payload: FinalMariaPayload): Response {
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      const encoder = new TextEncoder();
+      const content = payload.choices[0]?.message?.content ?? "";
+      controller.enqueue(
+        encoder.encode(sseFrame({ type: "token", delta: content })),
+      );
+      controller.enqueue(
+        encoder.encode(sseFrame({ type: "done", payload })),
+      );
+      controller.close();
+    },
+  });
+  return new Response(stream, { headers: SSE_HEADERS });
+}
+
+/** Proxy a DeepSeek SSE stream as our own SSE protocol. Forwards each
+ * `delta.content` chunk as a `token` event and accumulates the full content
+ * so the caller can validate it against the Maria contract before emitting
+ * the final `done` event. */
+async function streamingResponseFromDeepSeek(
+  deepseekResponse: Response,
+  buildFinalPayload: (
+    accumulatedContent: string,
+    usage: FinalMariaPayload["usage"],
+    model: string,
+  ) => FinalMariaPayload,
+): Promise<Response> {
+  if (!deepseekResponse.body) {
+    throw new Error("DeepSeek response has no body to stream");
+  }
+  const upstream = deepseekResponse.body.getReader();
+  const encoder = new TextEncoder();
+  const decoder = new TextDecoder();
+
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      let buffer = "";
+      let accumulated = "";
+      let usage: FinalMariaPayload["usage"] = {
+        prompt_tokens: 0,
+        completion_tokens: 0,
+        total_tokens: 0,
+      };
+      let model = "deepseek-chat";
+
+      try {
+        while (true) {
+          const { value, done } = await upstream.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          // DeepSeek emits OpenAI-compatible SSE: "data: {...}\n\n" frames.
+          const frames = buffer.split("\n\n");
+          buffer = frames.pop() ?? "";
+          for (const frame of frames) {
+            const line = frame.trim();
+            if (!line.startsWith("data:")) continue;
+            const data = line.slice(5).trim();
+            if (!data || data === "[DONE]") continue;
+            let parsed: {
+              choices?: Array<{ delta?: { content?: string } }>;
+              usage?: FinalMariaPayload["usage"];
+              model?: string;
+            };
+            try {
+              parsed = JSON.parse(data);
+            } catch {
+              continue;
+            }
+            const delta = parsed.choices?.[0]?.delta?.content;
+            if (typeof delta === "string" && delta.length > 0) {
+              accumulated += delta;
+              controller.enqueue(
+                encoder.encode(sseFrame({ type: "token", delta })),
+              );
+            }
+            if (parsed.usage) usage = parsed.usage;
+            if (parsed.model) model = parsed.model;
+          }
+        }
+      } finally {
+        upstream.releaseLock();
+      }
+
+      const finalPayload = buildFinalPayload(accumulated, usage, model);
+      controller.enqueue(
+        encoder.encode(sseFrame({ type: "done", payload: finalPayload })),
+      );
+      controller.close();
+    },
+  });
+  return new Response(stream, { headers: SSE_HEADERS });
+}
+
 function responseFromAssistant(params: {
   message: string;
   intent?: StructuredBookingIntent;
@@ -60,7 +206,7 @@ function responseFromAssistant(params: {
     ...(params.payload ? { payload: params.payload } : {}),
   };
 
-  return NextResponse.json({
+  return streamingResponseFromPayload({
     ok: !params.error,
     message: params.message,
     intent: params.intent,
@@ -76,6 +222,246 @@ function responseFromAssistant(params: {
     usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
     model: "marysoll-search-orchestrator",
   });
+}
+
+function shouldLogMariaContract(): boolean {
+  return process.env.NODE_ENV !== "production";
+}
+
+function logMariaContract(contract: MariaContract): void {
+  if (!shouldLogMariaContract()) return;
+  console.debug("[MARIA_CONTRACT]", {
+    kind: contract.kind,
+    domain: contract.intent.domain,
+    action: contract.intent.action,
+    confidence: contract.intent.confidence,
+    shouldHandoff: contract.routing.shouldHandoff,
+    targetAgent: contract.routing.targetAgent,
+    reason: contract.routing.reason,
+    entityKeys: Object.keys(contract.intent.entities),
+    missingFields: contract.intent.missingFields,
+  });
+}
+
+function logLegacyAdapter(contract: MariaContract, legacy: ReturnType<typeof mariaContractToLegacyResponse>): void {
+  if (!shouldLogMariaContract()) return;
+  console.debug("[MARIA_LEGACY_ADAPTER]", {
+    kind: contract.kind,
+    domain: contract.intent.domain,
+    action: contract.intent.action,
+    legacyType: legacy.type,
+    legacyTargetAgent: legacy.targetAgent,
+    payloadKeys: legacy.payload ? Object.keys(legacy.payload) : [],
+  });
+}
+
+function responseFromContract(
+  contract: MariaContract,
+  params: Omit<
+    Parameters<typeof responseFromAssistant>[0],
+    "message" | "mariaType" | "targetAgent" | "payload"
+  > & { legacyPayload?: Record<string, unknown> } = {},
+) {
+  const legacy = mariaContractToLegacyResponse(contract);
+  const { legacyPayload, ...responseParams } = params;
+  const payload =
+    legacy.payload || legacyPayload
+      ? {
+          ...(legacy.payload ?? {}),
+          ...(legacyPayload ?? {}),
+        }
+      : undefined;
+  logMariaContract(contract);
+  logLegacyAdapter(contract, legacy);
+  return responseFromAssistant({
+    ...responseParams,
+    message: contract.message,
+    mariaType: legacy.type,
+    targetAgent: legacy.targetAgent,
+    payload,
+  });
+}
+
+function buildMariaContract(input: {
+  kind: MariaContract["kind"];
+  message: string;
+  domain: MariaContract["intent"]["domain"];
+  action: MariaContract["intent"]["action"];
+  confidence: number;
+  entities?: MariaContract["intent"]["entities"];
+  missingFields?: string[];
+  shouldHandoff: boolean;
+  targetAgent: MariaContract["routing"]["targetAgent"];
+  reason: string;
+}): MariaContract {
+  return {
+    kind: input.kind,
+    message: input.message,
+    intent: {
+      domain: input.domain,
+      action: input.action,
+      confidence: input.confidence,
+      entities: input.entities ?? {},
+      missingFields: input.missingFields ?? [],
+    },
+    routing: {
+      shouldHandoff: input.shouldHandoff,
+      targetAgent: input.targetAgent,
+      reason: input.reason,
+    },
+  };
+}
+
+function normalizeForIntent(text: string): string {
+  return text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
+function entitiesFromIntent(intent?: StructuredBookingIntent): MariaContract["intent"]["entities"] {
+  if (!intent) return {};
+  return {
+    city: intent.city,
+    requestedCity: intent.requestedCity,
+    service: intent.service,
+    serviceId: intent.serviceId,
+    serviceName: intent.serviceName,
+    category: intent.category,
+    subcategory: intent.subcategory,
+    salonId: intent.salonId,
+    salonName: intent.salonName,
+    date: intent.date,
+    dateMode: intent.dateMode,
+    time: intent.time,
+    timeWindowStart: intent.timeWindowStart,
+    timeWindowEnd: intent.timeWindowEnd,
+  };
+}
+
+function detectDeterministicFaq(text: string): MariaContract | null {
+  const normalized = normalizeForIntent(text);
+
+  if (/\b(kako mogu da zakazem|kako da zakazem|kako zakazati)\b/.test(normalized)) {
+    return buildMariaContract({
+      kind: "faq_answer",
+      message:
+        "Napiši uslugu, grad i okvirno vreme, na primer: Feniranje u Novom Sadu posle 13h.",
+      domain: "faq",
+      action: "answer_question",
+      confidence: 0.98,
+      shouldHandoff: false,
+      targetAgent: "maria",
+      reason: "faq_how_to_book",
+    });
+  }
+
+  if (
+    /\b(da li|jel|je l|moram|treba li|mogu li)\b/.test(normalized) &&
+    /\b(registr\w*|nalog|kao gost|bez registr\w*)\b/.test(normalized) &&
+    /\b(zakaz\w*|termin|rezervis\w*)\b/.test(normalized)
+  ) {
+    return buildMariaContract({
+      kind: "faq_answer",
+      message:
+        "Ne moraš. Možeš zakazati kao gost, ali nalog ti omogućava lakši pregled, izmenu i otkazivanje termina.",
+      domain: "faq",
+      action: "answer_question",
+      confidence: 0.98,
+      shouldHandoff: false,
+      targetAgent: "maria",
+      reason: "faq_guest_booking",
+    });
+  }
+
+  if (
+    /\b(kako|sta|sto|koliko)\b/.test(normalized) &&
+    /\b(otkaz|otkazem|otkazivanje)\b/.test(normalized)
+  ) {
+    return buildMariaContract({
+      kind: "faq_answer",
+      message:
+        "Termin možeš otkazati iz pregleda svojih termina kada si prijavljena, a ako ti treba pomoć samo mi reci koji termin želiš da otkažeš.",
+      domain: "faq",
+      action: "answer_question",
+      confidence: 0.96,
+      shouldHandoff: false,
+      targetAgent: "maria",
+      reason: "faq_cancel_how",
+    });
+  }
+
+  if (
+    /\b(kako|sta|sto)\b/.test(normalized) &&
+    /\b(promen|pomeri|izmen|reschedule)\b/.test(normalized)
+  ) {
+    return buildMariaContract({
+      kind: "faq_answer",
+      message:
+        "Promenu termina možeš pokrenuti iz svojih termina, a Claudia će ponuditi najbliže slobodne alternative.",
+      domain: "faq",
+      action: "answer_question",
+      confidence: 0.96,
+      shouldHandoff: false,
+      targetAgent: "maria",
+      reason: "faq_reschedule_how",
+    });
+  }
+
+  if (
+    /\b(sta|sto|kako|ako)\b/.test(normalized) &&
+    /\b(zauzet|zauzme|konflikt|nema vise)\b/.test(normalized) &&
+    /\b(termin|slot)\b/.test(normalized)
+  ) {
+    return buildMariaContract({
+      kind: "faq_answer",
+      message:
+        "Ako se termin zauzme pre potvrde, Claudia će odmah ponuditi najbliže slobodne alternative.",
+      domain: "faq",
+      action: "answer_question",
+      confidence: 0.97,
+      shouldHandoff: false,
+      targetAgent: "maria",
+      reason: "faq_slot_taken",
+    });
+  }
+
+  if (
+    /\b(kako|sta|objasni)\b/.test(normalized) &&
+    /\b(obavesti|notifik|lista cekanja|waiting list|notify)\b/.test(normalized)
+  ) {
+    return buildMariaContract({
+      kind: "faq_answer",
+      message:
+        "Možeš ostaviti zahtev za obaveštenje, pa ćemo te javiti kada se pojavi slobodan termin koji odgovara tvom izboru.",
+      domain: "faq",
+      action: "answer_question",
+      confidence: 0.95,
+      shouldHandoff: false,
+      targetAgent: "maria",
+      reason: "faq_notify_me",
+    });
+  }
+
+  if (
+    /\b(kako|sta|kada|da li)\b/.test(normalized) &&
+    /\b(potvrd|odobren|odobrav|confirm)\b/.test(normalized) &&
+    /\b(termin|rezerv)\b/.test(normalized)
+  ) {
+    return buildMariaContract({
+      kind: "faq_answer",
+      message:
+        "Posle slanja zahteva salon potvrđuje termin, a status možeš pratiti kroz svoje termine ako si prijavljena.",
+      domain: "faq",
+      action: "answer_question",
+      confidence: 0.94,
+      shouldHandoff: false,
+      targetAgent: "maria",
+      reason: "faq_confirmations",
+    });
+  }
+
+  return null;
 }
 
 const CONTACT_FLOW_STATES: AiBookingState[] = [
@@ -114,6 +500,13 @@ function getAppointmentManagementIntent(
 function isPricesIntent(text: string): boolean {
   const normalized = text.toLowerCase();
   return /\b(cenovnik|cene|cena|koliko košta|koliko kosta|price list)\b/.test(normalized);
+}
+
+function isNotifyMeIntent(text: string): boolean {
+  const normalized = normalizeForIntent(text);
+  return /\b(obavesti me|javi mi|notify me|lista cekanja|kad bude slobod|kada bude slobod)\b/.test(
+    normalized,
+  );
 }
 
 function isBookingHelpIntent(text: string): boolean {
@@ -216,54 +609,95 @@ ${categoriesText}
 Tvoj odgovor mora biti ISKLJUČIVO validan JSON objekat. Bez teksta van JSON-a.
 Bez markdown blokova. Bez code fence. Bez objašnjenja.
 
-## Šema (ISTA polja za sve odgovore):
+## Canonical MariaContract šema:
 {
-  "type": "answer" | "handoff",
+  "kind": "faq_answer" | "intent" | "clarification" | "unknown",
   "message": "kratka rečenica korisniku",
-  "targetAgent": "booking" | "auth" | "prices" | "appointments" | "testimonials" | "none",
-  "payload": { "intent": "...", "category": "...", "subcategory": "...", "service": "...", "serviceId": "...", "serviceName": "...", "city": "...", "salonId": "...", "salonName": "...", "date": "YYYY-MM-DD", "time": "HH:MM", "timeWindowStart": 15, "timeWindowEnd": null }
+  "intent": {
+    "domain": "faq" | "booking" | "appointments" | "auth" | "prices" | "reviews" | "notify_me" | "cancel" | "reschedule" | "unknown",
+    "action": "answer_question" | "search_slots" | "book_slot" | "view_appointments" | "cancel_appointment" | "reschedule_appointment" | "show_prices" | "login" | "register" | "create_notify_watch" | "clarify" | "none",
+    "confidence": 0.0,
+    "entities": {
+      "city": "...",
+      "requestedCity": "...",
+      "service": "...",
+      "serviceId": "...",
+      "serviceName": "...",
+      "category": "...",
+      "subcategory": "...",
+      "salonId": "...",
+      "salonName": "...",
+      "date": "YYYY-MM-DD",
+      "dateMode": "tomorrow",
+      "time": "HH:MM",
+      "timeWindowStart": 15,
+      "timeWindowEnd": null
+    },
+    "missingFields": []
+  },
+  "routing": {
+    "shouldHandoff": true,
+    "targetAgent": "maria" | "claudia" | "auth" | "none",
+    "reason": "kratak razlog"
+  }
 }
 
 ## Pravila:
-- "answer" → targetAgent UVEK "none". Payload se ignoriše.
-- "handoff" → targetAgent OBAVEZNO jedan od: booking, auth, prices, appointments, testimonials.
-- "payload" je opcionalno; popuni samo polja koja korisnik EKSPLICITNO pomenuo.
+- FAQ / informativno pitanje → kind "faq_answer", domain "faq", action "answer_question", routing.shouldHandoff false, targetAgent "maria".
+- Booking/search/cancel/reschedule/appointments/prices/notify_me → kind "intent"; shouldHandoff true kada je potreban specijalista.
+- Auth/login/register → routing.targetAgent "auth".
+- Unknown ili nejasno → kind "clarification" ili "unknown", action "clarify", shouldHandoff false.
+- entities popuni samo poljima koja korisnik EKSPLICITNO pomene ili koja se pouzdano izvuku iz konteksta.
 - Ako korisnik kaže "posle 15h", popuni "timeWindowStart":15 i "timeWindowEnd":null. Ne pretvaraj to samo u "time":"15:00".
 - "message" je UVEK kratka rečenica (1 rečenica) na jeziku korisnika.
+- "confidence" je broj od 0 do 1.
 
 ## Primeri
 
-Direktan odgovor (FAQ):
-{"type":"answer","message":"Radimo u Novom Sadu i Beogradu.","targetAgent":"none"}
+FAQ:
+{"kind":"faq_answer","message":"Ne moraš. Možeš zakazati kao gost, ali nalog ti omogućava lakši pregled, izmenu i otkazivanje termina.","intent":{"domain":"faq","action":"answer_question","confidence":0.98,"entities":{},"missingFields":[]},"routing":{"shouldHandoff":false,"targetAgent":"maria","reason":"faq_guest_booking"}}
 
-Handoff (booking):
-{"type":"handoff","message":"Tražim slobodne termine za tebe.","targetAgent":"booking","payload":{"intent":"booking","service":"šišanje","date":"2026-05-11"}}
+Booking/search:
+{"kind":"intent","message":"Tražim slobodne termine za tebe.","intent":{"domain":"booking","action":"search_slots","confidence":0.95,"entities":{"service":"šišanje","date":"2026-05-11"},"missingFields":[]},"routing":{"shouldHandoff":true,"targetAgent":"claudia","reason":"booking_search"}}
 
-Handoff (termini):
-{"type":"handoff","message":"U redu, zovem Claudiu za termine.","targetAgent":"appointments"}
+Appointments:
+{"kind":"intent","message":"U redu, zovem Claudiu za termine.","intent":{"domain":"appointments","action":"view_appointments","confidence":0.95,"entities":{},"missingFields":[]},"routing":{"shouldHandoff":true,"targetAgent":"claudia","reason":"appointments_view"}}
 
 --------------------------------------------------
 # AGENT HANDOFF — KADA KORISTITI
 
+## FAQ / INFORMACIONA PITANJA — PRIORITET #1
+Ako korisnik pita kako nešto funkcioniše, odgovori direktno i NE radi handoff.
+Primeri:
+- "Kako mogu da zakažem termin?"
+- "Da li moram da se registrujem da bih zakazala termin?"
+- "Da li mogu kao gost da zakažem?"
+- "Šta se desi ako je termin zauzet?"
+- "Kako mogu da otkažem termin?"
+
 ## TERMINI
 Prepoznaješ: "moji termini", "šta sam zakazala", "reservations", "zakazano", "mogu li da vidim moje termine", "da li mogu da vidim moje termine", "pogledaj moje termine", "da li mi je termin odobren", "status termina", "da li je termin potvrđen", "čekam potvrdu", "je li moj termin odobren"
-→ {"type":"handoff","message":"U redu, zovem Claudiu za termine.","targetAgent":"appointments"}
+→ domain "appointments", action "view_appointments", shouldHandoff true, targetAgent "claudia"
 
 ## BOOKING
-Prepoznaješ: "zakaži", "termin", "slobodan termin", "rezerviši", "booking", "sutra", "danas", "posle Xh", "hitno"
-→ {"type":"handoff","message":"Tražim slobodne termine za tebe.","targetAgent":"booking","payload":{"intent":"booking"}}
+Prepoznaješ jasnu nameru zakazivanja: "zakaži mi", "hoću termin za", "rezerviši", usluga + grad/datum/vreme, "sutra posle Xh", "hitno"
+→ domain "booking", action "search_slots", shouldHandoff true, targetAgent "claudia"
 
 ## LOGIN / REGISTRACIJA
 Prepoznaješ: "login", "prijavi me", "napravi nalog", "registracija", "uloguj", "zaboravio lozinku"
-→ {"type":"handoff","message":"Otvaramo prijavu.","targetAgent":"auth"}
+→ domain "auth", action "login" ili "register", shouldHandoff true, targetAgent "auth"
 
 ## CENOVNIK
 Prepoznaješ: "cenovnik", "koliko košta", "cene", "price list", "šta košta"
-→ {"type":"handoff","message":"Otvaramo cenovnik.","targetAgent":"prices"}
+→ domain "prices", action "show_prices", shouldHandoff true, targetAgent "claudia"
 
 ## UTISCI
 Prepoznaješ: "utisci", "review", "komentar", "ocena"
-→ {"type":"handoff","message":"Otvaramo utiske.","targetAgent":"testimonials"}
+→ domain "reviews", action "answer_question" ili "none", shouldHandoff true ako treba blok, targetAgent "claudia"
+
+## OBAVESTI ME / LISTA ČEKANJA
+Prepoznaješ: "obavesti me", "javi mi kad bude slobodno", "lista čekanja", "notify me"
+→ domain "notify_me", action "create_notify_watch", shouldHandoff true, targetAgent "claudia"
 
 --------------------------------------------------
 # DIREKTNI ODGOVORI (answer)
@@ -324,22 +758,13 @@ export async function POST(req: Request) {
       [...conversationMessages].reverse().find((message) => message.role === "user")?.content ?? "";
     const aiBookingStateBefore = aiBookingState ?? "idle";
 
-    if (isAuthIntent(latestUserText)) {
-      return responseFromAssistant({
-        message: selectedSlot
-          ? "Otvaram prijavu da nastavimo zakazivanje tog termina."
-          : "Otvaram prijavu.",
+    const faqContract = detectDeterministicFaq(latestUserText);
+    if (faqContract) {
+      return responseFromContract(faqContract, {
         intent: lastIntent,
         selectedSlot,
         aiBookingState: aiBookingStateBefore,
         pendingContact,
-        mariaType: "handoff",
-        targetAgent: "auth",
-        payload: {
-          intent: selectedSlot ? "login_for_booking" : "login",
-          selectedSlot,
-          aiBookingState: aiBookingStateBefore,
-        },
         aiDebug: {
           rawExtractedIntent: undefined,
           mergedIntent: lastIntent,
@@ -349,28 +774,41 @@ export async function POST(req: Request) {
           contactDetected: false,
           aiBookingStateBefore,
           aiBookingStateAfter: aiBookingStateBefore,
-          skippedSearchReason: "auth_intent_preflight",
-          handoffTriggered: true,
-          targetAgent: "auth",
-          replyMode: "auth_handoff",
+          skippedSearchReason: faqContract.routing.reason,
+          handoffTriggered: false,
+          targetAgent: "none",
+          replyMode: "maria_contract_faq",
+          mariaContract: faqContract,
         },
       });
     }
 
     const appointmentManagementIntent = getAppointmentManagementIntent(latestUserText);
     if (appointmentManagementIntent) {
-      return responseFromAssistant({
+      const contract = buildMariaContract({
+        kind: "intent",
         message:
           appointmentManagementIntent === "cancel_appointment"
             ? "U redu, proveravam koji termin želite da otkažete."
             : "U redu, proveravam koji termin želite da promenite.",
+        domain:
+          appointmentManagementIntent === "cancel_appointment"
+            ? "cancel"
+            : "reschedule",
+        action:
+          appointmentManagementIntent === "cancel_appointment"
+            ? "cancel_appointment"
+            : "reschedule_appointment",
+        confidence: 0.95,
+        shouldHandoff: true,
+        targetAgent: "claudia",
+        reason: `${appointmentManagementIntent}_preflight`,
+      });
+      return responseFromContract(contract, {
         intent: lastIntent,
         selectedSlot,
         aiBookingState: aiBookingStateBefore,
         pendingContact,
-        mariaType: "handoff",
-        targetAgent: "appointments",
-        payload: { intent: appointmentManagementIntent },
         aiDebug: {
           rawExtractedIntent: undefined,
           mergedIntent: lastIntent,
@@ -384,20 +822,64 @@ export async function POST(req: Request) {
           handoffTriggered: true,
           targetAgent: "appointments",
           replyMode: appointmentManagementIntent,
+          mariaContract: contract,
+        },
+      });
+    }
+
+    if (isAuthIntent(latestUserText)) {
+      const contract = buildMariaContract({
+        kind: "intent",
+        message: selectedSlot
+          ? "Otvaram prijavu da nastavimo zakazivanje tog termina."
+          : "Otvaram prijavu.",
+        domain: "auth",
+        action: "login",
+        confidence: 0.95,
+        entities: selectedSlot ? { selectedSlot } : {},
+        shouldHandoff: true,
+        targetAgent: "auth",
+        reason: "auth_intent_preflight",
+      });
+      return responseFromContract(contract, {
+        intent: lastIntent,
+        selectedSlot,
+        aiBookingState: aiBookingStateBefore,
+        pendingContact,
+        aiDebug: {
+          rawExtractedIntent: undefined,
+          mergedIntent: lastIntent,
+          lastIntent,
+          lastRecoveryState,
+          selectedSlotExists: Boolean(selectedSlot),
+          contactDetected: false,
+          aiBookingStateBefore,
+          aiBookingStateAfter: aiBookingStateBefore,
+          skippedSearchReason: "auth_intent_preflight",
+          handoffTriggered: true,
+          targetAgent: "auth",
+          replyMode: "auth_handoff",
+          mariaContract: contract,
         },
       });
     }
 
     if (isAppointmentsIntent(latestUserText)) {
-      return responseFromAssistant({
+      const contract = buildMariaContract({
+        kind: "intent",
         message: "U redu, zovem Claudiu za termine.",
+        domain: "appointments",
+        action: "view_appointments",
+        confidence: 0.95,
+        shouldHandoff: true,
+        targetAgent: "claudia",
+        reason: "appointments_intent_preflight",
+      });
+      return responseFromContract(contract, {
         intent: lastIntent,
         selectedSlot,
         aiBookingState: aiBookingStateBefore,
         pendingContact,
-        mariaType: "handoff",
-        targetAgent: "appointments",
-        payload: { intent: "appointments" },
         aiDebug: {
           rawExtractedIntent: undefined,
           mergedIntent: lastIntent,
@@ -411,20 +893,27 @@ export async function POST(req: Request) {
           handoffTriggered: true,
           targetAgent: "appointments",
           replyMode: "appointments_handoff",
+          mariaContract: contract,
         },
       });
     }
 
     if (isPricesIntent(latestUserText)) {
-      return responseFromAssistant({
+      const contract = buildMariaContract({
+        kind: "intent",
         message: "Otvaram cenovnik.",
+        domain: "prices",
+        action: "show_prices",
+        confidence: 0.94,
+        shouldHandoff: true,
+        targetAgent: "claudia",
+        reason: "prices_intent_preflight",
+      });
+      return responseFromContract(contract, {
         intent: lastIntent,
         selectedSlot,
         aiBookingState: aiBookingStateBefore,
         pendingContact,
-        mariaType: "handoff",
-        targetAgent: "prices",
-        payload: { intent: "prices" },
         aiDebug: {
           rawExtractedIntent: undefined,
           mergedIntent: lastIntent,
@@ -438,14 +927,24 @@ export async function POST(req: Request) {
           handoffTriggered: true,
           targetAgent: "prices",
           replyMode: "prices_handoff",
+          mariaContract: contract,
         },
       });
     }
 
     if (isBookingHelpIntent(latestUserText)) {
-      return responseFromAssistant({
+      const contract = buildMariaContract({
+        kind: "faq_answer",
         message:
           "Napiši koju uslugu želiš, grad i okvirno vreme, na primer: Feniranje u Novom Sadu posle 13h.",
+        domain: "faq",
+        action: "answer_question",
+        confidence: 0.98,
+        shouldHandoff: false,
+        targetAgent: "maria",
+        reason: "booking_help_intent_preflight",
+      });
+      return responseFromContract(contract, {
         intent: lastIntent,
         aiBookingState: aiBookingStateBefore,
         pendingContact,
@@ -462,6 +961,7 @@ export async function POST(req: Request) {
           handoffTriggered: false,
           targetAgent: "none",
           replyMode: "booking_help",
+          mariaContract: contract,
         },
       });
     }
@@ -497,8 +997,22 @@ export async function POST(req: Request) {
       selectedSlot,
     });
     if (confirmation.intent === "confirm_booking" && confirmation.selectedSlot) {
-      return responseFromAssistant({
+      const contract = buildMariaContract({
+        kind: "intent",
         message: "Odlično. Samo mi pošaljite ime i telefon ili email za potvrdu termina.",
+        domain: "booking",
+        action: "book_slot",
+        confidence: 1,
+        entities: {
+          ...entitiesFromIntent(extractedIntent),
+          selectedSlot: confirmation.selectedSlot,
+        },
+        missingFields: ["contact"],
+        shouldHandoff: false,
+        targetAgent: "maria",
+        reason: "awaiting_contact_after_confirmation",
+      });
+      return responseFromContract(contract, {
         selectedSlot: confirmation.selectedSlot,
         aiBookingState: "collecting_contact",
         intent: extractedIntent,
@@ -523,6 +1037,7 @@ export async function POST(req: Request) {
           targetAgent: "none",
           aiBookingState: "collecting_contact",
           replyMode: "awaiting_contact",
+          mariaContract: contract,
         },
       });
     }
@@ -538,21 +1053,28 @@ export async function POST(req: Request) {
         phone: contactInfo.phone ?? pendingContact?.phone,
         email: contactInfo.email ?? pendingContact?.email,
       };
-      return responseFromAssistant({
+      const contract = buildMariaContract({
+        kind: "intent",
         message: formatReadyToBook(selectedSlot, nextContact),
+        domain: "booking",
+        action: "book_slot",
+        confidence: 1,
+        entities: {
+          ...entitiesFromIntent(extractedIntent),
+          selectedSlot,
+          contact: nextContact,
+        },
+        shouldHandoff: true,
+        targetAgent: "claudia",
+        reason: "contact_for_selected_slot",
+      });
+      return responseFromContract(contract, {
         intent: extractedIntent,
         selectedSlot,
         slots: [selectedSlot],
         aiBookingState: "ready_to_book",
         pendingContact: nextContact,
-        mariaType: "handoff",
-        targetAgent: "booking",
-        payload: {
-          intent: "create_booking",
-          selectedSlot,
-          contact: nextContact,
-          aiBookingState: "ready_to_book",
-        },
+        legacyPayload: { aiBookingState: "ready_to_book" },
         aiDebug: {
           rawExtractedIntent,
           mergedIntent: extractedIntent,
@@ -566,6 +1088,7 @@ export async function POST(req: Request) {
           handoffTriggered: true,
           targetAgent: "booking",
           replyMode: "handoff_to_booking",
+          mariaContract: contract,
         },
       });
     }
@@ -576,14 +1099,29 @@ export async function POST(req: Request) {
       previousIntent: extractedIntent,
     });
     if (slotSelection.isSlotSelection && slotSelection.selectedSlot) {
-      return responseFromAssistant({
-        message: formatSelectedSlot(slotSelection.selectedSlot),
-        intent: {
+      const slotIntent = {
           ...extractedIntent,
           service: slotSelection.selectedSlot.serviceName,
           requestedCity: slotSelection.selectedSlot.city,
           city: slotSelection.selectedSlot.city,
+        };
+      const contract = buildMariaContract({
+        kind: "intent",
+        message: formatSelectedSlot(slotSelection.selectedSlot),
+        domain: "booking",
+        action: "book_slot",
+        confidence: slotSelection.confidence,
+        entities: {
+          ...entitiesFromIntent(slotIntent),
+          selectedSlot: slotSelection.selectedSlot,
         },
+        missingFields: ["confirmation"],
+        shouldHandoff: false,
+        targetAgent: "maria",
+        reason: "slot_selected",
+      });
+      return responseFromContract(contract, {
+        intent: slotIntent,
         selectedSlot: slotSelection.selectedSlot,
         slots: [slotSelection.selectedSlot],
         suggestions: [
@@ -614,13 +1152,25 @@ export async function POST(req: Request) {
           targetAgent: "none",
           aiBookingState: "awaiting_confirmation",
           replyMode: "slot_selected",
+          mariaContract: contract,
         },
       });
     }
 
     if (isRecoveredCityRejection(latestUserText)) {
-      return responseFromAssistant({
+      const contract = buildMariaContract({
+        kind: "clarification",
         message: "Razumem, nema problema. Da li želite da proverim drugi grad, drugo vreme ili neku drugu uslugu?",
+        domain: "booking",
+        action: "clarify",
+        confidence: 0.9,
+        entities: entitiesFromIntent(extractedIntent),
+        missingFields: ["city_or_time_or_service"],
+        shouldHandoff: false,
+        targetAgent: "maria",
+        reason: "recovered_city_rejected",
+      });
+      return responseFromContract(contract, {
         intent: extractedIntent,
         aiDebug: {
           rawExtractedIntent,
@@ -647,26 +1197,30 @@ export async function POST(req: Request) {
           handoffTriggered: false,
           targetAgent: "none",
           replyMode: "recovered_city_rejected",
+          mariaContract: contract,
         },
       });
     }
 
     if (isAuthIntent(latestUserText)) {
-      return responseFromAssistant({
+      const contract = buildMariaContract({
+        kind: "intent",
         message: selectedSlot
           ? "Otvaram prijavu da nastavimo zakazivanje tog termina."
           : "Otvaram prijavu.",
+        domain: "auth",
+        action: "login",
+        confidence: 0.94,
+        entities: selectedSlot ? { selectedSlot } : {},
+        shouldHandoff: true,
+        targetAgent: "auth",
+        reason: "auth_intent",
+      });
+      return responseFromContract(contract, {
         intent: extractedIntent,
         selectedSlot,
         aiBookingState: aiBookingStateBefore,
         pendingContact,
-        mariaType: "handoff",
-        targetAgent: "auth",
-        payload: {
-          intent: selectedSlot ? "login_for_booking" : "login",
-          selectedSlot,
-          aiBookingState: aiBookingStateBefore,
-        },
         aiDebug: {
           rawExtractedIntent,
           mergedIntent: extractedIntent,
@@ -680,6 +1234,42 @@ export async function POST(req: Request) {
           handoffTriggered: true,
           targetAgent: "auth",
           replyMode: "deepseek_router",
+          mariaContract: contract,
+        },
+      });
+    }
+
+    if (isNotifyMeIntent(latestUserText)) {
+      const contract = buildMariaContract({
+        kind: "intent",
+        message: "U redu, zovem Claudiu da pripremi obaveštenje za slobodan termin.",
+        domain: "notify_me",
+        action: "create_notify_watch",
+        confidence: 0.94,
+        entities: entitiesFromIntent(extractedIntent),
+        shouldHandoff: true,
+        targetAgent: "claudia",
+        reason: "notify_me_intent",
+      });
+      return responseFromContract(contract, {
+        intent: extractedIntent,
+        selectedSlot,
+        aiBookingState: aiBookingStateBefore,
+        pendingContact,
+        aiDebug: {
+          rawExtractedIntent,
+          mergedIntent: extractedIntent,
+          lastIntent,
+          lastRecoveryState,
+          selectedSlotExists: Boolean(selectedSlot),
+          contactDetected: contactInfo.hasContactInfo,
+          aiBookingStateBefore,
+          aiBookingStateAfter: aiBookingStateBefore,
+          skippedSearchReason: "notify_me_intent",
+          handoffTriggered: true,
+          targetAgent: "booking",
+          replyMode: "notify_me_handoff",
+          mariaContract: contract,
         },
       });
     }
@@ -732,15 +1322,25 @@ export async function POST(req: Request) {
         targetAgent: "booking",
         parsedPayload: handoffPayload,
       });
-      return responseFromAssistant({
+      const contract = buildMariaContract({
+        kind: "intent",
         message: "Tražim slobodne termine za tebe.",
+        domain: "booking",
+        action: "search_slots",
+        confidence: extractedIntent.service || extractedIntent.category ? 0.95 : 0.78,
+        entities: entitiesFromIntent(extractedIntent),
+        shouldHandoff: true,
+        targetAgent: "claudia",
+        reason: "booking_search",
+      });
+      return responseFromContract(contract, {
         intent: extractedIntent,
         aiBookingState: "searching",
         pendingContact,
-        mariaType: "handoff",
-        targetAgent: "booking",
-        payload: handoffPayload,
-        aiDebug,
+        aiDebug: {
+          ...aiDebug,
+          mariaContract: contract,
+        },
       });
     }
 
@@ -774,65 +1374,93 @@ export async function POST(req: Request) {
           ],
           temperature: 0.3,
           max_tokens: 200,
-          stream: false,
+          // Phase B SSE — proxy DeepSeek tokens to our SSE stream.
+          stream: true,
           response_format: { type: "json_object" },
         }),
       },
     ), AI_TIMEOUT_MS, "deepseek");
 
     if (!response.ok) {
-      const error = await response.json();
+      // Error responses come back as plain JSON even when stream: true was
+      // requested — DeepSeek only streams on success.
+      const error = await response.json().catch(() => ({}));
       console.error("DeepSeek API error:", error);
-      return responseFromAssistant({
+      const contract = buildMariaContract({
+        kind: "unknown",
         message: "Trenutno ne mogu da završim odgovor. Pokušajte ponovo za trenutak.",
+        domain: "unknown",
+        action: "clarify",
+        confidence: 0,
+        shouldHandoff: false,
+        targetAgent: "maria",
+        reason: "deepseek_error",
+      });
+      return responseFromContract(contract, {
         error: error.error?.message || "DeepSeek API error",
-        aiDebug: { replyMode: "deepseek_error", errorReason: error.error?.message || "DeepSeek API error" },
+        aiDebug: {
+          replyMode: "deepseek_error",
+          errorReason: error.error?.message || "DeepSeek API error",
+          mariaContract: contract,
+        },
       });
     }
 
-    const data = await response.json();
-
-    // Validate Maria's response against the schema. Replace `choices[0].message.content`
-    // with a normalized JSON string so the client always receives the canonical shape
-    // — even if the model regressed to the old `reply` field.
-    const rawContent: string = data.choices?.[0]?.message?.content ?? "{}";
-    const normalized = parseMariaResponse(rawContent);
-    if (data.choices?.[0]?.message) {
-      data.choices[0].message.content = JSON.stringify(normalized);
-    }
-
-    return NextResponse.json({
-      ok: true,
-      message: normalized.message,
-      choices: data.choices,
-      usage: data.usage,
-      model: data.model,
-      aiDebug: {
-        extractedIntent,
-        rawExtractedIntent,
-        mergedIntent: extractedIntent,
-        previousServiceIntent,
-        detectedCityQuestion: cityQuestion.detected,
-        lastIntent,
-        lastRecoveryState,
-        selectedSlotExists: Boolean(selectedSlot),
-        contactDetected: contactInfo.hasContactInfo,
-        aiBookingStateBefore,
-        aiBookingStateAfter: aiBookingStateBefore,
-        skippedSearchReason: undefined,
-        handoffTriggered: normalized.type === "handoff",
-        targetAgent: normalized.targetAgent,
-        replyMode: "deepseek_router",
-      },
+    // Proxy DeepSeek's SSE stream as our own. Tokens forward live; the final
+    // metadata payload is assembled once the upstream stream completes and
+    // the accumulated JSON content has been validated against the Maria
+    // contract.
+    return streamingResponseFromDeepSeek(response, (accumulated, usage, model) => {
+      const rawContent = accumulated || "{}";
+      const contract = parseMariaContract(rawContent);
+      const legacy = mariaContractToLegacyResponse(contract);
+      logMariaContract(contract);
+      logLegacyAdapter(contract, legacy);
+      return {
+        ok: true,
+        message: contract.message,
+        intent: extractedIntent,
+        choices: [{ message: { content: JSON.stringify(legacy) } }],
+        usage,
+        model,
+        aiDebug: {
+          extractedIntent,
+          rawExtractedIntent,
+          mergedIntent: extractedIntent,
+          previousServiceIntent,
+          detectedCityQuestion: cityQuestion.detected,
+          lastIntent,
+          lastRecoveryState,
+          selectedSlotExists: Boolean(selectedSlot),
+          contactDetected: contactInfo.hasContactInfo,
+          aiBookingStateBefore,
+          aiBookingStateAfter: aiBookingStateBefore,
+          skippedSearchReason: undefined,
+          handoffTriggered: legacy.type === "handoff",
+          targetAgent: legacy.targetAgent,
+          replyMode: "deepseek_router",
+          mariaContract: contract,
+        },
+      };
     });
   } catch (error) {
     console.error("Error in deepseek-conversation API:", error);
-    return responseFromAssistant({
+    const contract = buildMariaContract({
+      kind: "unknown",
       message: "Nešto je zapelo, ali nisam izgubila razgovor. Pokušajte ponovo.",
+      domain: "unknown",
+      action: "clarify",
+      confidence: 0,
+      shouldHandoff: false,
+      targetAgent: "maria",
+      reason: "route_error",
+    });
+    return responseFromContract(contract, {
       error: error instanceof Error ? error.message : "Internal server error",
       aiDebug: {
         replyMode: "route_error",
         errorReason: error instanceof Error ? error.message : String(error),
+        mariaContract: contract,
       },
     });
   }

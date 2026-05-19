@@ -4,8 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { MapPinIcon, ClockIcon, CurrencyEuroIcon } from "@heroicons/react/24/outline";
 import type { BaseBlock } from "@/types/landing-block";
 import type { SearchApiResponse, SearchResult } from "@/types/slots";
-import { useBookingModal } from "@/context/landing/BookingModalContext";
-import { useLandingUI } from "@/context/landing/LandingUIContext";
+import { sendSystemAction } from "@/lib/ai/events/systemActionDispatcher";
 
 interface Props {
   block: BaseBlock;
@@ -19,9 +18,6 @@ export default function LandingSearchBlock({ block, onActionComplete }: Props) {
   const providedSlots = Array.isArray(block.metadata.slots)
     ? block.metadata.slots
     : null;
-  const { openModal } = useBookingModal();
-  const { setDrawerOpen } = useLandingUI();
-
   const params = new URLSearchParams();
   if (city) params.set("city", city);
   if (service) params.set("category", service);
@@ -147,11 +143,13 @@ export default function LandingSearchBlock({ block, onActionComplete }: Props) {
                 key={`${slot.salonId}-${slot.serviceId ?? ""}-${slot.startTime}`}
                 slot={slot}
                 onBook={() => {
-                  openModal(slot);
-                  setDrawerOpen(true);
-                  onActionComplete?.(
-                    `Zakazujem ${slot.serviceName} u ${slot.salonName} za ${slot.dateLabel} ${slot.timeLabel}`,
-                  );
+                  sendSystemAction({
+                    action: "SLOT_SELECTED",
+                    source: "BookingWidget",
+                    payload: { selectedSlot: slot },
+                    notifyAgent: false,
+                    visibleInThread: false,
+                  });
                 }}
               />
             ))}

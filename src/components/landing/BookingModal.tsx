@@ -12,19 +12,17 @@ import toast from "react-hot-toast";
 import { useAuthActions } from "@/hooks/useAuthActions";
 import { useBookingModal } from "@/context/landing/BookingModalContext";
 import { useLandingUI } from "@/context/landing/LandingUIContext";
-import { useAIContext } from "@/context/landing/AIContext";
+import { sendSystemAction } from "@/lib/ai/events/systemActionDispatcher";
 import {
   buildBookingContactPayload,
   getUserInstagram,
   getUserPhone,
   isBookingConflict,
-  BOOKING_CONFLICT_MESSAGE,
   mapBookingErrorMessage,
   normalizeBookingPayload,
   validateContactForm,
   validateBookingPayload,
 } from "@/lib/booking/bookingPayload";
-import type { SearchApiResponse, SearchResult } from "@/types/slots";
 
 function formatPrice(price?: number): string {
   if (!price) return "";
@@ -98,15 +96,11 @@ function showLocationToast(params: {
 export default function BookingModal() {
   const {
     modalSlot: slot,
-    recoveryRequest,
     closeModal: onClose,
-    clearRecovery,
-    openModal,
     persistPendingBooking,
     triggerSuccess,
   } = useBookingModal();
-  const { setConfirmed, setConfirmedTime, setDrawerOpen } = useLandingUI();
-  const { sendToOrchestrator } = useAIContext();
+  const { setConfirmed, setConfirmedTime } = useLandingUI();
   const { user, isLoading: authLoading } = useAuthActions();
   const queryClient = useQueryClient();
   const bookingPayload = useMemo(() => normalizeBookingPayload(slot), [slot]);
@@ -122,15 +116,16 @@ export default function BookingModal() {
       persistPendingBooking(slot);
     }
     onClose();
-    setDrawerOpen(true);
-    sendToOrchestrator(
-      "Želim da se prijavim da bih nastavila zakazivanje ovog termina.",
-      {
-        intent: "login_for_booking",
+    sendSystemAction({
+      action: "LOGIN_REQUIRED",
+      source: "BookingModal",
+      payload: {
         selectedSlot: slot,
         aiBookingState: "auth_required",
       },
-    );
+      notifyAgent: true,
+      visibleInThread: false,
+    });
   };
   const [formName, setFormName] = useState("");
   const [formPhone, setFormPhone] = useState("");
@@ -184,127 +179,6 @@ export default function BookingModal() {
     });
   }, [bookingPayload, slot, user]);
 
-  useEffect(() => {
-    if (!recoveryRequest) return;
-
-    let cancelled = false;
-    const recover = async () => {
-      const normalized = recoveryRequest.normalizedPayload;
-      const service =
-        normalized?.serviceName || recoveryRequest.originalSlot.serviceName || "";
-      const city = normalized?.city || recoveryRequest.originalSlot.city || "";
-      const date = normalized?.date;
-      const time = normalized?.time;
-
-      if (!service || !city) {
-        clearRecovery();
-        setDrawerOpen(true);
-        sendToOrchestrator(
-          "Ne mogu pouzdano da povežem termin sa salonom. Proveravam najbliže dostupne opcije.",
-          {
-            intent: "booking",
-            service,
-            city,
-            date,
-            time,
-          },
-        );
-        return;
-      }
-
-      const params = new URLSearchParams();
-      params.set("city", city);
-      params.set("category", service);
-      params.set("service", service);
-      if (date) params.set("date", date);
-      if (time) params.set("time", time);
-
-      try {
-        const res = await fetch(`/api/search?${params.toString()}`);
-        const data = (await res.json()) as SearchApiResponse;
-        if (cancelled) return;
-        const matchingSlots = (data.results ?? []).filter((candidate) => {
-          if (time && candidate.timeLabel !== time) return false;
-          return true;
-        });
-        const slots = matchingSlots.length > 0 ? matchingSlots : data.results ?? [];
-        const uniqueSalons = Array.from(
-          new Map(slots.map((s) => [s.salonId, s])).values(),
-        );
-
-        if (uniqueSalons.length === 1) {
-          const recovered = uniqueSalons[0] as SearchResult;
-          clearRecovery();
-          openModal({
-            ...recoveryRequest.originalSlot,
-            ...recovered,
-            startTime: recovered.startTime || normalized?.startTime,
-            date: normalized?.date,
-            time: recovered.timeLabel || normalized?.time,
-          });
-          return;
-        }
-
-        clearRecovery();
-        setDrawerOpen(true);
-        if (uniqueSalons.length > 1) {
-          sendToOrchestrator("Izaberi salon za ovaj termin.", {
-            intent: "recover_missing_salon",
-            city,
-            service,
-            date,
-            time,
-            salons: uniqueSalons.map((slot) => ({
-              id: slot.salonId,
-              name: slot.salonName,
-            })),
-          });
-          return;
-        }
-
-        sendToOrchestrator(
-          "Ne mogu pouzdano da povežem termin sa salonom. Proveravam najbliže dostupne opcije.",
-          {
-            intent: "booking",
-            service,
-            city,
-            date,
-            time,
-          },
-        );
-      } catch {
-        if (cancelled) return;
-        clearRecovery();
-        setDrawerOpen(true);
-        sendToOrchestrator(
-          "Ne mogu pouzdano da povežem termin sa salonom. Proveravam najbliže dostupne opcije.",
-          {
-            intent: "booking",
-            service,
-            city,
-            date,
-            time,
-          },
-        );
-      }
-    };
-
-    toast.loading("Nedostaje salon ili termin. Pokušavam da pronađem odgovarajući salon.", {
-      id: "booking-recovery",
-    });
-    void recover().finally(() => toast.dismiss("booking-recovery"));
-
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    clearRecovery,
-    openModal,
-    recoveryRequest,
-    sendToOrchestrator,
-    setDrawerOpen,
-  ]);
-
   if (!slot) return null;
 
   async function handleSubmit(e: { preventDefault(): void }) {
@@ -324,7 +198,16 @@ export default function BookingModal() {
         contactValidation.message ??
         "Unesite telefon, email ili Instagram da salon može da potvrdi termin.";
       setFormError(msg);
-      toast.error(msg);
+      sendSystemAction({
+        action: "BOOKING_PAYLOAD_INCOMPLETE",
+        source: "BookingModal",
+        payload: {
+          selectedSlot: slot,
+          missingFields: ["contact"],
+        },
+        notifyAgent: false,
+        visibleInThread: false,
+      });
       return;
     }
     const normalized = normalizeBookingPayload(slot);
@@ -334,12 +217,29 @@ export default function BookingModal() {
         ? "Nedostaje salon ili termin. Pokušavam da pronađem odgovarajući salon."
         : "Nedostaju podaci za zakazivanje. Pokušajte ponovo.";
       setFormError(msg);
-      toast.error(msg);
       onClose();
-      if (slot) openModal(slot);
+      if (slot) {
+        sendSystemAction({
+          action: "BOOKING_PAYLOAD_INCOMPLETE",
+          source: "BookingModal",
+          payload: {
+            selectedSlot: slot,
+            missingFields: validation.missingFields,
+          },
+          notifyAgent: true,
+          visibleInThread: false,
+        });
+      }
       return;
     }
     setLoading(true);
+    sendSystemAction({
+      action: "BOOKING_SUBMIT_STARTED",
+      source: "BookingModal",
+      payload: { selectedSlot: slot },
+      notifyAgent: false,
+      visibleInThread: false,
+    });
     try {
       const contactPayload = buildBookingContactPayload({
         user,
@@ -380,32 +280,39 @@ export default function BookingModal() {
             .join("\n\n") || undefined,
         }),
       });
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        code?: string;
+        appointment?: unknown;
+      };
       if (!res.ok) {
-        const data = (await res.json().catch(() => ({}))) as { error?: string; code?: string };
         if (isBookingConflict(res.status, data.code ?? data.error)) {
-          toast.error(BOOKING_CONFLICT_MESSAGE);
           onClose();
-          setDrawerOpen(true);
-          sendToOrchestrator(BOOKING_CONFLICT_MESSAGE, {
-            intent: "booking_conflict",
-            selectedSlot: slot,
-            serviceId: slot?.serviceId ?? undefined,
-            serviceName: slot?.serviceName ?? undefined,
-            salonId: slot?.salonId ?? undefined,
-            salonName: slot?.salonName ?? undefined,
-            city: slot?.city ?? undefined,
-            date: bookingPayload?.date,
-            time: bookingPayload?.time,
-            startTime: bookingPayload?.startTime,
-            duration: bookingPayload?.duration,
-            clientContext: {
-              name: formName.trim(),
-              phone: formPhone.trim() || undefined,
-              email: formEmail.trim() || undefined,
-              instagram: formInstagram.trim() || undefined,
-              isAuthenticated: Boolean(user),
-              userName: user?.name,
+          sendSystemAction({
+            action: "BOOKING_CONFLICT",
+            source: "BookingModal",
+            payload: {
+              selectedSlot: slot,
+              serviceId: slot?.serviceId ?? undefined,
+              serviceName: slot?.serviceName ?? undefined,
+              salonId: slot?.salonId ?? undefined,
+              salonName: slot?.salonName ?? undefined,
+              city: slot?.city ?? undefined,
+              date: bookingPayload?.date,
+              time: bookingPayload?.time,
+              startTime: bookingPayload?.startTime,
+              duration: bookingPayload?.duration,
+              clientContext: {
+                name: formName.trim(),
+                phone: formPhone.trim() || undefined,
+                email: formEmail.trim() || undefined,
+                instagram: formInstagram.trim() || undefined,
+                isAuthenticated: Boolean(user),
+                userName: user?.name,
+              },
             },
+            notifyAgent: true,
+            visibleInThread: false,
           });
           return;
         }
@@ -425,13 +332,32 @@ export default function BookingModal() {
         shouldShowCopy: !email,
       });
       triggerSuccess();
+      sendSystemAction({
+        action: "BOOKING_SUBMIT_SUCCESS",
+        source: "BookingModal",
+        payload: {
+          appointment: data.appointment ?? data,
+          selectedSlot: slot,
+        },
+        notifyAgent: true,
+        visibleInThread: false,
+      });
       onConfirm();
     } catch (err) {
-      toast.error(
-        err instanceof Error
-          ? mapBookingErrorMessage(err.message)
-          : "Greška pri zakazivanju",
-      );
+      const message =
+        err instanceof Error ? mapBookingErrorMessage(err.message) : "Greška pri zakazivanju";
+      setFormError(message);
+      sendSystemAction({
+        action: "BOOKING_SUBMIT_FAILED",
+        source: "BookingModal",
+        payload: {
+          selectedSlot: slot,
+          error: message,
+          aiFlowActive: false,
+        },
+        notifyAgent: false,
+        visibleInThread: false,
+      });
     } finally {
       setLoading(false);
     }

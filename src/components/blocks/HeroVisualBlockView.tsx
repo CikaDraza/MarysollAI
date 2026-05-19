@@ -81,11 +81,11 @@ export default function HeroVisualBlockView({
                         variants={itemVariants}
                         className="h-64 w-44 overflow-hidden rounded-lg"
                       >
-                          <img
-                            src={url}
-                            alt=""
-                            className="h-full w-full object-cover shadow-xl"
-                          />
+                        <img
+                          src={url}
+                          alt=""
+                          className="h-full w-full object-cover shadow-xl"
+                        />
                       </motion.div>
                     );
                   })}
@@ -99,11 +99,11 @@ export default function HeroVisualBlockView({
                         variants={itemVariants}
                         className="h-64 w-44 overflow-hidden rounded-lg"
                       >
-                          <img
-                            src={url}
-                            alt=""
-                            className="h-full w-full object-cover shadow-xl"
-                          />
+                        <img
+                          src={url}
+                          alt=""
+                          className="h-full w-full object-cover shadow-xl"
+                        />
                       </motion.div>
                     );
                   })}
@@ -117,11 +117,11 @@ export default function HeroVisualBlockView({
                         variants={itemVariants}
                         className="h-64 w-44 overflow-hidden rounded-lg"
                       >
-                          <img
-                            src={url}
-                            alt=""
-                            className="h-full w-full object-cover shadow-xl"
-                          />
+                        <img
+                          src={url}
+                          alt=""
+                          className="h-full w-full object-cover shadow-xl"
+                        />
                       </motion.div>
                     );
                   })}

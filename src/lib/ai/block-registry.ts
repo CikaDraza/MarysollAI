@@ -48,7 +48,7 @@ export interface BlockEntry {
 }
 
 /** Canonical block table. Edit here, nowhere else. */
-export const BLOCK_REGISTRY: Record<Exclude<BlockTypes, "none">, BlockEntry> = {
+export const BLOCK_REGISTRY: Partial<Record<Exclude<BlockTypes, "none">, BlockEntry>> = {
   AuthBlock: {
     type: "AuthBlock",
     label: "Prijava",
@@ -129,6 +129,12 @@ export const BLOCK_REGISTRY: Record<Exclude<BlockTypes, "none">, BlockEntry> = {
     agentType: "booking",
     priority: 1,
     requires: ["city"],
+  },
+  NotifyMeBlock: {
+    type: "NotifyMeBlock",
+    label: "Obavesti me",
+    agentType: "booking",
+    priority: 2,
   },
   TestimonialBlock: {
     type: "TestimonialBlock",

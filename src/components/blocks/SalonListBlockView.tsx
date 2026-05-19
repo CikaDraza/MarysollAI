@@ -1,11 +1,14 @@
 "use client";
 
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { CheckBadgeIcon, StarIcon } from "@heroicons/react/24/solid";
 import { MapPinIcon } from "@heroicons/react/24/outline";
 import type { SalonListBlockType, SalonItem } from "@/types/landing-block";
+import type { SearchApiResponse } from "@/types/slots";
 import { Reveal } from "@/components/motion/Reveal";
 import { bookingFlow } from "@/lib/ai/booking-flow-state";
+import { blockActionToSystemAction } from "@/lib/ai/layout/blockActionToSystemAction";
 
 interface Props {
   block: SalonListBlockType;
@@ -13,9 +16,61 @@ interface Props {
 }
 
 export default function SalonListBlockView({ block, onActionComplete }: Props) {
-  const salons: SalonItem[] = block.metadata.salons ?? [];
   const city = block.metadata.city ?? "";
   const service = block.metadata.service ?? block.metadata.serviceName ?? "";
+  const category = block.metadata.category ?? "";
+  const providedSalons: SalonItem[] = block.metadata.salons ?? [];
+
+  const { data, isLoading } = useQuery<SearchApiResponse>({
+    queryKey: ["salon-list", city, service, category],
+    queryFn: () => {
+      const params = new URLSearchParams();
+      if (city) params.set("city", city);
+      if (service) {
+        params.set("query", service);
+        params.set("service", service);
+      }
+      if (category) params.set("category", category);
+      params.set("limit", "50");
+      return fetch(`/api/search?${params.toString()}`).then((r) => r.json());
+    },
+    staleTime: 60_000,
+    enabled: providedSalons.length === 0 && Boolean(city && service),
+  });
+
+  const fetchedSalons: SalonItem[] = [];
+  const seen = new Set<string>();
+  for (const slot of data?.results ?? []) {
+    if (seen.has(slot.salonId)) continue;
+    seen.add(slot.salonId);
+    fetchedSalons.push({
+      id: slot.salonId,
+      name: slot.salonName,
+      address: slot.salonAddress,
+      rating: slot.rating,
+      verified: slot.verified,
+    });
+  }
+  const salons = providedSalons.length > 0 ? providedSalons : fetchedSalons;
+
+  if (providedSalons.length === 0 && isLoading) {
+    return (
+      <div style={{ padding: "28px 0", textAlign: "center" }}>
+        <div
+          style={{
+            display: "inline-block",
+            width: 24,
+            height: 24,
+            border: "3px solid var(--brand-100, #e9d5f9)",
+            borderTopColor: "var(--secondary-color)",
+            borderRadius: "50%",
+            animation: "spin 0.7s linear infinite",
+          }}
+        />
+        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      </div>
+    );
+  }
 
   if (salons.length === 0) {
     return (
@@ -62,16 +117,19 @@ export default function SalonListBlockView({ block, onActionComplete }: Props) {
                   salonName: salon.name,
                   ...(city ? { city } : {}),
                 });
-                onActionComplete(
-                  `Izabrao sam salon: ${salon.name} [salonId:${salon.id}]${city ? ` u ${city}` : ""}`,
-                  {
-                    intent: "select_salon",
-                    city,
-                    service,
-                    salonId: salon.id,
-                    salonName: salon.name,
-                  },
-                );
+                const payload = {
+                  intent: "select_salon",
+                  city,
+                  service,
+                  salonId: salon.id,
+                  salonName: salon.name,
+                };
+                if (!blockActionToSystemAction("SalonListBlock", "salon_selected", payload)) {
+                  onActionComplete(
+                    `Izabrao sam salon: ${salon.name} [salonId:${salon.id}]${city ? ` u ${city}` : ""}`,
+                    payload,
+                  );
+                }
               }}
             />
           </Reveal>

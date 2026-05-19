@@ -22,6 +22,7 @@ interface AIResponseData {
 interface PendingResponse {
   query: string;
   data: AIResponseData;
+  suppressUserMessage?: boolean;
 }
 
 function suppressDuplicateAssistantMessages(
@@ -64,6 +65,7 @@ interface AskAIOptions {
   };
   isBlockInteraction?: boolean;
   handoffPayload?: Record<string, unknown>;
+  suppressUserMessage?: boolean;
 }
 
 export function useAIQuery(user?: AuthUser | null) {
@@ -97,6 +99,7 @@ export function useAIQuery(user?: AuthUser | null) {
     const newElements = createThreadItems(
       pendingResponse.query,
       pendingResponse.data,
+      { includeUserMessage: !pendingResponse.suppressUserMessage },
     );
     setThread((prev) => {
       const filtered = prev.filter((i) => i.id !== activeTempIdRef.current);
@@ -169,19 +172,21 @@ export function useAIQuery(user?: AuthUser | null) {
       const userName =
         options?.explicitAuth?.userName ?? currentUser?.name ?? "Gost";
 
-      setThread((prev) => [
-        ...prev,
-        {
-          id: currentId,
-          type: "message",
-          data: {
-            id: "temp",
-            role: "user",
-            content: query,
-            timestamp: Date.now(),
+      if (!options?.suppressUserMessage) {
+        setThread((prev) => [
+          ...prev,
+          {
+            id: currentId,
+            type: "message",
+            data: {
+              id: "temp",
+              role: "user",
+              content: query,
+              timestamp: Date.now(),
+            },
           },
-        },
-      ]);
+        ]);
+      }
 
       try {
         const historyToSend = options?.context || thread;
@@ -235,7 +240,11 @@ export function useAIQuery(user?: AuthUser | null) {
         // Hardened parse: always returns a valid ClaudiaResponse, even on
         // malformed JSON or empty stream. Caller doesn't need a try/catch.
         const finalData = parseClaudiaResponse(fullRaw);
-        setPendingResponse({ query, data: finalData });
+        setPendingResponse({
+          query,
+          data: finalData,
+          suppressUserMessage: options?.suppressUserMessage,
+        });
         isNetworkDoneRef.current = true;
       } catch (err: unknown) {
         const errorMessage = err instanceof Error ? err.message : "Greška";

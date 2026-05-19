@@ -100,7 +100,13 @@ export function SearchProvider({ children }: { children: ReactNode }) {
   const recoveryScenario = recoveryState?.recoveryScenario;
   const recoveryReason = recoveryState?.reason;
   const rankedView = useMemo(() => {
-    const policy = resolveFallbackPolicy("bookingwidget", { kind: "discovery" });
+    const explicitIntent =
+      searchQuery || subcategoryFilter
+        ? "explicit_service"
+        : category
+          ? "explicit_city_service"
+          : "discovery";
+    const policy = resolveFallbackPolicy("bookingwidget", { kind: explicitIntent });
     const shouldTrustEffectiveCity =
       recoveryScenario === "exact_in_nearest_city" ||
       recoveryScenario === "related_in_nearest_city";
@@ -150,6 +156,9 @@ export function SearchProvider({ children }: { children: ReactNode }) {
     fallbackLevel,
     recoveryScenario,
     recoveryReason,
+    searchQuery,
+    subcategoryFilter,
+    category,
   ]);
 
   return (

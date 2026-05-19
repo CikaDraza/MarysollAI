@@ -7,6 +7,7 @@ import type { CityListBlockType } from "@/types/landing-block";
 import type { SearchApiResponse } from "@/types/slots";
 import { Reveal } from "@/components/motion/Reveal";
 import { bookingFlow } from "@/lib/ai/booking-flow-state";
+import { blockActionToSystemAction } from "@/lib/ai/layout/blockActionToSystemAction";
 
 interface Props {
   block: CityListBlockType;
@@ -20,26 +21,34 @@ interface CityEntry {
 
 export default function CityListBlockView({ block, onActionComplete }: Props) {
   const service = block.metadata.service ?? block.metadata.serviceName ?? "";
+  const category = block.metadata.category ?? "";
+  const providedCities: CityEntry[] = (block.metadata.cities ?? []).map((city) => ({
+    name: city.name,
+    slotCount: city.salonCount ?? 0,
+  }));
 
   const { data, isLoading } = useQuery<SearchApiResponse>({
     queryKey: ["city-list", service],
     queryFn: () => {
       const params = new URLSearchParams();
-      if (service) params.set("category", service);
+      if (service) params.set("query", service);
+      if (service) params.set("service", service);
+      if (category) params.set("category", category);
       return fetch(`/api/search?${params.toString()}`).then((r) => r.json());
     },
     staleTime: 60_000,
-    enabled: true,
+    enabled: providedCities.length === 0,
   });
 
-  const cities: CityEntry[] = (data?.slotsByCity ?? []).map(
-    ({ city, slots }) => ({
-      name: city,
-      slotCount: slots.length,
-    }),
-  );
+  const cities: CityEntry[] =
+    providedCities.length > 0
+      ? providedCities
+      : (data?.slotsByCity ?? []).map(({ city, slots }) => ({
+          name: city,
+          slotCount: slots.length,
+        }));
 
-  if (isLoading) {
+  if (providedCities.length === 0 && isLoading) {
     return (
       <div style={{ padding: "28px 0", textAlign: "center" }}>
         <div
@@ -98,11 +107,14 @@ export default function CityListBlockView({ block, onActionComplete }: Props) {
                 // Phase 2 Task 10 — hydrate bookingFlow from UI selection so
                 // the next Claudia turn won't re-ask for city.
                 bookingFlow.get().collect({ city: city.name });
-                onActionComplete(`Izabrao sam grad: ${city.name}`, {
+                const payload = {
                   intent: "select_city",
                   city: city.name,
                   service,
-                });
+                };
+                if (!blockActionToSystemAction("CityListBlock", "city_selected", payload)) {
+                  onActionComplete(`Izabrao sam grad: ${city.name}`, payload);
+                }
               }}
             />
           </Reveal>

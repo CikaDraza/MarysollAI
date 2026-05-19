@@ -16,11 +16,11 @@ import { SparklesIcon } from "@heroicons/react/24/outline";
 import { BaseBlock, BlockTypes } from "@/types/landing-block";
 import { blockFactory } from "./blockFactory";
 import { blockOrchestrator } from "@/lib/ai/block-orchestrator";
-import {
-  blockHasRequiredMetadata,
-  getBlockFollowUp,
-} from "@/lib/ai/block-registry";
+import { getBlockFollowUp } from "@/lib/ai/block-registry";
 import { aiLog } from "@/lib/ai/debug-log";
+import { resolveLayout } from "@/lib/ai/layout/resolveLayout";
+import type { LayoutIntent } from "@/lib/ai/layout/layout-types";
+import { executeUICommand } from "@/lib/ai/ui/ui-command-executor";
 
 const log = aiLog("LAYOUT_ENGINE");
 
@@ -42,6 +42,26 @@ export function LayoutEngine({
   disableGlobalDedupe = false,
 }: Props) {
   const blocksArray = blocks ? (Array.isArray(blocks) ? blocks : [blocks]) : [];
+  const layoutIntents = useMemo<LayoutIntent[]>(
+    () =>
+      blocksArray.map((block) => ({
+        id: block.id,
+        type: block.type,
+        priority: block.priority,
+        metadata: {
+          ...(block.metadata ?? {}),
+          __legacyBlock: block,
+        },
+        query: block.query,
+        surface: "workspace",
+        source: "ai",
+      })),
+    [JSON.stringify(blocksArray.map((b) => `${b.type}:${b.id ?? ""}:${b.priority ?? ""}`))],
+  );
+  const resolvedLayout = useMemo(
+    () => resolveLayout(layoutIntents, { surface: "workspace" }),
+    [layoutIntents],
+  );
 
   // Tracks the block types this LayoutEngine instance has claimed.
   // We keep this in a ref so that the dedupe filter computed on every render
@@ -55,18 +75,9 @@ export function LayoutEngine({
     const result: BaseBlock[] = [];
     const seenInThisPass = new Set<string>();
 
-    for (const b of blocksArray) {
-      // Dedupe within this render pass first (e.g. AI returned LoginBlock twice)
+    for (const b of resolvedLayout.blocks) {
       if (seenInThisPass.has(b.type)) continue;
       seenInThisPass.add(b.type);
-
-      // Registry guard — refuse to mount blocks that are missing the
-      // metadata they need to be meaningful (e.g. AppointmentCalendarBlock
-      // without slots). Better to render nothing than an empty shell.
-      if (!blockHasRequiredMetadata(b)) {
-        log("dedupe.missing_required_metadata", { type: b.type });
-        continue;
-      }
 
       if (ownedRef.current.has(b.type)) {
         // We already mounted it earlier — keep rendering it.
@@ -77,6 +88,11 @@ export function LayoutEngine({
       if (!disableGlobalDedupe && blockOrchestrator.isBlockOpen(b.type)) {
         // Mounted by another LayoutEngine instance. Focus + skip render.
         log("dedupe.focus_existing", { type: b.type });
+        executeUICommand({
+          type: "FOCUS_BLOCK",
+          blockType: b.type,
+          reason: "layout_duplicate_focus_existing",
+        });
         if (blockOrchestrator.focusBlock(b.type)) {
           continue;
         }
@@ -95,7 +111,7 @@ export function LayoutEngine({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     disableGlobalDedupe,
-    JSON.stringify(blocksArray.map((b) => `${b.type}:${b.id ?? ""}`)),
+    JSON.stringify(resolvedLayout.blocks.map((b) => `${b.type}:${b.id ?? ""}`)),
   ]);
 
   // Claim ownership on mount, release on unmount.

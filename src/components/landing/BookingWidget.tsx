@@ -128,11 +128,15 @@ export default function BookingWidget() {
   const categoryLabel = category
     ? SLUG_TO_CANONICAL[category as CategorySlug] ?? category
     : undefined;
+  const recognizedServiceLabel = categoryLabel
+    ? subcategoryFilter || categoryLabel
+    : undefined;
   const recoveryCopy = bookingWidgetRecoveryCopy({
     city: userCity,
     recoveryState,
     hasSearchIntent,
     categoryLabel,
+    serviceLabel: recognizedServiceLabel,
   });
 
   useEffect(() => {

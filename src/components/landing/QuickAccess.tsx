@@ -17,7 +17,6 @@ import { useSalons } from "@/hooks/useSalons";
 import { useCityContext } from "@/context/landing/CityContext";
 import { useFilters } from "@/context/landing/FiltersContext";
 import { useSearchContext } from "@/context/landing/SearchContext";
-import { useBookingModal } from "@/context/landing/BookingModalContext";
 import type { SearchResult } from "@/types/slots";
 import { rankSearchResults } from "@/lib/search/rankSearchResults";
 import {
@@ -44,6 +43,7 @@ import {
 import { resolveSearchFallback } from "@/lib/search/searchFallback";
 import { trackSearchEvent } from "@/lib/search/searchAnalytics";
 import { SERBIAN_CITIES } from "@/lib/cities";
+import { sendSystemAction } from "@/lib/ai/events/systemActionDispatcher";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -204,7 +204,6 @@ export default function QuickAccess() {
     recoveryState,
     isLoading: searchLoading,
   } = useSearchContext();
-  const { openModal } = useBookingModal();
   const distanceOrigin = resolveDistanceOrigin(geoSignals, city);
   const userLocationOrigin = resolveUserLocationOrigin(geoSignals);
   const searchLocationLabel = useMemo(
@@ -259,7 +258,13 @@ export default function QuickAccess() {
         service: slot.serviceName,
       });
     }
-    openModal(flatSlot);
+    sendSystemAction({
+      action: "SLOT_SELECTED",
+      source: "QuickAccess",
+      payload: { selectedSlot: flatSlot },
+      notifyAgent: false,
+      visibleInThread: false,
+    });
   };
 
   // Phase 2.5D Task 2 — fallback metadata used to drive empty-state copy.
@@ -351,7 +356,7 @@ export default function QuickAccess() {
     if (timeWindowStart !== undefined) {
       const byTime = slots.filter((s) => {
         const h = parseInt(s.startTime.slice(11, 13), 10);
-        return h >= timeWindowStart && (timeWindowEnd === undefined || h <= timeWindowEnd);
+        return h >= timeWindowStart && (timeWindowEnd == null || h <= timeWindowEnd);
       });
       if (byTime.length > 0) slots = byTime;
     }

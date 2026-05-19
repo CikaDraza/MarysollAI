@@ -12,6 +12,7 @@ import { Reveal } from "../motion/Reveal";
 import { motion } from "framer-motion";
 import { CollapseView } from "../motion/CollapseView";
 import { useBookingModal } from "@/context/landing/BookingModalContext";
+import { sendSystemAction } from "@/lib/ai/events/systemActionDispatcher";
 
 interface Props {
   block: AuthBlockType;
@@ -29,7 +30,7 @@ export function LoginBlockView({
   const containerRef = useRef<HTMLDivElement>(null);
   const autoContinueRef = useRef(false);
   const { user, login, isLoggingIn, ensureFreshAuth } = useAuthActions();
-  const { pendingSlot, openModal, consumePendingBooking } = useBookingModal();
+  const { pendingSlot, consumePendingBooking } = useBookingModal();
   const [email, setEmail] = useState(block.defaultEmail || "");
   const [password, setPassword] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
@@ -42,32 +43,36 @@ export function LoginBlockView({
       try {
         await login({ email, password });
         const freshUser = await ensureFreshAuth();
-        if (onActionComplete) {
-          const selectedSlot = block.metadata?.selectedSlot ?? pendingSlot ?? undefined;
-          if (selectedSlot) {
-            openModal(selectedSlot);
-            consumePendingBooking();
-            console.debug("[AUTH_RESUME]", {
+        const selectedSlot = block.metadata?.selectedSlot ?? pendingSlot ?? undefined;
+        if (selectedSlot) {
+          consumePendingBooking();
+          console.debug("[AUTH_RESUME]", {
+            selectedSlot,
+            authState: {
+              isAuthenticated: Boolean(freshUser),
+              userName: freshUser?.name,
+            },
+            restoredBookingState: {
               selectedSlot,
-              authState: {
-                isAuthenticated: Boolean(freshUser),
-                userName: freshUser?.name,
-              },
-              restoredBookingState: {
-                selectedSlot,
-              },
-            });
-          }
+            },
+          });
+          sendSystemAction({
+            action: "LOGIN_SUCCESS",
+            source: "AuthBlock",
+            payload: {
+              user: freshUser,
+              pendingBooking: selectedSlot,
+            },
+            notifyAgent: true,
+            visibleInThread: false,
+          });
+          return;
+        }
+
+        if (onActionComplete) {
           onActionComplete(
-            selectedSlot
-              ? `USPEŠNA PRIJAVA. Nastavi zakazivanje termina: ${selectedSlot.serviceName} u ${selectedSlot.timeLabel} u ${selectedSlot.salonName}, ${selectedSlot.city}.`
-              : "USPEŠNA PRIJAVA.",
-            selectedSlot
-              ? {
-                  intent: "resume_booking_after_login",
-                  selectedSlot,
-                }
-              : undefined,
+            "USPEŠNA PRIJAVA.",
+            undefined,
           );
         }
       } catch (err: unknown) {
@@ -89,7 +94,6 @@ export function LoginBlockView({
       ensureFreshAuth,
       login,
       onActionComplete,
-      openModal,
       password,
       pendingSlot,
     ],
