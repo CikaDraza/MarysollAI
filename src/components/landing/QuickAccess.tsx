@@ -27,7 +27,10 @@ import {
 } from "@/lib/availability/fallbackPolicy";
 import type { AvailabilityType } from "@/lib/availability/availabilityConfidence";
 import { formatDistance } from "@/lib/utils/distance";
-import { calculateDistanceKm, calculateTravelMinutesEstimate } from "@/lib/geo/distance";
+import {
+  calculateDistanceKm,
+  calculateTravelMinutesEstimate,
+} from "@/lib/geo/distance";
 import {
   createGoogleMapsLink,
   createGoogleMapsLinkFromAddress,
@@ -44,6 +47,7 @@ import { resolveSearchFallback } from "@/lib/search/searchFallback";
 import { trackSearchEvent } from "@/lib/search/searchAnalytics";
 import { SERBIAN_CITIES } from "@/lib/cities";
 import { sendSystemAction } from "@/lib/ai/events/systemActionDispatcher";
+import { useLandingUI } from "@/context/landing/LandingUIContext";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -273,7 +277,8 @@ export default function QuickAccess() {
     [fallbackLevel],
   );
 
-  const onCategoryPick = (slug: string) => handleCategoryPick(slug, cityName ?? "");
+  const onCategoryPick = (slug: string) =>
+    handleCategoryPick(slug, cityName ?? "");
   const [activeServiceId, setActiveServiceId] = useState<string | null>(null);
 
   // Salons for the user's city only (if city is known)
@@ -356,7 +361,9 @@ export default function QuickAccess() {
     if (timeWindowStart !== undefined) {
       const byTime = slots.filter((s) => {
         const h = parseInt(s.startTime.slice(11, 13), 10);
-        return h >= timeWindowStart && (timeWindowEnd == null || h <= timeWindowEnd);
+        return (
+          h >= timeWindowStart && (timeWindowEnd == null || h <= timeWindowEnd)
+        );
       });
       if (byTime.length > 0) slots = byTime;
     }
@@ -650,7 +657,9 @@ export default function QuickAccess() {
           categorySlug={category}
           city={displayCity}
           alternateCities={(slotsByCity ?? []).filter(
-            (g) => g.city.toLowerCase() !== displayCity.toLowerCase() && g.slots.length > 0,
+            (g) =>
+              g.city.toLowerCase() !== displayCity.toLowerCase() &&
+              g.slots.length > 0,
           )}
         />
       ) : (
@@ -752,7 +761,12 @@ function SlotCard({
   const serviceDetails = serviceParts.join(" · ");
   const gpsDistanceKm =
     userLocation && slot.salonLat != null && slot.salonLng != null
-      ? calculateDistanceKm(userLocation.lat, userLocation.lng, slot.salonLat, slot.salonLng)
+      ? calculateDistanceKm(
+          userLocation.lat,
+          userLocation.lng,
+          slot.salonLat,
+          slot.salonLng,
+        )
       : undefined;
   const displayDistanceKm =
     gpsDistanceKm != null && Number.isFinite(gpsDistanceKm)
@@ -845,7 +859,10 @@ function SlotCard({
                 whiteSpace: "nowrap",
               }}
             >
-              <ArrowsRightLeftIcon style={{ width: 11, height: 11 }} strokeWidth={1.8} />
+              <ArrowsRightLeftIcon
+                style={{ width: 11, height: 11 }}
+                strokeWidth={1.8}
+              />
               {distLabel}
             </span>
           )}
@@ -1106,7 +1123,9 @@ function CategoryNotFound({
   const hasCities = alternateCities.length > 0;
 
   return (
-    <div style={{ marginBottom: 32, textAlign: "center", padding: "28px 24px" }}>
+    <div
+      style={{ marginBottom: 32, textAlign: "center", padding: "28px 24px" }}
+    >
       <p
         style={{
           fontFamily: "var(--main-font)",
@@ -1116,7 +1135,8 @@ function CategoryNotFound({
           margin: "0 0 8px",
         }}
       >
-        Nema slobodnih termina za {category}{city ? ` u ${city}` : ""}
+        Nema slobodnih termina za {category}
+        {city ? ` u ${city}` : ""}
       </p>
 
       {hasCities ? (
@@ -1131,7 +1151,14 @@ function CategoryNotFound({
           >
             Ima slobodnih termina u:
           </p>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 10, justifyContent: "center" }}>
+          <div
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              gap: 10,
+              justifyContent: "center",
+            }}
+          >
             {alternateCities.slice(0, 4).map((g) => {
               const citySlug = g.city.toLowerCase().replace(/\s+/g, "-");
               return (
@@ -1153,15 +1180,18 @@ function CategoryNotFound({
                     transition: "background var(--dur-fast) var(--ease-out)",
                   }}
                   onMouseEnter={(e) => {
-                    (e.currentTarget as HTMLAnchorElement).style.background = "var(--secondary-hover)";
+                    (e.currentTarget as HTMLAnchorElement).style.background =
+                      "var(--secondary-hover)";
                   }}
                   onMouseLeave={(e) => {
-                    (e.currentTarget as HTMLAnchorElement).style.background = "var(--secondary-color)";
+                    (e.currentTarget as HTMLAnchorElement).style.background =
+                      "var(--secondary-color)";
                   }}
                 >
                   {g.city}
                   <span style={{ opacity: 0.7, fontSize: 12 }}>
-                    {g.slots.length} {g.slots.length === 1 ? "termin" : "termina"}
+                    {g.slots.length}{" "}
+                    {g.slots.length === 1 ? "termin" : "termina"}
                   </span>
                 </a>
               );
@@ -1195,13 +1225,15 @@ function RecoveryCTA({
   locationContext: string;
   noSalons?: boolean;
 }) {
-  const cityIn = city === "Sremska Mitrovica"
-    ? "Sremskoj Mitrovici"
-    : city === "Novi Sad"
-      ? "Novom Sadu"
-      : city === "Beograd"
-        ? "Beogradu"
-        : city;
+  const { setDrawerOpen } = useLandingUI();
+  const cityIn =
+    city === "Sremska Mitrovica"
+      ? "Sremskoj Mitrovici"
+      : city === "Novi Sad"
+        ? "Novom Sadu"
+        : city === "Beograd"
+          ? "Beogradu"
+          : city;
   return (
     <div style={{ marginBottom: 40 }}>
       <p
@@ -1250,7 +1282,7 @@ function RecoveryCTA({
               margin: "0 0 6px",
             }}
           >
-            Marija može pronaći prvi slobodan termin
+            Marija će vam dati više informacija o terminima i salonima.
           </p>
           <p
             style={{
@@ -1260,10 +1292,11 @@ function RecoveryCTA({
               margin: "0 0 16px",
             }}
           >
-            Marija prati otkazivanja i može automatski rezervisati prvi slobodan
-            termin za vas.
+            Marija ima informacije o svim slobodnim terminima i salonima.
           </p>
           <button
+            type="button"
+            onClick={() => setDrawerOpen(true)}
             style={{
               border: "none",
               cursor: "pointer",
@@ -1277,7 +1310,7 @@ function RecoveryCTA({
               width: "100%",
             }}
           >
-            Pronađi termin uz Mariju
+            Pitaj Mariju
           </button>
         </div>
 
@@ -1313,6 +1346,14 @@ function RecoveryCTA({
             Dobijte obaveštenje čim se pojavi slobodan termin.
           </p>
           <button
+            type="button"
+            onClick={() => {
+              const notifySection = document.getElementById("notify-me");
+              notifySection?.scrollIntoView({
+                behavior: "smooth",
+                block: "start",
+              });
+            }}
             style={{
               cursor: "pointer",
               fontFamily: "var(--main-font)",

@@ -14,32 +14,39 @@ export default function LandingConfirmBlock({ block }: Props) {
   const [opened, setOpened] = useState(false);
 
   const meta = block.metadata;
-  const serviceName = meta.service ?? meta.serviceName ?? block.query ?? "";
-  const salonId = meta.salonId ?? "";
-  const salonName = meta.salonName ?? "";
-  const city = meta.city ?? "";
-  const date = meta.date ?? "";
-  const time = meta.time ?? "";
+  const metadata = meta as typeof meta & {
+    selectedSlot?: NonNullable<AppointmentCalendarBlockType["metadata"]["slots"]>[number];
+  };
+  const selectedSlot = metadata.selectedSlot;
+  const serviceName =
+    selectedSlot?.serviceName ?? meta.service ?? meta.serviceName ?? block.query ?? "";
+  const salonId = selectedSlot?.salonId ?? meta.salonId ?? "";
+  const salonName = selectedSlot?.salonName ?? meta.salonName ?? "";
+  const city = selectedSlot?.city ?? meta.city ?? "";
+  const startTime = selectedSlot?.startTime;
+  const date = meta.date ?? startTime?.split("T")[0] ?? "";
+  const time = meta.time ?? selectedSlot?.timeLabel ?? "";
 
   if (!date || !time || !serviceName) return null;
 
   // Build ISO startTime: "2026-05-07" + "11:00" → "2026-05-07T11:00:00"
-  const startTime = `${date}T${time}:00`;
+  const fallbackStartTime = `${date}T${time}:00`;
 
   const handleConfirm = () => {
     if (opened) return;
     setOpened(true);
     blockActionToSystemAction("AppointmentCalendarBlock", "slot_selected", {
       selectedSlot: {
+        ...selectedSlot,
         salonId,
         salonName,
         city,
-        serviceId: meta.serviceId || null,
+        serviceId: selectedSlot?.serviceId ?? (meta.serviceId || null),
         serviceName,
-        category: meta.category ?? "",
-        startTime,
+        category: selectedSlot?.category ?? meta.category ?? "",
+        startTime: startTime ?? fallbackStartTime,
         duration: meta.duration,
-        price: meta.price,
+        price: selectedSlot?.price ?? meta.price,
         date,
         time,
       },

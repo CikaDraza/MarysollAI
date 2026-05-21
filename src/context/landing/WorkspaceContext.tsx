@@ -62,6 +62,13 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     });
   }, [lastBlock?.id]);
 
+  useEffect(() => {
+    if (lastBlock && commandBlock && lastBlock.id !== commandBlock.id) {
+      setCommandBlock(null);
+      setDismissedId(null);
+    }
+  }, [commandBlock, lastBlock]);
+
   const activeBlock =
     commandBlock ?? (lastBlock && lastBlock.id !== dismissedId ? lastBlock : null);
 

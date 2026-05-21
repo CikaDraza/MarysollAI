@@ -360,6 +360,11 @@ export function systemActionToAgentRequest(
         intent: "select_city",
         city: payload.city,
         service: payload.service,
+        category: payload.category,
+        date: payload.date,
+        time: payload.time,
+        timeWindowStart: payload.timeWindowStart,
+        timeWindowEnd: payload.timeWindowEnd,
       },
     };
   }
@@ -372,8 +377,13 @@ export function systemActionToAgentRequest(
         intent: "select_salon",
         city: payload.city,
         service: payload.service,
+        category: payload.category,
         salonId: payload.salonId,
         salonName: payload.salonName,
+        date: payload.date,
+        time: payload.time,
+        timeWindowStart: payload.timeWindowStart,
+        timeWindowEnd: payload.timeWindowEnd,
       },
     };
   }

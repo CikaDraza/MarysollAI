@@ -193,7 +193,7 @@ export default function NotifyMeWidget() {
   }
 
   return (
-    <section style={{ marginTop: 56 }} className="ms-nmw-section">
+    <section id="notify-me" style={{ marginTop: 56 }} className="ms-nmw-section">
       <div style={{ paddingTop: 12 }}>
         <p className="ms-nmw-eyebrow">Nema termina?</p>
         <h2 className="ms-nmw-title">

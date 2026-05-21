@@ -14,7 +14,10 @@
 
 import { ReactNode, useEffect, useRef } from "react";
 import { chatEvents, isAgentCallEvent } from "@/lib/ai/events/chatEvents";
-import { isSystemActionEvent } from "@/lib/ai/events/chat-event-types";
+import {
+  isSystemActionEvent,
+  type SystemActionEvent,
+} from "@/lib/ai/events/chat-event-types";
 import {
   logSystemActionEvent,
   systemActionToAgentRequest,
@@ -26,6 +29,7 @@ import { Message as DeepSeekMessage } from "@/types/ai/deepseek";
 import { AgentType } from "@/types/ai/deepseek/agent-call";
 import { handleMariaResponse } from "@/lib/ai/orchestrator/ai-orchestrator";
 import type { MariaTargetAgent } from "@/lib/ai/schemas/maria.schema";
+import { executeUICommand } from "@/lib/ai/ui/ui-command-executor";
 
 interface AgentBridgeProps {
   children: ReactNode;
@@ -88,6 +92,7 @@ export function AgentBridge({ children, claudiaAskAI }: AgentBridgeProps) {
   // Re-entrancy guard separate from orchestrator's `isTransitioning` — we
   // also want to drop a duplicate "CALL_AGENT" arriving on the same tick.
   const isProcessingRef = useRef(false);
+  const pendingSystemActionRef = useRef<SystemActionEvent | null>(null);
   const authRef = useRef({
     isAuthenticated: !!user,
     userName: user?.name || "Gost",
@@ -193,6 +198,9 @@ export function AgentBridge({ children, claudiaAskAI }: AgentBridgeProps) {
         console.error("[AgentBridge] handoff failed:", error);
       } finally {
         isProcessingRef.current = false;
+        const queuedEvent = pendingSystemActionRef.current;
+        pendingSystemActionRef.current = null;
+        if (queuedEvent) queueMicrotask(() => chatEvents.emit(queuedEvent));
       }
     });
 
@@ -200,9 +208,7 @@ export function AgentBridge({ children, claudiaAskAI }: AgentBridgeProps) {
   }, [askAI, ensureFreshAuth]);
 
   useEffect(() => {
-    const unsubscribe = chatEvents.subscribe("system_action", async (event) => {
-      if (!isSystemActionEvent(event) || isProcessingRef.current) return;
-
+    const routeSystemAction = async (event: SystemActionEvent) => {
       const agentRequest = systemActionToAgentRequest(event);
       if (!event.notifyAgent || !agentRequest) {
         logSystemActionEvent("[EVENT_IGNORED]", event, {
@@ -211,51 +217,77 @@ export function AgentBridge({ children, claudiaAskAI }: AgentBridgeProps) {
         return;
       }
 
+      logSystemActionEvent("[EVENT_ROUTED]", event, {
+        targetAgent: agentRequest.agentType,
+        intent: agentRequest.handoffPayload.intent,
+      });
+
+      const requiresFreshAuth =
+        agentRequest.handoffPayload.intent === "appointments" ||
+        agentRequest.handoffPayload.intent === "cancel_appointment" ||
+        agentRequest.handoffPayload.intent === "update_appointment" ||
+        agentRequest.handoffPayload.intent === "create_booking" ||
+        agentRequest.handoffPayload.intent === "resume_booking_after_login";
+      let authSnapshot = authRef.current;
+
+      if (requiresFreshAuth) {
+        const freshUser = await ensureFreshAuth();
+        authSnapshot = {
+          isAuthenticated: !!freshUser,
+          userName: freshUser?.name || "Gost",
+        };
+        authRef.current = authSnapshot;
+      }
+
+      await handleMariaResponse(
+        {
+          type: "handoff",
+          message: "",
+          targetAgent: agentRequest.agentType as MariaTargetAgent,
+          payload: agentRequest.handoffPayload,
+        },
+        {
+          userMessage: agentRequest.input,
+          invokeClaudia: async (_input, payload) => {
+            await askAI(agentRequest.input, {
+              context: [],
+              preserveHistory: true,
+              explicitAuth: authSnapshot,
+              handoffPayload: payload,
+              suppressUserMessage: true,
+            });
+          },
+        },
+      );
+    };
+
+    const unsubscribe = chatEvents.subscribe("system_action", async (event) => {
+      if (!isSystemActionEvent(event)) return;
+
+      if (event.notifyAgent) {
+        executeUICommand({
+          type: "OPEN_DRAWER",
+          reason: "system_action_notify_agent",
+        });
+      }
+
+      if (isProcessingRef.current) {
+        pendingSystemActionRef.current = event;
+        logSystemActionEvent("[EVENT_IGNORED]", event, {
+          reason: "queued_while_agent_transitioning",
+        });
+        return;
+      }
+
       isProcessingRef.current = true;
 
       try {
-        logSystemActionEvent("[EVENT_ROUTED]", event, {
-          targetAgent: agentRequest.agentType,
-          intent: agentRequest.handoffPayload.intent,
-        });
-
-        const requiresFreshAuth =
-          agentRequest.handoffPayload.intent === "appointments" ||
-          agentRequest.handoffPayload.intent === "cancel_appointment" ||
-          agentRequest.handoffPayload.intent === "update_appointment" ||
-          agentRequest.handoffPayload.intent === "create_booking" ||
-          agentRequest.handoffPayload.intent === "resume_booking_after_login";
-        let authSnapshot = authRef.current;
-
-        if (requiresFreshAuth) {
-          const freshUser = await ensureFreshAuth();
-          authSnapshot = {
-            isAuthenticated: !!freshUser,
-            userName: freshUser?.name || "Gost",
-          };
-          authRef.current = authSnapshot;
+        let nextEvent: typeof event | null = event;
+        while (nextEvent) {
+          pendingSystemActionRef.current = null;
+          await routeSystemAction(nextEvent);
+          nextEvent = pendingSystemActionRef.current;
         }
-
-        await handleMariaResponse(
-          {
-            type: "handoff",
-            message: "",
-            targetAgent: agentRequest.agentType as MariaTargetAgent,
-            payload: agentRequest.handoffPayload,
-          },
-          {
-            userMessage: agentRequest.input,
-            invokeClaudia: async (_input, payload) => {
-              await askAI(agentRequest.input, {
-                context: [],
-                preserveHistory: true,
-                explicitAuth: authSnapshot,
-                handoffPayload: payload,
-                suppressUserMessage: true,
-              });
-            },
-          },
-        );
       } catch (error) {
         console.error("[AgentBridge] system action failed:", error);
       } finally {

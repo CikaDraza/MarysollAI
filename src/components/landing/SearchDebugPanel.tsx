@@ -37,9 +37,12 @@ function StatRow({ label, value }: { label: string; value: string | number }) {
 export default function SearchDebugPanel() {
   const [open, setOpen] = useState(false);
   const { city, cityName, geoResolved, geoSignals } = useCityContext();
-  const { results, discovery, fallbackLevel, recoveryState, debug, isLoading } = useSearchContext();
+  const { results, discovery, fallbackLevel, recoveryState, debug, isLoading } =
+    useSearchContext();
   const recoveryDebug =
-    debug && typeof debug.recoveryDebug === "object" && debug.recoveryDebug !== null
+    debug &&
+    typeof debug.recoveryDebug === "object" &&
+    debug.recoveryDebug !== null
       ? (debug.recoveryDebug as Record<string, unknown>)
       : undefined;
 
@@ -49,7 +52,9 @@ export default function SearchDebugPanel() {
   // Compute a snapshot ranking so the panel shows what consumers actually see.
   // Deliberately cheap: we just take results as-is and feed through the
   // adapter to capture rankingMeta. Reuses the same code path as real consumers.
-  const debugPolicy = resolveFallbackPolicy("quickaccess", { kind: "implicit_geo" });
+  const debugPolicy = resolveFallbackPolicy("quickaccess", {
+    kind: "implicit_geo",
+  });
   const policyPassed = applyFallbackPolicy(results, debugPolicy);
   const distanceOrigin = resolveDistanceOrigin(geoSignals, city);
   const policyRejected = results.length - policyPassed.length;
@@ -78,7 +83,10 @@ export default function SearchDebugPanel() {
     (acc, r) => {
       const origins = r.slotOrigins ?? [];
       if (origins.includes("synthetic")) acc.synthetic++;
-      else if (origins.includes("nearby_city") && origins.includes("related_service")) {
+      else if (
+        origins.includes("nearby_city") &&
+        origins.includes("related_service")
+      ) {
         acc.nearby_city++;
         acc.related_service++;
       } else if (origins.includes("nearby_city")) acc.nearby_city++;
@@ -87,7 +95,13 @@ export default function SearchDebugPanel() {
       else if (origins.includes("real")) acc.real++;
       return acc;
     },
-    { real: 0, relaxed_time: 0, related_service: 0, nearby_city: 0, synthetic: 0 },
+    {
+      real: 0,
+      relaxed_time: 0,
+      related_service: 0,
+      nearby_city: 0,
+      synthetic: 0,
+    },
   );
 
   // Availability confidence breakdown
@@ -105,10 +119,17 @@ export default function SearchDebugPanel() {
   const policyCounts = policyDecisions.reduce(
     (acc, item) => {
       const conf = item.slot.availabilityConfidence;
-      if (item.decision.accepted && conf === "calendar_verified") acc.accepted_verified++;
-      else if (item.decision.accepted && conf === "working_hours_only") acc.accepted_working_hours++;
-      else if (!item.decision.accepted && conf === "synthetic_projection") acc.rejected_synthetic++;
-      else if (!item.decision.accepted && item.decision.reason === "invalid_confidence") acc.rejected_invalid++;
+      if (item.decision.accepted && conf === "calendar_verified")
+        acc.accepted_verified++;
+      else if (item.decision.accepted && conf === "working_hours_only")
+        acc.accepted_working_hours++;
+      else if (!item.decision.accepted && conf === "synthetic_projection")
+        acc.rejected_synthetic++;
+      else if (
+        !item.decision.accepted &&
+        item.decision.reason === "invalid_confidence"
+      )
+        acc.rejected_invalid++;
       return acc;
     },
     {
@@ -125,7 +146,7 @@ export default function SearchDebugPanel() {
         position: "fixed",
         bottom: 12,
         right: 12,
-        zIndex: 50,
+        zIndex: 60,
         fontFamily: "monospace",
         fontSize: 11,
         background: "rgba(15, 15, 20, 0.92)",
@@ -205,25 +226,65 @@ export default function SearchDebugPanel() {
           <StatRow label="fallback label" value={ranked.fallback.label} />
           {recoveryDebug && (
             <>
-              <div style={{ borderTop: "1px dashed rgba(255,255,255,0.12)", margin: "6px 0" }} />
+              <div
+                style={{
+                  borderTop: "1px dashed rgba(255,255,255,0.12)",
+                  margin: "6px 0",
+                }}
+              />
               <div style={{ opacity: 0.6 }}>recoveryDebug</div>
-              <StatRow label="requestedCity" value={String(recoveryDebug.requestedCity ?? "—")} />
-              <StatRow label="effectiveCity" value={String(recoveryDebug.effectiveCity ?? "—")} />
-              <StatRow label="scenario" value={String(recoveryDebug.recoveryScenario ?? "—")} />
-              <StatRow label="reason" value={String(recoveryDebug.reason ?? "—")} />
-              <StatRow label="city has salons" value={String(recoveryDebug.selectedCityHasSalons ?? "—")} />
-              <StatRow label="city has slots" value={String(recoveryDebug.selectedCityHasSlots ?? "—")} />
+              <StatRow
+                label="requestedCity"
+                value={String(recoveryDebug.requestedCity ?? "—")}
+              />
+              <StatRow
+                label="effectiveCity"
+                value={String(recoveryDebug.effectiveCity ?? "—")}
+              />
+              <StatRow
+                label="scenario"
+                value={String(recoveryDebug.recoveryScenario ?? "—")}
+              />
+              <StatRow
+                label="reason"
+                value={String(recoveryDebug.reason ?? "—")}
+              />
+              <StatRow
+                label="city has salons"
+                value={String(recoveryDebug.selectedCityHasSalons ?? "—")}
+              />
+              <StatRow
+                label="city has slots"
+                value={String(recoveryDebug.selectedCityHasSlots ?? "—")}
+              />
               <StatRow
                 label="expanded cities"
-                value={Array.isArray(recoveryDebug.expandedToCities)
-                  ? recoveryDebug.expandedToCities.join(", ") || "—"
-                  : "—"}
+                value={
+                  Array.isArray(recoveryDebug.expandedToCities)
+                    ? recoveryDebug.expandedToCities.join(", ") || "—"
+                    : "—"
+                }
               />
-              <StatRow label="exact requested" value={Number(recoveryDebug.exactRequestedCityCount ?? 0)} />
-              <StatRow label="related requested" value={Number(recoveryDebug.relatedRequestedCityCount ?? 0)} />
-              <StatRow label="exact other" value={Number(recoveryDebug.exactOtherCityCount ?? 0)} />
-              <StatRow label="related other" value={Number(recoveryDebug.relatedOtherCityCount ?? 0)} />
-              <StatRow label="selected" value={Number(recoveryDebug.selectedSlotsCount ?? 0)} />
+              <StatRow
+                label="exact requested"
+                value={Number(recoveryDebug.exactRequestedCityCount ?? 0)}
+              />
+              <StatRow
+                label="related requested"
+                value={Number(recoveryDebug.relatedRequestedCityCount ?? 0)}
+              />
+              <StatRow
+                label="exact other"
+                value={Number(recoveryDebug.exactOtherCityCount ?? 0)}
+              />
+              <StatRow
+                label="related other"
+                value={Number(recoveryDebug.relatedOtherCityCount ?? 0)}
+              />
+              <StatRow
+                label="selected"
+                value={Number(recoveryDebug.selectedSlotsCount ?? 0)}
+              />
               <StatRow label="discovery count" value={discovery.length} />
               <StatRow
                 label="synthetic count"
@@ -231,9 +292,11 @@ export default function SearchDebugPanel() {
               />
               <StatRow
                 label="city suggestions"
-                value={Array.isArray(recoveryState?.nearbyCitySuggestions)
-                  ? recoveryState.nearbyCitySuggestions.length
-                  : 0}
+                value={
+                  Array.isArray(recoveryState?.nearbyCitySuggestions)
+                    ? recoveryState.nearbyCitySuggestions.length
+                    : 0
+                }
               />
             </>
           )}
@@ -253,36 +316,95 @@ export default function SearchDebugPanel() {
           />
 
           {/* ── Phase 3: policy breakdown ──────────────────────────────── */}
-          <div style={{ borderTop: "1px dashed rgba(255,255,255,0.12)", margin: "6px 0" }} />
+          <div
+            style={{
+              borderTop: "1px dashed rgba(255,255,255,0.12)",
+              margin: "6px 0",
+            }}
+          />
           <div style={{ opacity: 0.6 }}>policy (quickaccess/implicit_geo)</div>
-          <StatRow label="maxFallbackLevel" value={debugPolicy.maxFallbackLevel} />
-          <StatRow label="allowSynthetic" value={String(debugPolicy.allowSynthetic)} />
-          <StatRow label="allowNearbyCities" value={String(debugPolicy.allowNearbyCities)} />
-          <StatRow label="allowCategoryDrift" value={String(debugPolicy.allowCategoryDrift)} />
-          <StatRow label="allowServiceVariants" value={String(debugPolicy.allowServiceVariants)} />
+          <StatRow
+            label="maxFallbackLevel"
+            value={debugPolicy.maxFallbackLevel}
+          />
+          <StatRow
+            label="allowSynthetic"
+            value={String(debugPolicy.allowSynthetic)}
+          />
+          <StatRow
+            label="allowNearbyCities"
+            value={String(debugPolicy.allowNearbyCities)}
+          />
+          <StatRow
+            label="allowCategoryDrift"
+            value={String(debugPolicy.allowCategoryDrift)}
+          />
+          <StatRow
+            label="allowServiceVariants"
+            value={String(debugPolicy.allowServiceVariants)}
+          />
 
-          <div style={{ borderTop: "1px dashed rgba(255,255,255,0.12)", margin: "6px 0" }} />
+          <div
+            style={{
+              borderTop: "1px dashed rgba(255,255,255,0.12)",
+              margin: "6px 0",
+            }}
+          />
           <div style={{ opacity: 0.6 }}>origins</div>
           <StatRow label="real" value={originCounts.real} />
           <StatRow label="relaxed_time" value={originCounts.relaxed_time} />
-          <StatRow label="related_service" value={originCounts.related_service} />
+          <StatRow
+            label="related_service"
+            value={originCounts.related_service}
+          />
           <StatRow label="nearby_city" value={originCounts.nearby_city} />
           <StatRow label="synthetic" value={originCounts.synthetic} />
 
-          <div style={{ borderTop: "1px dashed rgba(255,255,255,0.12)", margin: "6px 0" }} />
+          <div
+            style={{
+              borderTop: "1px dashed rgba(255,255,255,0.12)",
+              margin: "6px 0",
+            }}
+          />
           <div style={{ opacity: 0.6 }}>availability confidence</div>
-          <StatRow label="calendar_verified" value={confCounts.calendar_verified} />
-          <StatRow label="working_hours_only" value={confCounts.working_hours_only} />
-          <StatRow label="synthetic_proj." value={confCounts.synthetic_projection} />
+          <StatRow
+            label="calendar_verified"
+            value={confCounts.calendar_verified}
+          />
+          <StatRow
+            label="working_hours_only"
+            value={confCounts.working_hours_only}
+          />
+          <StatRow
+            label="synthetic_proj."
+            value={confCounts.synthetic_projection}
+          />
 
-          <div style={{ borderTop: "1px dashed rgba(255,255,255,0.12)", margin: "6px 0" }} />
+          <div
+            style={{
+              borderTop: "1px dashed rgba(255,255,255,0.12)",
+              margin: "6px 0",
+            }}
+          />
           <div style={{ opacity: 0.6 }}>policy rejected (QA/implicit_geo)</div>
           <StatRow label="rejected total" value={policyRejected} />
           <StatRow label="passed" value={policyPassed.length} />
-          <StatRow label="accepted_verified" value={policyCounts.accepted_verified} />
-          <StatRow label="accepted_working_hours" value={policyCounts.accepted_working_hours} />
-          <StatRow label="rejected_synthetic" value={policyCounts.rejected_synthetic} />
-          <StatRow label="rejected_invalid" value={policyCounts.rejected_invalid} />
+          <StatRow
+            label="accepted_verified"
+            value={policyCounts.accepted_verified}
+          />
+          <StatRow
+            label="accepted_working_hours"
+            value={policyCounts.accepted_working_hours}
+          />
+          <StatRow
+            label="rejected_synthetic"
+            value={policyCounts.rejected_synthetic}
+          />
+          <StatRow
+            label="rejected_invalid"
+            value={policyCounts.rejected_invalid}
+          />
 
           {top3.length > 0 && (
             <>
@@ -298,14 +420,20 @@ export default function SearchDebugPanel() {
                   key={`${s.salonId}-${s.startTime}-${s.serviceId ?? ""}`}
                   style={{ fontSize: 10, opacity: 0.85, lineHeight: 1.4 }}
                 >
-                  <span style={{ fontWeight: 700 }}>
-                    {s.rankingMeta.score}
-                  </span>{" "}
+                  <span style={{ fontWeight: 700 }}>{s.rankingMeta.score}</span>{" "}
                   · {s.salonName.slice(0, 14)} · {s.timeLabel}
-                  {typeof s.distanceKm === "number" ? ` · ${s.distanceKm}km` : ""}
-                  {typeof s.distanceScore === "number" ? ` · ds:${s.distanceScore.toFixed(2)}` : ""}
-                  {typeof s.travelMinutesEstimate === "number" ? ` · ${s.travelMinutesEstimate}min` : ""}
-                  {s.availabilityConfidence ? ` · ${s.availabilityConfidence}` : ""}
+                  {typeof s.distanceKm === "number"
+                    ? ` · ${s.distanceKm}km`
+                    : ""}
+                  {typeof s.distanceScore === "number"
+                    ? ` · ds:${s.distanceScore.toFixed(2)}`
+                    : ""}
+                  {typeof s.travelMinutesEstimate === "number"
+                    ? ` · ${s.travelMinutesEstimate}min`
+                    : ""}
+                  {s.availabilityConfidence
+                    ? ` · ${s.availabilityConfidence}`
+                    : ""}
                   {typeof s.availabilityConfidenceScore === "number"
                     ? ` · acs:${s.availabilityConfidenceScore.toFixed(2)}`
                     : ""}

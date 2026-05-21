@@ -1230,8 +1230,14 @@ export async function askAgent(
     const service = String(handoffPayload.service ?? collectedBookingFields?.service ?? "");
     const salonId = String(handoffPayload.salonId ?? "");
     const salonName = String(handoffPayload.salonName ?? "");
-    const date = collectedBookingFields?.date ?? "";
-    const time = collectedBookingFields?.time ?? "";
+    const date = asString(handoffPayload.date) ?? collectedBookingFields?.date ?? "";
+    const time = asString(handoffPayload.time) ?? collectedBookingFields?.time ?? "";
+    const timeWindowStart =
+      asNumberOrNull(handoffPayload.timeWindowStart) ??
+      collectedBookingFields?.timeWindowStart;
+    const timeWindowEnd =
+      asNumberOrNull(handoffPayload.timeWindowEnd) ??
+      collectedBookingFields?.timeWindowEnd;
 
     if (!service) {
       return streamClaudiaContract(
@@ -1258,11 +1264,23 @@ export async function askAgent(
             city,
             date,
             time,
+            timeWindowStart,
+            timeWindowEnd,
             salonId,
             salonName,
+            category: asString(handoffPayload.category) ?? collectedBookingFields?.category,
           }),
         ],
-        entities: { city, service, salonId, salonName },
+        entities: {
+          city,
+          service,
+          salonId,
+          salonName,
+          date,
+          time,
+          timeWindowStart,
+          timeWindowEnd,
+        },
       }),
     );
   }

@@ -9,6 +9,7 @@ import type { SearchApiResponse } from "@/types/slots";
 import { Reveal } from "@/components/motion/Reveal";
 import { bookingFlow } from "@/lib/ai/booking-flow-state";
 import { blockActionToSystemAction } from "@/lib/ai/layout/blockActionToSystemAction";
+import { executeUICommand } from "@/lib/ai/ui/ui-command-executor";
 
 interface Props {
   block: SalonListBlockType;
@@ -121,9 +122,18 @@ export default function SalonListBlockView({ block, onActionComplete }: Props) {
                   intent: "select_salon",
                   city,
                   service,
+                  category,
                   salonId: salon.id,
                   salonName: salon.name,
+                  date: block.metadata.date,
+                  time: block.metadata.time,
+                  timeWindowStart: block.metadata.timeWindowStart,
+                  timeWindowEnd: block.metadata.timeWindowEnd,
                 };
+                executeUICommand({
+                  type: "OPEN_DRAWER",
+                  reason: "salon_selected",
+                });
                 if (!blockActionToSystemAction("SalonListBlock", "salon_selected", payload)) {
                   onActionComplete(
                     `Izabrao sam salon: ${salon.name} [salonId:${salon.id}]${city ? ` u ${city}` : ""}`,

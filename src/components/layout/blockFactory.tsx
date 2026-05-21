@@ -88,7 +88,7 @@ export function aiWorkflowBlockFactory(
         <PricingBlockView key={block.id} block={block as PricingBlockType} />
       );
     case "AppointmentCalendarBlock":
-      if (isLanding && block.metadata.time) {
+      if (isLanding && block.metadata.selectedSlot) {
         return (
           <LandingConfirmBlock
             key={block.id}

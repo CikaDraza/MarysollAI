@@ -24,7 +24,13 @@ interface ClientAppointmentListItemProps {
   onCancel: (appointment: IAppointment) => void;
   onChange: (appointment: IAppointment) => void;
   isCancelling?: boolean;
-  salonDirectory?: Map<string, MappedSalon>;
+  salonDirectory?: SalonDirectory;
+}
+
+interface SalonDirectory {
+  byId: Map<string, MappedSalon>;
+  byServiceId: Map<string, MappedSalon>;
+  byServiceName: Map<string, MappedSalon | null>;
 }
 
 function normalizeText(value: string | undefined) {
@@ -52,40 +58,132 @@ function readStringPath(value: unknown, path: string[]): string {
   return typeof current === "string" ? current.trim() : "";
 }
 
+function readPath(value: unknown, path: string[]): unknown {
+  let current = value;
+  for (const key of path) {
+    if (!current || typeof current !== "object") return undefined;
+    current = (current as Record<string, unknown>)[key];
+  }
+  return current;
+}
+
 function isGenericSalonName(value: string): boolean {
   return value.trim().toLowerCase() === "salon";
 }
 
-function buildSalonDirectory(salons: MappedSalon[]): Map<string, MappedSalon> {
-  const directory = new Map<string, MappedSalon>();
+function buildSalonDirectory(salons: MappedSalon[]): SalonDirectory {
+  const byId = new Map<string, MappedSalon>();
+  const byServiceId = new Map<string, MappedSalon>();
+  const byServiceName = new Map<string, MappedSalon | null>();
   for (const salon of salons) {
-    if (salon.id) directory.set(salon.id, salon);
-    if (salon.tenantId) directory.set(salon.tenantId, salon);
+    const salonRecord = salon as MappedSalon & { _id?: unknown };
+    for (const id of [
+      normalizeClientId(salonRecord.id),
+      normalizeClientId(salonRecord._id),
+      normalizeClientId(salonRecord.tenantId),
+    ]) {
+      if (id) byId.set(id, salon);
+    }
+    for (const service of salon.services ?? []) {
+      const serviceRecord = service as typeof service & { _id?: unknown };
+      for (const serviceId of [
+        normalizeClientId(serviceRecord.id),
+        normalizeClientId(serviceRecord.rawId),
+        normalizeClientId(serviceRecord._id),
+      ]) {
+        if (serviceId) byServiceId.set(serviceId, salon);
+      }
+      const serviceName = normalizeText(service.name);
+      if (serviceName) {
+        const existing = byServiceName.get(serviceName);
+        byServiceName.set(
+          serviceName,
+          existing && existing !== salon ? null : existing ?? salon,
+        );
+      }
+    }
   }
-  return directory;
+  return { byId, byServiceId, byServiceName };
 }
 
-function appointmentSalonId(appointment: IAppointment): string {
+function appointmentSalonIds(appointment: IAppointment): string[] {
   const record = appointment as IAppointment & {
     salonId?: unknown;
     tenantId?: unknown;
   };
-  return (
-    normalizeClientId(record.salonId) || normalizeClientId(record.tenantId)
-  );
+  return [
+    normalizeClientId(record.salonId),
+    normalizeClientId(record.tenantId),
+    normalizeClientId(readPath(record, ["salonId", "_id"])),
+    normalizeClientId(readPath(record, ["salonId", "id"])),
+    normalizeClientId(readPath(record, ["tenantId", "_id"])),
+    normalizeClientId(readPath(record, ["tenantId", "id"])),
+    normalizeClientId(readPath(record, ["salon", "_id"])),
+    normalizeClientId(readPath(record, ["salon", "id"])),
+    normalizeClientId(readPath(record, ["tenant", "_id"])),
+    normalizeClientId(readPath(record, ["tenant", "id"])),
+    normalizeClientId(readPath(record, ["salonProfile", "_id"])),
+    normalizeClientId(readPath(record, ["salonProfile", "id"])),
+    normalizeClientId(readPath(record, ["tenantProfile", "_id"])),
+    normalizeClientId(readPath(record, ["tenantProfile", "id"])),
+  ].filter((id, index, ids) => Boolean(id) && ids.indexOf(id) === index);
+}
+
+function appointmentServiceIds(appointment: IAppointment): string[] {
+  const ids = appointment.services.flatMap((service) => [
+    normalizeClientId(service.serviceId),
+    normalizeClientId(readPath(service, ["serviceId", "_id"])),
+    normalizeClientId(readPath(service, ["serviceId", "id"])),
+  ]);
+  return ids.filter((id, index) => Boolean(id) && ids.indexOf(id) === index);
+}
+
+function appointmentServiceNames(appointment: IAppointment): string[] {
+  const names = [
+    normalizeText(appointment.serviceName),
+    ...appointment.services.map((service) => normalizeText(service.serviceName)),
+  ];
+  return names.filter((name, index) => Boolean(name) && names.indexOf(name) === index);
+}
+
+function appointmentSalonId(appointment: IAppointment): string {
+  return appointmentSalonIds(appointment)[0] ?? "";
+}
+
+function directorySalonForAppointment(
+  appointment: IAppointment,
+  salonDirectory?: SalonDirectory,
+): MappedSalon | undefined {
+  if (!salonDirectory) return undefined;
+  for (const id of appointmentSalonIds(appointment)) {
+    const salon = salonDirectory.byId.get(id);
+    if (salon) return salon;
+  }
+  for (const serviceId of appointmentServiceIds(appointment)) {
+    const salon = salonDirectory.byServiceId.get(serviceId);
+    if (salon) return salon;
+  }
+  for (const serviceName of appointmentServiceNames(appointment)) {
+    const salon = salonDirectory.byServiceName.get(serviceName);
+    if (salon) return salon;
+  }
+  return undefined;
 }
 
 function appointmentSalonName(
   appointment: IAppointment,
-  salonDirectory?: Map<string, MappedSalon>,
+  salonDirectory?: SalonDirectory,
 ): string {
   const record = appointment as IAppointment & {
     salonName?: unknown;
     tenantName?: unknown;
   };
-  const salonId = appointmentSalonId(appointment);
-  const directoryName = salonId ? salonDirectory?.get(salonId)?.name?.trim() : "";
+  const directoryName = directorySalonForAppointment(
+    appointment,
+    salonDirectory,
+  )?.name?.trim();
   const candidates = [
+    directoryName ?? "",
     typeof record.salonName === "string" ? record.salonName.trim() : "",
     typeof record.tenantName === "string" ? record.tenantName.trim() : "",
     readStringPath(record, ["salon", "name"]),
@@ -95,7 +193,6 @@ function appointmentSalonName(
     readStringPath(record, ["salonProfile", "name"]),
     readStringPath(record, ["tenantProfile", "name"]),
     readStringPath(record, ["metadata", "salonName"]),
-    directoryName ?? "",
   ].filter(Boolean);
 
   return (
@@ -105,7 +202,34 @@ function appointmentSalonName(
   );
 }
 
-function appointmentSalonAddress(appointment: IAppointment): string {
+function appointmentSalonCity(
+  appointment: IAppointment,
+  salonDirectory?: SalonDirectory,
+): string {
+  const record = appointment as IAppointment & {
+    city?: unknown;
+    location?: { city?: unknown };
+  };
+  const directorySalon = directorySalonForAppointment(appointment, salonDirectory);
+  return (
+    directorySalon?.city?.trim() ||
+    directorySalon?.location.city?.trim() ||
+    (typeof appointment.salonCity === "string" && appointment.salonCity.trim()) ||
+    (typeof record.city === "string" && record.city.trim()) ||
+    (typeof record.location?.city === "string" && record.location.city.trim()) ||
+    readStringPath(record, ["salon", "city"]) ||
+    readStringPath(record, ["tenant", "city"]) ||
+    readStringPath(record, ["salonProfile", "city"]) ||
+    readStringPath(record, ["tenantProfile", "city"]) ||
+    readStringPath(record, ["metadata", "salonCity"]) ||
+    ""
+  );
+}
+
+function appointmentSalonAddress(
+  appointment: IAppointment,
+  salonDirectory?: SalonDirectory,
+): string {
   const record = appointment as IAppointment & {
     address?: unknown;
     location?: { address?: unknown; formattedAddress?: unknown };
@@ -119,15 +243,36 @@ function appointmentSalonAddress(appointment: IAppointment): string {
   );
 }
 
-function appointmentMapsLink(appointment: IAppointment): string {
+function appointmentMapsLink(
+  appointment: IAppointment,
+  salonDirectory?: SalonDirectory,
+): string {
   if (appointment.mapsLink) return appointment.mapsLink;
   const coords = { lat: appointment.salonLat, lng: appointment.salonLng };
   if (hasGeoCoordinates(coords)) {
     return createGoogleMapsLink(coords.lat, coords.lng);
   }
   return createGoogleMapsLinkFromAddress(
-    appointmentSalonAddress(appointment),
-    appointment.salonCity,
+    appointmentSalonAddress(appointment, salonDirectory),
+    appointmentSalonCity(appointment, salonDirectory),
+  );
+}
+
+function appointmentMatchesSelectedSalon(
+  appointment: IAppointment,
+  selectedSalonId: string,
+  salonDirectory?: SalonDirectory,
+): boolean {
+  if (selectedSalonId === "all") return true;
+  if (appointmentSalonId(appointment) === selectedSalonId) return true;
+  const appointmentIds = appointmentSalonIds(appointment);
+  if (appointmentIds.includes(selectedSalonId)) return true;
+  const selectedSalon = salonDirectory?.byId.get(selectedSalonId);
+  const directorySalon = directorySalonForAppointment(appointment, salonDirectory);
+  return (
+    directorySalon?.id === selectedSalonId ||
+    directorySalon?.tenantId === selectedSalonId ||
+    Boolean(selectedSalon && directorySalon === selectedSalon)
   );
 }
 
@@ -142,9 +287,9 @@ function ClientAppointmentListItem({
   const currentAppointment = appointment;
   const canCancel = isCancellableAppointment(currentAppointment);
   const salonName = appointmentSalonName(currentAppointment, salonDirectory);
-  const salonAddress = appointmentSalonAddress(currentAppointment);
-  const salonCity = currentAppointment.salonCity ?? "";
-  const mapsLink = appointmentMapsLink(currentAppointment);
+  const salonAddress = appointmentSalonAddress(currentAppointment, salonDirectory);
+  const salonCity = appointmentSalonCity(currentAppointment, salonDirectory);
+  const mapsLink = appointmentMapsLink(currentAppointment, salonDirectory);
   const distanceLabel = formatDistance(currentAppointment.distanceKm);
   const travelLabel = currentAppointment.travelMinutesEstimate
     ? `oko ${currentAppointment.travelMinutesEstimate} min`
@@ -370,13 +515,21 @@ export default function ClientBlockAppointments({
   }, [response, user]);
 
   const salonOptions = useMemo(() => {
-    const byId = new Map<string, string>();
+    const byId = new Map<string, { id: string; name: string; city: string }>();
     for (const appointment of userAppointments) {
-      const salonId = appointmentSalonId(appointment);
+      const directorySalon = directorySalonForAppointment(
+        appointment,
+        salonDirectory,
+      );
+      const salonId = appointmentSalonId(appointment) || directorySalon?.id || "";
       if (!salonId) continue;
-      byId.set(salonId, appointmentSalonName(appointment, salonDirectory));
+      byId.set(salonId, {
+        id: salonId,
+        name: appointmentSalonName(appointment, salonDirectory),
+        city: appointmentSalonCity(appointment, salonDirectory),
+      });
     }
-    return Array.from(byId, ([id, name]) => ({ id, name }));
+    return Array.from(byId.values());
   }, [salonDirectory, userAppointments]);
 
   const appointments = useMemo(() => {
@@ -385,10 +538,14 @@ export default function ClientBlockAppointments({
         ? userAppointments
         : userAppointments.filter(
             (appointment) =>
-              appointmentSalonId(appointment) === selectedSalonId,
+              appointmentMatchesSelectedSalon(
+                appointment,
+                selectedSalonId,
+                salonDirectory,
+              ),
           );
     return filterAppointmentsByMode(bySalon, appointmentListMode);
-  }, [appointmentListMode, selectedSalonId, userAppointments]);
+  }, [appointmentListMode, salonDirectory, selectedSalonId, userAppointments]);
 
   const pagination = response?.pagination;
 
@@ -439,8 +596,16 @@ export default function ClientBlockAppointments({
             <p className="text-sm font-semibold text-gray-800">
               {selectedSalonId === "all"
                 ? "Svi saloni"
-                : (salonOptions.find((salon) => salon.id === selectedSalonId)
-                    ?.name ?? "Izabrani salon")}
+                : (() => {
+                    const selectedSalon = salonOptions.find(
+                      (salon) => salon.id === selectedSalonId,
+                    );
+                    return selectedSalon
+                      ? [selectedSalon.name, selectedSalon.city]
+                          .filter(Boolean)
+                          .join(", ")
+                      : "Izabrani salon";
+                  })()}
             </p>
             <button
               type="button"
@@ -480,7 +645,14 @@ export default function ClientBlockAppointments({
                       : "bg-white text-gray-700"
                   }`}
                 >
-                  {salon.name}
+                  <span className="block text-left leading-tight">
+                    {salon.name}
+                  </span>
+                  {salon.city && (
+                    <span className="mt-0.5 block text-left text-[11px] font-medium leading-tight opacity-70">
+                      {salon.city}
+                    </span>
+                  )}
                 </button>
               ))}
             </div>

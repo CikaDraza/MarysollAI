@@ -8,6 +8,7 @@ import type { SearchApiResponse } from "@/types/slots";
 import { Reveal } from "@/components/motion/Reveal";
 import { bookingFlow } from "@/lib/ai/booking-flow-state";
 import { blockActionToSystemAction } from "@/lib/ai/layout/blockActionToSystemAction";
+import { executeUICommand } from "@/lib/ai/ui/ui-command-executor";
 
 interface Props {
   block: CityListBlockType;
@@ -111,7 +112,16 @@ export default function CityListBlockView({ block, onActionComplete }: Props) {
                   intent: "select_city",
                   city: city.name,
                   service,
+                  category,
+                  date: block.metadata.date,
+                  time: block.metadata.time,
+                  timeWindowStart: block.metadata.timeWindowStart,
+                  timeWindowEnd: block.metadata.timeWindowEnd,
                 };
+                executeUICommand({
+                  type: "OPEN_DRAWER",
+                  reason: "city_selected",
+                });
                 if (!blockActionToSystemAction("CityListBlock", "city_selected", payload)) {
                   onActionComplete(`Izabrao sam grad: ${city.name}`, payload);
                 }

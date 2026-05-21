@@ -15,13 +15,19 @@ export default function LandingSearchBlock({ block, onActionComplete }: Props) {
   const city = block.metadata.city ?? "";
   const service = block.metadata.service ?? block.metadata.serviceName ?? block.query ?? "";
   const date = block.metadata.date ?? "";
+  const salonId = block.metadata.salonId ?? "";
   const providedSlots = Array.isArray(block.metadata.slots)
     ? block.metadata.slots
     : null;
   const params = new URLSearchParams();
   if (city) params.set("city", city);
-  if (service) params.set("category", service);
+  if (service) {
+    params.set("query", service);
+    params.set("service", service);
+    params.set("category", block.metadata.category || service);
+  }
   if (date) params.set("date", date);
+  if (salonId) params.set("salonId", salonId);
   if (block.metadata.timeWindowStart != null) {
     params.set("timeWindowStart", String(block.metadata.timeWindowStart));
   }
@@ -34,6 +40,7 @@ export default function LandingSearchBlock({ block, onActionComplete }: Props) {
       "landing-slots",
       city,
       service,
+      salonId,
       date,
       block.metadata.timeWindowStart,
       block.metadata.timeWindowEnd,
@@ -85,7 +92,12 @@ export default function LandingSearchBlock({ block, onActionComplete }: Props) {
           {},
         ),
       )
-    : data?.slotsByCity ?? [];
+    : (data?.slotsByCity ?? []).map((group) => ({
+        ...group,
+        slots: salonId
+          ? group.slots.filter((slot) => slot.salonId === salonId)
+          : group.slots,
+      }));
   const totalSlots = slotsByCity.reduce((n, g) => n + g.slots.length, 0);
 
   if (totalSlots === 0) {

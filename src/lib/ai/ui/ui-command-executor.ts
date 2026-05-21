@@ -46,10 +46,6 @@ function emit(command: UICommand): void {
 
 function applySoftOwnership(command: UICommand): UICommand {
   if (command.type === "OPEN_DRAWER") {
-    if (drawerOpen) {
-      logSurfaceOwnership("drawer_already_open", { reason: command.reason });
-      return { type: "FOCUS_BLOCK", blockType: "AIDrawer", reason: "drawer_already_open" };
-    }
     drawerOpen = true;
     return command;
   }
@@ -91,17 +87,6 @@ function applySoftOwnership(command: UICommand): UICommand {
         blockType: command.block.type,
         surface: command.surface ?? "workspace",
       });
-    }
-    if (blockOrchestrator.isBlockOpen(command.block.type)) {
-      logSurfaceOwnership("block_duplicate_focus_existing", {
-        blockType: command.block.type,
-      });
-      blockOrchestrator.focusBlock(command.block.type);
-      return {
-        type: "FOCUS_BLOCK",
-        blockType: command.block.type,
-        reason: "duplicate_render_block",
-      };
     }
   }
 

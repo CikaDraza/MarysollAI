@@ -188,7 +188,7 @@ describe("UICommand executor and mapping", () => {
     });
   });
 
-  it("Duplicate RENDER_BLOCK focuses existing block", () => {
+  it("RENDER_BLOCK still emits when the same block type is already open", () => {
     const commands = collectUICommands();
     const block: BaseBlock = {
       id: "block-1",
@@ -201,8 +201,8 @@ describe("UICommand executor and mapping", () => {
     executeUICommand({ type: "RENDER_BLOCK", block });
 
     expect(commands[0]).toMatchObject({
-      type: "FOCUS_BLOCK",
-      blockType: "CalendarBlock",
+      type: "RENDER_BLOCK",
+      block,
     });
   });
 
