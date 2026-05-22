@@ -457,9 +457,12 @@ function emitUIEffectsForTransition(
 
   // BOOKING_SUBMIT_SUCCESS → success toast (dispatcher does NOT emit this).
   if (nextStep === "booking_success") {
+    if (isSystemActionEvent(event) && event.source === "BookingModal") {
+      return;
+    }
     executeUICommand({
       type: "SHOW_TOAST",
-      message: "Termin je zakazan.",
+      message: "Zahtev za termin je poslat salonu i čeka potvrdu.",
       variant: "success",
       reason: "workflow_booking_success",
     });

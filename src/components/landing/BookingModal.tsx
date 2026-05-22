@@ -50,7 +50,32 @@ function showLocationToast(params: {
   if (!params.mapsLink) return;
   toast(
     (t) => (
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: 8,
+          paddingRight: 26,
+          position: "relative",
+        }}
+      >
+        <button
+          type="button"
+          aria-label="Zatvori"
+          onClick={() => toast.dismiss(t.id)}
+          style={{
+            position: "absolute",
+            right: 0,
+            top: 0,
+            border: "none",
+            background: "transparent",
+            cursor: "pointer",
+            color: "var(--fg-3)",
+            padding: 2,
+          }}
+        >
+          <XMarkIcon style={{ width: 16, height: 16 }} strokeWidth={2} />
+        </button>
         <strong>Lokacija salona</strong>
         <span>
           {params.salonName}
@@ -61,7 +86,6 @@ function showLocationToast(params: {
             href={params.mapsLink}
             target="_blank"
             rel="noopener noreferrer"
-            onClick={() => toast.dismiss(t.id)}
             style={{ color: "var(--secondary-color)", fontWeight: 700 }}
           >
             Prikaži mapu
@@ -72,7 +96,6 @@ function showLocationToast(params: {
               onClick={() => {
                 void navigator.clipboard?.writeText(params.mapsLink ?? "");
                 toast.success("Link lokacije je kopiran.");
-                toast.dismiss(t.id);
               }}
               style={{
                 border: "none",
@@ -89,7 +112,7 @@ function showLocationToast(params: {
         </div>
       </div>
     ),
-    { duration: 9000 },
+    { duration: Infinity },
   );
 }
 
@@ -324,7 +347,6 @@ export default function BookingModal() {
       queryClient.invalidateQueries({ queryKey: ["slots"] });
       queryClient.invalidateQueries({ queryKey: ["search"] });
       queryClient.invalidateQueries({ queryKey: ["salons"] });
-      toast.success("Termin uspešno zakazan!");
       showLocationToast({
         salonName: normalized.salonName,
         salonAddress: normalized.salonAddress,
@@ -367,12 +389,11 @@ export default function BookingModal() {
   const locationTitle = bookingPayload?.travelMinutesEstimate
     ? `oko ${bookingPayload.travelMinutesEstimate} min`
     : undefined;
-  const headerLabel = bookingPayload
+  const appointmentDetails = bookingPayload
     ? [
-        bookingPayload.city,
-        bookingPayload.salonName,
         bookingPayload.serviceName,
-        bookingPayload.time,
+        bookingPayload.salonName,
+        bookingPayload.duration ? `${bookingPayload.duration} min` : "",
       ]
         .filter(Boolean)
         .join(" · ")
@@ -467,7 +488,7 @@ export default function BookingModal() {
             <div>
               <h2
                 style={{
-                  margin: "0 0 3px",
+                  margin: "0 0 12px",
                   fontFamily: "var(--main-font)",
                   fontWeight: 700,
                   fontSize: 18,
@@ -476,9 +497,56 @@ export default function BookingModal() {
               >
                 Potvrda termina
               </h2>
-              <p style={{ margin: 0, fontSize: 14, color: "var(--fg-3)" }}>
-                {headerLabel}
-              </p>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 10,
+                  marginBottom: 10,
+                }}
+              >
+                <span
+                  style={{
+                    fontFamily: "var(--display-font)",
+                    fontWeight: 400,
+                    fontSize: 34,
+                    lineHeight: 1,
+                    color: "var(--fg-1)",
+                  }}
+                >
+                  {bookingPayload?.time}
+                </span>
+                {bookingPayload?.city && (
+                  <span
+                    style={{
+                      fontFamily: "var(--main-font)",
+                      fontSize: 11,
+                      fontWeight: 600,
+                      background: "var(--brand-100, #f3e8ff)",
+                      color: "var(--secondary-color)",
+                      padding: "3px 9px",
+                      borderRadius: 20,
+                      flexShrink: 0,
+                    }}
+                  >
+                    {bookingPayload.city}
+                  </span>
+                )}
+              </div>
+              {appointmentDetails && (
+                <p
+                  style={{
+                    margin: 0,
+                    fontFamily: "var(--main-font)",
+                    fontSize: 14,
+                    fontWeight: 700,
+                    color: "var(--fg-1)",
+                    lineHeight: 1.35,
+                  }}
+                >
+                  {appointmentDetails}
+                </p>
+              )}
             </div>
             <button
               onClick={onClose}
@@ -503,6 +571,7 @@ export default function BookingModal() {
                 display: "flex",
                 justifyContent: "space-between",
                 alignItems: "center",
+                marginTop: -4,
                 marginBottom: 18,
                 paddingBottom: 18,
                 borderBottom: "1px solid var(--border-1)",

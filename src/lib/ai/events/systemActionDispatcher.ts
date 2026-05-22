@@ -328,6 +328,17 @@ export function systemActionToAgentRequest(
     };
   }
 
+  if (event.action === "BOOKING_SUBMIT_SUCCESS") {
+    return {
+      agentType: "booking",
+      input: "system_action:BOOKING_SUBMIT_SUCCESS",
+      handoffPayload: {
+        intent: "booking_success",
+        ...payload,
+      },
+    };
+  }
+
   if (event.action === "LOGIN_SUCCESS") {
     const pendingBooking = payload.pendingBooking ?? payload.selectedSlot;
     if (!pendingBooking) return null;

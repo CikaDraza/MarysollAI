@@ -1,7 +1,7 @@
 // src/components/landing/LandingPage
 "use client";
 
-import { CheckIcon } from "@heroicons/react/24/outline";
+import { CheckIcon, XMarkIcon } from "@heroicons/react/24/outline";
 import { AnimatePresence, motion } from "framer-motion";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useRef, useState } from "react";
@@ -35,6 +35,7 @@ import {
 } from "@/context/landing/WorkspaceContext";
 import { AgentBridge } from "@/components/chat-bus/AgentBridge";
 import type { SearchResult } from "@/types/slots";
+import { useAuthActions } from "@/hooks/useAuthActions";
 
 const SIDEBAR_W = 500;
 
@@ -227,27 +228,44 @@ function WorkspaceSection() {
 }
 
 function ConfirmedToast() {
-  const { confirmed, confirmedTime } = useLandingUI();
+  const { confirmed, confirmedTime, setConfirmed } = useLandingUI();
   const { bestSlot } = useSearchContext();
+  const { user } = useAuthActions();
 
   if (!confirmed) return null;
+
+  const time =
+    confirmedTime ||
+    (bestSlot
+      ? new Date(bestSlot.startTime).toLocaleTimeString("sr-Latn", {
+          hour: "2-digit",
+          minute: "2-digit",
+        })
+      : "");
 
   return (
     <div
       role="status"
       aria-live="polite"
-      className="fixed left-1/2 top-[22px] -translate-x-1/2 z-80 inline-flex items-center gap-2 rounded-[14px] bg-[#111114] px-[18px] py-3 text-[13px] font-semibold text-white shadow-[var(--shadow-lg)]"
+      className="fixed left-1/2 top-[22px] z-80 flex max-w-[min(92vw,520px)] -translate-x-1/2 items-start gap-3 rounded-[14px] bg-[#111114] px-[18px] py-3 pr-10 text-[13px] font-semibold text-white shadow-[var(--shadow-lg)]"
       style={{ fontFamily: "var(--main-font)" }}
     >
-      <CheckIcon style={{ width: 16, height: 16 }} strokeWidth={2} />
-      Termin potvrđen za{" "}
-      {confirmedTime ||
-        (bestSlot
-        ? new Date(bestSlot.startTime).toLocaleTimeString("sr-Latn", {
-            hour: "2-digit",
-            minute: "2-digit",
-          })
-        : "")}
+      <CheckIcon style={{ width: 18, height: 18, flexShrink: 0 }} strokeWidth={2} />
+      <span>
+        Zahtev za termin{time ? ` u ${time}` : ""} je poslat salonu i čeka potvrdu.
+        {" "}
+        {user
+          ? "Status možeš da pratiš u Moji termini, a potvrda stiže na email/kontakt sa naloga."
+          : "Potvrdu ćeš dobiti preko kontakta koji si ostavio."}
+      </span>
+      <button
+        type="button"
+        aria-label="Zatvori"
+        onClick={() => setConfirmed(false)}
+        className="absolute right-2 top-2 inline-flex h-6 w-6 items-center justify-center rounded-full border-0 bg-white/10 text-white hover:bg-white/20"
+      >
+        <XMarkIcon style={{ width: 14, height: 14 }} strokeWidth={2} />
+      </button>
     </div>
   );
 }

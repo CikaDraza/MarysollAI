@@ -1165,6 +1165,45 @@ export async function askAgent(
     );
   }
 
+  if (handoffPayload?.intent === "booking_success") {
+    const selectedSlot = handoffPayload.selectedSlot as SearchResult | undefined;
+    const service =
+      asString(handoffPayload.serviceName) ??
+      selectedSlot?.serviceName ??
+      collectedBookingFields?.service ??
+      "termin";
+    const salon =
+      asString(handoffPayload.salonName) ??
+      selectedSlot?.salonName ??
+      collectedBookingFields?.salonName ??
+      "salon";
+    const time =
+      asString(handoffPayload.time) ??
+      selectedSlot?.timeLabel ??
+      collectedBookingFields?.time ??
+      "";
+    const statusText = isAuthenticated
+      ? "Status možeš da pratiš u tabu Moji termini, a potvrda stiže na email/kontakt sa naloga."
+      : "Salon će potvrdu poslati preko kontakta koji si ostavila/o.";
+
+    return streamClaudiaContract(
+      makeClaudiaContract({
+        kind: "confirmation",
+        message: `Zahtev za ${service}${time ? ` u ${time}` : ""} u salonu ${salon} je poslat i čeka potvrdu salona. ${statusText}`,
+        workflowDomain: "booking",
+        step: "booking_success",
+        nextAction: "NONE",
+        intentType: "booking_success",
+        entities: {
+          service,
+          salonName: salon,
+          time,
+          selectedSlot,
+        },
+      }),
+    );
+  }
+
   if (handoffPayload?.intent === "select_city") {
     const city = String(handoffPayload.city ?? "");
     const service = String(handoffPayload.service ?? collectedBookingFields?.service ?? "");
