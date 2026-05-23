@@ -288,7 +288,7 @@ export function RegisterBlockView({
                     <label htmlFor="agree" className="text-sm/6 text-gray-400">
                       Prihvatam{" "}
                       <Link
-                        href="/politika-privatnosti"
+                        href="/privacy"
                         className="font-semibold whitespace-nowrap text-(--secondary-color) hover:text-(--secondary-color)/80 underline"
                       >
                         politiku privatnosti

@@ -3,6 +3,7 @@
 
 import { CheckIcon, XMarkIcon } from "@heroicons/react/24/outline";
 import { AnimatePresence, motion } from "framer-motion";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useRef, useState } from "react";
 import LandingHeader from "./LandingHeader";
@@ -139,7 +140,7 @@ function LandingPageContent() {
           transition: `right 280ms var(--ease-out)`,
         }}
       >
-        <div className="max-w-[1240px] mx-auto">
+        <div className="max-w-7xl mx-auto">
           <LandingHeader />
         </div>
       </div>
@@ -160,12 +161,50 @@ function LandingPageContent() {
         <BookingWidget />
         <NotifyMeWidget />
       </main>
+      <div className="max-w-7xl mx-auto">
+        <LandingFooter />
+      </div>
 
       <ConfirmedToast />
       <StickyOffer />
       <BookingModal />
       <AIDrawer />
     </div>
+  );
+}
+
+function LandingFooter() {
+  return (
+    <footer className="border-t border-[var(--border-1)] py-8">
+      <div className="flex flex-col gap-4 text-[13px] font-semibold text-[var(--fg-3)] sm:flex-row sm:items-center sm:justify-between">
+        <p className="m-0">
+          © {new Date().getFullYear()}. Powered by Marysoll - Marysoll Booking -
+          conversational booking za moderne beauty salone.
+        </p>
+        <nav className="flex flex-wrap items-center gap-x-5 gap-y-2">
+          <Link
+            href="/terms"
+            className="transition-colors hover:text-[var(--secondary-color)]"
+          >
+            Terms
+          </Link>
+          <Link
+            href="/privacy"
+            className="transition-colors hover:text-[var(--secondary-color)]"
+          >
+            Privacy
+          </Link>
+          <Link
+            href="https://marysoll.com"
+            target="_blank"
+            rel="noreferrer"
+            className="transition-colors hover:text-[var(--secondary-color)]"
+          >
+            marysoll.com
+          </Link>
+        </nav>
+      </div>
+    </footer>
   );
 }
 
@@ -182,9 +221,13 @@ function ResumeWatchOpener() {
 
     let cancelled = false;
     async function openMatchedSlot() {
-      const res = await fetch(`/api/waitlist?id=${encodeURIComponent(activeWatchId)}`);
+      const res = await fetch(
+        `/api/waitlist?id=${encodeURIComponent(activeWatchId)}`,
+      );
       if (!res.ok) return;
-      const data = (await res.json()) as { matchedSlot?: Partial<SearchResult> | null };
+      const data = (await res.json()) as {
+        matchedSlot?: Partial<SearchResult> | null;
+      };
       if (!cancelled && data.matchedSlot) {
         openModal(data.matchedSlot);
       }
@@ -250,10 +293,13 @@ function ConfirmedToast() {
       className="fixed left-1/2 top-[22px] z-80 flex max-w-[min(92vw,520px)] -translate-x-1/2 items-start gap-3 rounded-[14px] bg-[#111114] px-[18px] py-3 pr-10 text-[13px] font-semibold text-white shadow-[var(--shadow-lg)]"
       style={{ fontFamily: "var(--main-font)" }}
     >
-      <CheckIcon style={{ width: 18, height: 18, flexShrink: 0 }} strokeWidth={2} />
+      <CheckIcon
+        style={{ width: 18, height: 18, flexShrink: 0 }}
+        strokeWidth={2}
+      />
       <span>
-        Zahtev za termin{time ? ` u ${time}` : ""} je poslat salonu i čeka potvrdu.
-        {" "}
+        Zahtev za termin{time ? ` u ${time}` : ""} je poslat salonu i čeka
+        potvrdu.{" "}
         {user
           ? "Status možeš da pratiš u Moji termini, a potvrda stiže na email/kontakt sa naloga."
           : "Potvrdu ćeš dobiti preko kontakta koji si ostavio."}
