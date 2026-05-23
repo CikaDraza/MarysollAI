@@ -12,6 +12,7 @@
  */
 
 import type { PlatformSalon, PlatformService } from "@/lib/api/platformClient";
+import { slugFromName } from "@/lib/salons/salonPreview";
 import { normalizeCategory } from "@/lib/slots/normalize";
 import {
   CANONICAL_TO_SLUG,
@@ -605,7 +606,7 @@ function toSearchResult(
     price: resolveServicePrice(c.service),
     hasVariants: resolveHasVariants(c.service),
     // SearchResult extras
-    salonSlug: c.salon.slug,
+    salonSlug: c.salon.slug ?? slugFromName(c.salon.name),
     salonAddress,
     salonLogo: c.salon.logo,
     salonLat: salonCoords.lat,

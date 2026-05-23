@@ -1,6 +1,7 @@
 "use client";
 // blocks/ClientBlockAppointments.tsx
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { IAppointment } from "@/types/appointments-type";
 import { useAppointmentsWithToken } from "@/hooks/useAppointmentsWithToken";
 import { useSalons } from "@/hooks/useSalons";
@@ -243,6 +244,14 @@ function appointmentSalonAddress(
   );
 }
 
+function appointmentSalonSlug(
+  appointment: IAppointment,
+  salonDirectory?: SalonDirectory,
+): string {
+  const directorySalon = directorySalonForAppointment(appointment, salonDirectory);
+  return directorySalon?.slug ?? "";
+}
+
 function appointmentMapsLink(
   appointment: IAppointment,
   salonDirectory?: SalonDirectory,
@@ -287,6 +296,7 @@ function ClientAppointmentListItem({
   const currentAppointment = appointment;
   const canCancel = isCancellableAppointment(currentAppointment);
   const salonName = appointmentSalonName(currentAppointment, salonDirectory);
+  const salonSlug = appointmentSalonSlug(currentAppointment, salonDirectory);
   const salonAddress = appointmentSalonAddress(currentAppointment, salonDirectory);
   const salonCity = appointmentSalonCity(currentAppointment, salonDirectory);
   const mapsLink = appointmentMapsLink(currentAppointment, salonDirectory);
@@ -350,7 +360,18 @@ function ClientAppointmentListItem({
             </p>
           )}
           <div className="mt-3 rounded-lg bg-gray-50 p-3">
-            <p className="text-sm font-semibold text-gray-900">{salonName}</p>
+            <p className="text-sm font-semibold text-gray-900">
+              {salonSlug ? (
+                <Link
+                  href={`/salons/${salonSlug}`}
+                  className="hover:text-(--secondary-color)"
+                >
+                  {salonName}
+                </Link>
+              ) : (
+                salonName
+              )}
+            </p>
             {(salonAddress || salonCity) && (
               <p className="mt-1 text-xs text-gray-600">
                 {salonAddress && <>Adresa: {salonAddress}</>}

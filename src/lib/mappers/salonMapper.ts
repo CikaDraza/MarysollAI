@@ -1,9 +1,11 @@
 // src/lib/mappers/salonMapper.ts
 import type { PlatformSalon, PlatformService, PlatformSlot } from "@/lib/api/platformClient";
+import { slugFromName } from "@/lib/salons/salonPreview";
 
 export interface MappedSalon {
   id: string;
   tenantId?: string;
+  slug?: string;
   name: string;
   city?: string;
   location: { lat?: number; lng?: number; city?: string };
@@ -37,6 +39,7 @@ export function mapSalon(raw: PlatformSalon): MappedSalon {
   return {
     id: raw.id ?? raw._id ?? "",
     tenantId: raw.tenantId,
+    slug: raw.slug ?? slugFromName(raw.name),
     name: raw.name,
     city: raw.city,
     location: { lat: raw.lat, lng: raw.lng, city: raw.city },

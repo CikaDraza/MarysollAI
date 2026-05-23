@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import {
   ArrowsRightLeftIcon,
   ClockIcon,
@@ -73,6 +74,7 @@ const DAYS_SR = ["Ned", "Pon", "Uto", "Sre", "Čet", "Pet", "Sub"];
 export interface QuickSlot {
   salonId: string;
   salonName: string;
+  salonSlug?: string;
   city: string;
   startTime: string;
   dateLabel: string;
@@ -319,6 +321,7 @@ export default function QuickAccess() {
       .map<QuickSlot>((r) => ({
         salonId: r.salonId,
         salonName: r.salonName,
+        salonSlug: r.salonSlug,
         city: r.city,
         startTime: r.startTime,
         dateLabel: r.dateLabel || formatDateLabel(r.startTime),
@@ -402,6 +405,7 @@ export default function QuickAccess() {
       return {
         salonId: qs.salonId,
         salonName: qs.salonName,
+        salonSlug: qs.salonSlug,
         serviceId: qs.serviceId,
         serviceName: qs.serviceName,
         category: qs.serviceCategory,
@@ -960,7 +964,17 @@ function SlotCard({
           textOverflow: "ellipsis",
         }}
       >
-        {slot.salonName}
+        {slot.salonSlug ? (
+          <Link
+            href={`/salons/${slot.salonSlug}`}
+            onClick={(event) => event.stopPropagation()}
+            className="text-inherit no-underline hover:text-(--secondary-color)"
+          >
+            {slot.salonName}
+          </Link>
+        ) : (
+          slot.salonName
+        )}
       </p>
 
       {/* Price */}

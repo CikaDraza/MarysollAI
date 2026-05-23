@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import {
   ArrowsRightLeftIcon,
   CheckBadgeIcon,
@@ -582,7 +583,17 @@ function SlotCard({
           whiteSpace: "nowrap",
         }}
       >
-        {slot.salonName}
+        {slot.salonSlug ? (
+          <Link
+            href={`/salons/${slot.salonSlug}`}
+            onClick={(event) => event.stopPropagation()}
+            className="text-inherit no-underline hover:text-(--secondary-color)"
+          >
+            {slot.salonName}
+          </Link>
+        ) : (
+          slot.salonName
+        )}
       </p>
 
       {/* Meta row: price */}
