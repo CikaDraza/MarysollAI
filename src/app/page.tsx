@@ -23,6 +23,12 @@ export async function generateMetadata(): Promise<Metadata> {
       description: seo.description,
       url: `${process.env.NEXT_PUBLIC_SITE_URL}/`,
       type: "website",
+      images: [
+        {
+          url: "/booking.marysoll.png",
+          alt: "Marysoll Booking",
+        },
+      ],
     },
   };
 }
