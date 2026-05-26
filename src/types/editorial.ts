@@ -3,13 +3,19 @@ export type BlogTeaserCategory =
   | "Nails"
   | "Hair"
   | "Massage"
-  | "Beauty"
-  | "Platform";
+  | "Marysoll"
+  | "Affiliate"
+  | "Growth OS"
+  | "Booking visibility"
+  | "AI marketing"
+  | "Online zakazivanje";
 
 export type BlogTeaserHrefType = "tenant" | "platform";
+export type BlogTeaserAudience = "client" | "partner";
 
 export interface BlogTeaserCard {
   id: string;
+  audience: BlogTeaserAudience;
   category: BlogTeaserCategory;
   title: string;
   excerpt: string;
@@ -23,5 +29,8 @@ export interface BlogTeaserCard {
 export interface BlogTeaserSection {
   title: string;
   subtitle?: string;
+  categoryLabels?: BlogTeaserCategory[];
+  showMoreHref?: string;
+  showMoreLabel?: string;
   items: BlogTeaserCard[];
 }

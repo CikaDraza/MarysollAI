@@ -4,9 +4,9 @@ import EditorialTeaserSection from "@/components/editorial/EditorialTeaserSectio
 import { getEditorialTeaserSections } from "@/lib/editorial/getEditorialTeasers";
 
 export const metadata: Metadata = {
-  title: "Beauty trendovi i saveti salona | Marysoll Booking",
+  title: "Beauty trendovi i partner vodiči | Marysoll Booking",
   description:
-    "Kratki editorial teaseri za beauty trendove, popularne tretmane i savete salona. Članci se otvaraju na kanonskim salon ili Marysoll URL-ovima.",
+    "Kratki editorial teaseri za beauty trendove i Marysoll partner vodiče. Članci se otvaraju na kanonskim salon ili Marysoll URL-ovima.",
   robots: "index, follow",
   alternates: {
     canonical: "/blog",
@@ -36,14 +36,14 @@ export default function BlogTeaserPage() {
 
         <header className="max-w-3xl py-14">
           <p className="m-0 text-[12px] font-bold uppercase tracking-[0.16em] text-[var(--secondary-color)]">
-            Beauty trendovi
+            Beauty trendovi / Postani partner
           </p>
           <h1 className="mt-3 text-[38px] font-bold leading-tight text-[var(--fg-1)] sm:text-[48px]">
-            Inspiracija pre izbora tretmana
+            Svi Marysoll editorial postovi
           </h1>
           <p className="mt-5 text-[17px] leading-8 text-[var(--fg-2)]">
-            Kratki pregledi iz salona i Marysoll vodiča. Puni tekstovi ostaju na
-            kanonskim tenant ili Marysoll platform URL-ovima.
+            Kratki pregledi iz salona i Marysoll vodiča, grupisani po publici.
+            Puni tekstovi ostaju na kanonskim tenant ili Marysoll URL-ovima.
           </p>
         </header>
 

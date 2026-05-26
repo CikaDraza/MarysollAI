@@ -6,8 +6,12 @@ const categoryStyles: Record<BlogTeaserCardType["category"], string> = {
   Nails: "bg-fuchsia-50 text-fuchsia-700 ring-fuchsia-100",
   Hair: "bg-amber-50 text-amber-800 ring-amber-100",
   Massage: "bg-emerald-50 text-emerald-700 ring-emerald-100",
-  Beauty: "bg-sky-50 text-sky-700 ring-sky-100",
-  Platform: "bg-slate-100 text-slate-700 ring-slate-200",
+  Marysoll: "bg-sky-50 text-sky-700 ring-sky-100",
+  Affiliate: "bg-indigo-50 text-indigo-700 ring-indigo-100",
+  "Growth OS": "bg-lime-50 text-lime-800 ring-lime-100",
+  "Booking visibility": "bg-slate-100 text-slate-700 ring-slate-200",
+  "AI marketing": "bg-violet-50 text-violet-700 ring-violet-100",
+  "Online zakazivanje": "bg-cyan-50 text-cyan-700 ring-cyan-100",
 };
 
 interface Props {
@@ -19,6 +23,12 @@ export default function EditorialTeaserCard({ item }: Props) {
     item.href.startsWith("http://") || item.href.startsWith("https://");
   const sourceTypeLabel =
     item.hrefType === "tenant" ? "Salon blog" : "Marysoll vodič";
+  const actionLabel =
+    item.audience === "partner"
+      ? "Postani partner"
+      : item.hrefType === "tenant"
+        ? "Pročitaj na sajtu salona"
+        : "Pročitaj vodič";
 
   return (
     <article className="group flex h-full flex-col rounded-[8px] border border-[var(--border-1)] bg-[var(--surface)] p-4 shadow-[var(--shadow-xs)] transition hover:-translate-y-0.5 hover:border-[var(--border-2)] hover:shadow-[var(--shadow-sm)]">
@@ -57,9 +67,9 @@ export default function EditorialTeaserCard({ item }: Props) {
           href={item.href}
           target={isExternal ? "_blank" : undefined}
           rel={isExternal ? "noopener noreferrer" : undefined}
-          className="inline-flex shrink-0 items-center gap-1.5 rounded-full text-[13px] font-bold text-[var(--secondary-color)] transition hover:text-[var(--secondary-hover)]"
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-full text-right text-[13px] font-bold text-[var(--secondary-color)] transition hover:text-[var(--secondary-hover)]"
         >
-          Otvori
+          {actionLabel}
           <ArrowUpRightIcon className="h-4 w-4" strokeWidth={1.8} />
         </a>
       </div>
