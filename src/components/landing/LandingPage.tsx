@@ -17,6 +17,8 @@ import AIDrawer from "./AIDrawer";
 import AIWorkspace from "./AIWorkspace";
 import HomepagePreloader from "./HomepagePreloader";
 import SearchDebugPanel from "./SearchDebugPanel";
+import EditorialTeaserSection from "@/components/editorial/EditorialTeaserSection";
+import { getHomepageEditorialTeaserSection } from "@/lib/editorial/getEditorialTeasers";
 import {
   LandingUIProvider,
   useLandingUI,
@@ -39,6 +41,7 @@ import type { SearchResult } from "@/types/slots";
 import { useAuthActions } from "@/hooks/useAuthActions";
 
 const SIDEBAR_W = 500;
+const homepageEditorialTeasers = getHomepageEditorialTeaserSection();
 
 interface Props {
   initialCity?: string;
@@ -160,6 +163,7 @@ function LandingPageContent() {
 
         <BookingWidget />
         <NotifyMeWidget />
+        <EditorialTeaserSection {...homepageEditorialTeasers} />
       </main>
       <div className="max-w-7xl mx-auto">
         <LandingFooter />

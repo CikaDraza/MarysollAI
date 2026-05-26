@@ -1,10 +1,6 @@
-// app/blog/[...slug]/page.tsx
-import CampaignClientShell from "@/components/CampaignClientShell";
-import { normalizeCampaignSlug } from "@/helpers/slugNormalizer";
-import { getCampaign } from "@/lib/server/getCampaign";
+import { findEditorialTeaserByBlogPath } from "@/lib/editorial/getEditorialTeasers";
 import type { Metadata } from "next";
-import { cookies } from "next/headers";
-import { notFound } from "next/navigation";
+import { redirect } from "next/navigation";
 
 export async function generateMetadata({
   params,
@@ -12,22 +8,15 @@ export async function generateMetadata({
   params: Promise<{ slug: string[] }>;
 }): Promise<Metadata> {
   const { slug } = await params;
-  const { slugId } = normalizeCampaignSlug(slug);
-  const data = await getCampaign(slugId);
-
-  const seo = data?.landingPage?.seo;
+  const slugPath = slug.join("/");
+  const teaser = findEditorialTeaserByBlogPath(`blog/${slugPath}`);
 
   return {
-    title: seo?.title ?? "Marysoll Assistant AI",
-    description: seo?.description ?? "AI Generation web app",
-    keywords: seo?.keywords,
-    openGraph: {
-      title: seo?.ogTitle ?? seo?.title ?? "Marysoll Assistant AI",
-      description: seo?.ogDescription ?? seo?.description ?? "AI Generation web app",
-      images: data?.landingPage?.seo?.ogImage
-        ? [data.landingPage.seo.ogImage]
-        : undefined,
-    },
+    title: teaser?.title ?? "Marysoll Booking editorial",
+    description:
+      teaser?.excerpt ??
+      "Marysoll Booking prikazuje samo teaser kartice i preusmerava pune tekstove na kanonske URL-ove.",
+    robots: "noindex, follow",
   };
 }
 
@@ -37,16 +26,16 @@ export default async function Page({
   params: Promise<{ slug: string[] }>;
 }) {
   const { slug } = await params;
-  const { slugId } = normalizeCampaignSlug(slug);
+  const slugPath = slug.join("/");
+  const teaser = findEditorialTeaserByBlogPath(`blog/${slugPath}`);
 
-  const [data, cookieStore] = await Promise.all([
-    getCampaign(slugId),
-    cookies(),
-  ]);
+  // Booking Discovery must not render duplicate full tenant/platform articles.
+  // Known editorial cards go to their canonical URL; unknown legacy slugs fall
+  // back to the teaser index. Existing platform /newsletter/[slug] routes should
+  // remain untouched until they can be migrated to /blog/[slug] intentionally.
+  if (teaser) {
+    redirect(teaser.href);
+  }
 
-  const token = cookieStore.get("token")?.value ?? null;
-
-  if (!data) notFound();
-
-  return <CampaignClientShell initialData={data} token={token} id={slugId} />;
+  redirect("/blog");
 }
