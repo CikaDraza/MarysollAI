@@ -6,12 +6,20 @@ import {
   PlatformService,
 } from "@/lib/api/platformClient";
 import { PlatformCategory } from "@/types/category-types";
+import type { SemanticMemory } from "@/lib/ai/memory/agent-memory-types";
+import { buildSemanticMemory } from "@/lib/ai/memory/buildSemanticMemory";
 
 export interface PlatformKnowledge {
   salonsText: string;
   servicesText: string;
   citiesText: string;
   categoriesText: string;
+  raw?: {
+    salons: PlatformSalon[];
+    services: PlatformService[];
+    categories: PlatformCategory[];
+  };
+  semanticMemory?: SemanticMemory;
 }
 
 function formatSalons(salons: PlatformSalon[]): string {
@@ -70,15 +78,25 @@ async function _fetchPlatformKnowledge(): Promise<PlatformKnowledge> {
     ]);
 
     const salonIds = salons
-      .slice(0, 5)
       .map((s) => (s._id || s.id) as string)
       .filter(Boolean);
 
     if (salonIds.length > 0) {
       const serviceArrays = await Promise.all(
-        salonIds.map((id) =>
-          platformClient.getSalonServices(id).catch(() => []),
-        ),
+        salonIds.map((id) => {
+          const salon = salons.find((s) => (s._id || s.id) === id);
+          return platformClient
+            .getSalonServices(id)
+            .then((items) =>
+              items.map((service) => ({
+                ...service,
+                salonId: id,
+                salonName: salon?.name,
+                city: salon?.city,
+              })),
+            )
+            .catch(() => []);
+        }),
       );
       services = serviceArrays.flat();
     }
@@ -91,6 +109,16 @@ async function _fetchPlatformKnowledge(): Promise<PlatformKnowledge> {
     servicesText: formatServices(services),
     citiesText: deriveCities(salons),
     categoriesText: formatCategories(categories),
+    raw: {
+      salons,
+      services,
+      categories,
+    },
+    semanticMemory: buildSemanticMemory({
+      salons,
+      services,
+      categories,
+    }),
   };
 }
 
@@ -100,6 +128,6 @@ async function _fetchPlatformKnowledge(): Promise<PlatformKnowledge> {
 // revalidateTag("category-synonyms") for near-instant propagation.
 export const fetchPlatformKnowledge = unstable_cache(
   _fetchPlatformKnowledge,
-  ["platform-knowledge"],
+  ["platform-knowledge-v2"],
   { revalidate: 300, tags: ["category-synonyms", "platform-knowledge"] },
 );

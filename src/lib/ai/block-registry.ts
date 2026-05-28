@@ -99,9 +99,10 @@ export const BLOCK_REGISTRY: Partial<Record<Exclude<BlockTypes, "none">, BlockEn
     agentType: "booking",
     priority: 1,
     followUp: "Preporuči mi slobodan termin za ovu nedelju",
-    // Without slots there's nothing to show. service/city are useful but
-    // not strictly required (Claudia may pre-fill from the search result).
-    requires: ["slots"],
+    // Slots may be precomputed, but platform booking flow can also render
+    // from salon/service/date metadata and let the block load slots itself.
+    // `blockHasRequiredMetadata` has the AppointmentCalendarBlock-specific
+    // validation so we do not require slots unconditionally here.
   },
   AppointmentCancelConfirmBlock: {
     type: "AppointmentCancelConfirmBlock",
@@ -178,6 +179,20 @@ export function getBlockFollowUp(type: BlockTypes): string | undefined {
  * Used by LayoutEngine to skip mounting incomplete blocks (e.g. an
  * AppointmentCalendarBlock with no slots) instead of rendering an empty shell. */
 export function blockHasRequiredMetadata(block: BaseBlock): boolean {
+  if (block.type === "AppointmentCalendarBlock") {
+    const meta = block.metadata as Record<string, unknown> | undefined;
+    if (!meta) return false;
+    const slots = meta.slots;
+    if (Array.isArray(slots) && slots.length > 0) return true;
+    const hasSalon = typeof meta.salonId === "string" && meta.salonId.trim() !== "";
+    const hasService =
+      (typeof meta.serviceId === "string" && meta.serviceId.trim() !== "") ||
+      (typeof meta.serviceName === "string" && meta.serviceName.trim() !== "") ||
+      (typeof meta.service === "string" && meta.service.trim() !== "");
+    const hasCity = typeof meta.city === "string" && meta.city.trim() !== "";
+    return hasSalon && hasService && hasCity;
+  }
+
   const entry = getBlockEntry(block.type);
   if (!entry?.requires?.length) return true;
   const meta = block.metadata as Record<string, unknown> | undefined;

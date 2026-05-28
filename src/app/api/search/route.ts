@@ -9,10 +9,14 @@
 
 import { NextResponse } from "next/server";
 import {
-  platformClient,
   convertWorkingHours,
   type PlatformSalon,
 } from "@/lib/api/platformClient";
+import {
+  fetchSearchSalonProfiles,
+  fetchSearchSalonServices,
+  fetchSearchSalonWorkingHours,
+} from "@/lib/search/fetchSearchPlatformData";
 import {
   normalizeSearch,
 } from "@/lib/search/normalizeSearch";
@@ -324,7 +328,7 @@ export async function GET(req: Request): Promise<NextResponse> {
   // ─────────────────────────────────────────────────────────────────
   let salons: PlatformSalon[] = [];
   try {
-    salons = await platformClient.getSalonProfiles({
+    salons = await fetchSearchSalonProfiles({
       lat: params.lat,
       lng: params.lng,
     });
@@ -372,8 +376,8 @@ export async function GET(req: Request): Promise<NextResponse> {
       const id = s.id ?? s._id ?? "";
       if (!id) return s;
       const [wh, fullServices] = await Promise.allSettled([
-        withTimeout(platformClient.getSalonWorkingHours(id)),
-        withTimeout(platformClient.getSalonServices(id)),
+        withTimeout(fetchSearchSalonWorkingHours(id)),
+        withTimeout(fetchSearchSalonServices(id)),
       ]);
       return {
         ...s,

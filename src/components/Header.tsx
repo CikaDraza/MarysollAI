@@ -46,7 +46,7 @@ export default function Header() {
             >
               <SparklesIcon className="size-4 text-(--primary-color) group-hover:text-(--secondary-color)" />{" "}
               <span className="text-(--primary-color) group-hover:text-(--secondary-color)">
-                Ask Maria Deep
+                Ask Maria
               </span>
             </Button>
           )}

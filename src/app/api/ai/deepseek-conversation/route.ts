@@ -26,6 +26,11 @@ import { detectSlotSelectionIntent } from "@/lib/ai/detectSlotSelectionIntent";
 import { detectBookingConfirmation } from "@/lib/ai/detectBookingConfirmation";
 import { detectContactInfo } from "@/lib/ai/detectContactInfo";
 import { mergeIntentWithConversationContext } from "@/lib/ai/mergeIntentWithConversationContext";
+import { buildAgentMemoryContext } from "@/lib/ai/memory/buildAgentMemoryContext";
+import { formatAgentMemoryForPrompt } from "@/lib/ai/memory/formatAgentMemoryForPrompt";
+import { resolveSalonsForService } from "@/lib/ai/booking/booking-block-data";
+import type { PlatformService } from "@/lib/api/platformClient";
+import { cityProximityRank } from "@/lib/geo/cityProximityRank";
 import type { StructuredBookingIntent } from "@/types/intent";
 import type { SearchResult } from "@/types/slots";
 import type {
@@ -523,11 +528,221 @@ function isAvailabilitySearchIntent(input: {
 }): boolean {
   const normalized = input.latestUserText.toLowerCase();
   return Boolean(
-    input.intent.service ||
-      input.intent.category ||
-      input.detectedCityQuestion ||
-      /termin|slobod|ima li|da li ima|imate|radite|masaz|masaž|sisanj|šišanj|fenir|nokti|smink|šmink/.test(normalized),
+    /termin|slobod|zakaz|rezervis|appointment|booking/.test(normalized),
   );
+}
+
+function isSalonExistenceQuestion(text: string): boolean {
+  const normalized = normalizeForIntent(text);
+  const asksForSalon = /\b(postoji|imate|ima li|da li ima|da li postoji)\b/.test(normalized) &&
+    /\b(salon|salona|saloni)\b/.test(normalized);
+  const asksForServiceSalon = /\b(salon|salona|saloni)\b/.test(normalized) &&
+    /\b(za|u)\b/.test(normalized);
+  const asksForBooking = /\b(termin|slobod|zakaz|rezervis|appointment|booking)\b/.test(normalized);
+
+  return (asksForSalon || asksForServiceSalon) && !asksForBooking;
+}
+
+function isBookingRequestText(text: string): boolean {
+  return /\b(termin|slobod|zakaz|rezervis|appointment|booking)\b/.test(
+    normalizeForIntent(text),
+  );
+}
+
+function isServiceAvailabilityInfoQuestion(text: string): boolean {
+  const normalized = normalizeForIntent(text);
+  const asksForAvailability =
+    /\b(interesuje me|ima li|da li ima|da li postoji|postoji|imate|radite|u kojim gradovima|koji gradovi|daj.*gradove|dajte.*gradove|gradove u kojima)\b/.test(normalized);
+  const mentionsService =
+    /\b(maderoterap\w*|masaz\w*|masaž\w*|tretman\w*|fenir\w*|sisanj\w*|šišanj\w*|nokti|nails|smink\w*|šmink\w*|makeup|trepav\w*|lashes|depil\w*)\b/.test(normalized);
+
+  return asksForAvailability && mentionsService && !isBookingRequestText(text);
+}
+
+function isServiceCityListQuestion(text: string): boolean {
+  const normalized = normalizeForIntent(text);
+  return /\b(u kojim gradovima|koji gradovi|daj.*gradove|dajte.*gradove|gradove u kojima|gde imate|gdje imate)\b/.test(normalized) &&
+    /\b(maderoterap\w*|masaz\w*|masaž\w*|tretman\w*|fenir\w*|sisanj\w*|šišanj\w*|nokti|nails|smink\w*|šmink\w*|makeup|trepav\w*|lashes|depil\w*)\b/.test(normalized) &&
+    !isBookingRequestText(text);
+}
+
+function isServiceCityListFollowUp(text: string): boolean {
+  return /\b(moze|može|proveri|proverite|najbliz|najbliž|gradove|gradovi)\b/.test(
+    normalizeForIntent(text),
+  );
+}
+
+function isNearestSalonQuestion(text: string): boolean {
+  const normalized = normalizeForIntent(text);
+  return /\b(najbliz|najbliž|blizu|najblizi|najbliži)\b/.test(normalized) &&
+    /\b(salon|salona|saloni)\b/.test(normalized) &&
+    !isBookingRequestText(text);
+}
+
+function isNearestSalonCityFollowUp(params: {
+  latestUserText: string;
+  previousUserText: string;
+  city?: string;
+}): boolean {
+  return (
+    Boolean(params.city) &&
+    isNearestSalonQuestion(params.previousUserText) &&
+    !isBookingRequestText(params.latestUserText)
+  );
+}
+
+function sameCityName(a?: string, b?: string): boolean {
+  if (!a || !b) return false;
+  return normalizeForIntent(a) === normalizeForIntent(b);
+}
+
+function buildSalonExistenceMessage(input: {
+  city?: string;
+  service?: string;
+  platform: Awaited<ReturnType<typeof fetchPlatformKnowledge>>;
+}): string {
+  const city = input.city;
+  const salons = input.platform.raw?.salons ?? [];
+  const service = input.service?.trim();
+  const matchingCitySalons = city
+    ? salons.filter((salon) => sameCityName(salon.city, city))
+    : [];
+
+  if (city && matchingCitySalons.length === 0) {
+    return service
+      ? `Trenutno nemamo salon za ${service} u ${city}. Mogu da proverim najbliže gradove ako želite.`
+      : `Trenutno nemamo salon u ${city}. Mogu da proverim najbliže gradove ako želite.`;
+  }
+
+  if (city && matchingCitySalons.length > 0) {
+    const names = matchingCitySalons.map((salon) => salon.name).filter(Boolean).slice(0, 3);
+    const servicePart = service ? ` za ${service}` : "";
+    return `Da, imamo ${matchingCitySalons.length === 1 ? "salon" : "salone"}${servicePart} u ${city}: ${names.join(", ")}.`;
+  }
+
+  return "Mogu da proverim, samo mi napišite grad koji vas zanima.";
+}
+
+function servicesBySalonFromPlatform(
+  services: PlatformService[],
+): Record<string, PlatformService[]> {
+  const grouped: Record<string, PlatformService[]> = {};
+  for (const service of services) {
+    const salonId =
+      typeof service.salonId === "string"
+        ? service.salonId
+        : typeof service._salonId === "string"
+          ? service._salonId
+          : "";
+    if (!salonId) continue;
+    grouped[salonId] = [...(grouped[salonId] ?? []), service];
+  }
+  return grouped;
+}
+
+function buildServiceAvailabilityInfoMessage(input: {
+  city?: string;
+  service?: string;
+  platform: Awaited<ReturnType<typeof fetchPlatformKnowledge>>;
+}): string {
+  const city = input.city;
+  const service = input.service?.trim();
+  if (!service) return "Mogu da proverim, samo mi napišite koja usluga vas zanima.";
+  if (!city) return `Mogu da proverim ${service}, samo mi napišite grad koji vas zanima.`;
+
+  const salons = input.platform.raw?.salons ?? [];
+  const services = input.platform.raw?.services ?? [];
+  const resolved = resolveSalonsForService({
+    serviceQuery: service,
+    city,
+    semanticMemory: input.platform.semanticMemory,
+    salons,
+    servicesBySalon: servicesBySalonFromPlatform(services),
+  });
+
+  if (resolved.salons.length === 0) {
+    return `Trenutno nemamo salon za ${service} u ${city}. Mogu da proverim najbliže gradove ako želite.`;
+  }
+
+  const names = resolved.salons.map((salon) => salon.salonName).slice(0, 3);
+  const servicesPreview = [
+    ...new Set(
+      resolved.salons.flatMap((salon) =>
+        salon.matchingServices.map((item) => item.serviceName),
+      ),
+    ),
+  ].slice(0, 3);
+
+  const serviceText = servicesPreview.length > 0
+    ? ` Dostupno: ${servicesPreview.join(", ")}.`
+    : "";
+
+  return `Da, imamo ${service} u ${city}: ${names.join(", ")}.${serviceText}`;
+}
+
+function buildServiceCityListMessage(input: {
+  service?: string;
+  platform: Awaited<ReturnType<typeof fetchPlatformKnowledge>>;
+}): string {
+  const service = input.service?.trim();
+  if (!service) return "Mogu da proverim, samo mi napišite koju uslugu tražite.";
+
+  const salons = input.platform.raw?.salons ?? [];
+  const services = input.platform.raw?.services ?? [];
+  const resolved = resolveSalonsForService({
+    serviceQuery: service,
+    semanticMemory: input.platform.semanticMemory,
+    salons,
+    servicesBySalon: servicesBySalonFromPlatform(services),
+  });
+  const cities = [
+    ...new Set(
+      resolved.salons
+        .map((salon) => salon.city)
+        .filter((city): city is string => Boolean(city)),
+    ),
+  ].sort((a, b) => a.localeCompare(b, "sr"));
+
+  if (cities.length === 0) {
+    return `Trenutno nemamo salone za ${service} u dostupnim gradovima.`;
+  }
+
+  return cities.length === 1
+    ? `${service} trenutno imamo u gradu: ${cities[0]}.`
+    : `${service} trenutno imamo u ovim gradovima: ${cities.join(", ")}.`;
+}
+
+function buildNearestSalonInfoMessage(input: {
+  city?: string;
+  platform: Awaited<ReturnType<typeof fetchPlatformKnowledge>>;
+}): string {
+  const city = input.city;
+  if (!city) {
+    return "Molim vas, recite mi u kom gradu se nalazite da bih vam preporučila najbliži salon.";
+  }
+
+  const salons = input.platform.raw?.salons ?? [];
+  const sameCitySalons = salons.filter((salon) => sameCityName(salon.city, city));
+  if (sameCitySalons.length > 0) {
+    const names = sameCitySalons.map((salon) => salon.name).filter(Boolean).slice(0, 3);
+    return `U ${city} imamo ${sameCitySalons.length === 1 ? "salon" : "salone"}: ${names.join(", ")}.`;
+  }
+
+  const nearestCities = [
+    ...new Set(
+      salons
+        .map((salon) => salon.city)
+        .filter((salonCity): salonCity is string => Boolean(salonCity)),
+    ),
+  ]
+    .sort((a, b) => cityProximityRank(a, city) - cityProximityRank(b, city))
+    .slice(0, 2);
+
+  if (nearestCities.length === 0) {
+    return `Trenutno nemamo salone u ${city}.`;
+  }
+
+  return `U ${city} trenutno nemamo dostupne salone. Najbliži gradovi sa salonima su ${nearestCities.join(" i ")}. Ako želite, mogu da vam prikažem salone u jednom od tih gradova.`;
 }
 
 function isRecoveredCityRejection(text: string): boolean {
@@ -545,7 +760,7 @@ function formatReadyToBook(slot: SearchResult, contact: AiBookingContact): strin
   return `Super, imam sve podatke za termin: ${slot.serviceName} ${slot.dateLabel.toLowerCase()} u ${slot.timeLabel} u ${slot.salonName}, ${slot.city}${name}. Sada završavam zakazivanje.`;
 }
 
-function buildMariaSystemPrompt(
+export function buildMariaSystemPrompt(
   salonsText: string,
   servicesText: string,
   citiesText: string,
@@ -554,6 +769,9 @@ function buildMariaSystemPrompt(
   isAuthenticated: boolean,
   userCity: string,
   language: string,
+  memoryContext = formatAgentMemoryForPrompt(
+    buildAgentMemoryContext({ activeAgent: "maria" }),
+  ),
 ): string {
   const currentDate = new Date().toLocaleDateString("sr-RS", {
     weekday: "long",
@@ -587,6 +805,8 @@ ${currentDate}
 - AUTHENTICATED: ${isAuthenticated}
 - CITY: ${userCity || "nije definisan"}
 - LANGUAGE: ${language || "sr"}
+
+${memoryContext}
 
 --------------------------------------------------
 # KNOWLEDGE BASE
@@ -658,10 +878,10 @@ FAQ:
 {"kind":"faq_answer","message":"Ne moraš. Možeš zakazati kao gost, ali nalog ti omogućava lakši pregled, izmenu i otkazivanje termina.","intent":{"domain":"faq","action":"answer_question","confidence":0.98,"entities":{},"missingFields":[]},"routing":{"shouldHandoff":false,"targetAgent":"maria","reason":"faq_guest_booking"}}
 
 Booking/search:
-{"kind":"intent","message":"Tražim slobodne termine za tebe.","intent":{"domain":"booking","action":"search_slots","confidence":0.95,"entities":{"service":"šišanje","date":"2026-05-11"},"missingFields":[]},"routing":{"shouldHandoff":true,"targetAgent":"claudia","reason":"booking_search"}}
+{"kind":"intent","message":"Molim vas sačekajte, prebacujem vas na Claudiu za termine.","intent":{"domain":"booking","action":"search_slots","confidence":0.95,"entities":{"service":"šišanje","date":"2026-05-11"},"missingFields":[]},"routing":{"shouldHandoff":true,"targetAgent":"claudia","reason":"booking_search"}}
 
 Appointments:
-{"kind":"intent","message":"U redu, zovem Claudiu za termine.","intent":{"domain":"appointments","action":"view_appointments","confidence":0.95,"entities":{},"missingFields":[]},"routing":{"shouldHandoff":true,"targetAgent":"claudia","reason":"appointments_view"}}
+{"kind":"intent","message":"Molim vas sačekajte, Claudia će prikazati vaše termine.","intent":{"domain":"appointments","action":"view_appointments","confidence":0.95,"entities":{},"missingFields":[]},"routing":{"shouldHandoff":true,"targetAgent":"claudia","reason":"appointments_view"}}
 
 --------------------------------------------------
 # AGENT HANDOFF — KADA KORISTITI
@@ -867,7 +1087,7 @@ export async function POST(req: Request) {
     if (isAppointmentsIntent(latestUserText)) {
       const contract = buildMariaContract({
         kind: "intent",
-        message: "U redu, zovem Claudiu za termine.",
+        message: "Molim vas sačekajte, Claudia će prikazati vaše termine.",
         domain: "appointments",
         action: "view_appointments",
         confidence: 0.95,
@@ -990,6 +1210,228 @@ export async function POST(req: Request) {
     })();
 
     const contactInfo = detectContactInfo({ userMessage: latestUserText });
+
+    const previousUserText =
+      conversationMessages
+        .filter((message) => message.role === "user")
+        .slice(0, -1)
+        .reverse()[0]?.content ?? "";
+    const nearestSalonQuestion = isNearestSalonQuestion(latestUserText);
+    const nearestSalonCityFollowUp = isNearestSalonCityFollowUp({
+      latestUserText,
+      previousUserText,
+      city: cityQuestion.city ?? extractedIntent.city ?? extractedIntent.requestedCity,
+    });
+    const salonExistenceQuestion = isSalonExistenceQuestion(latestUserText);
+    const serviceAvailabilityInfoQuestion =
+      isServiceAvailabilityInfoQuestion(latestUserText);
+    const serviceCityListQuestion =
+      isServiceCityListQuestion(latestUserText);
+    const serviceCityListFollowUp =
+      !serviceCityListQuestion &&
+      (isServiceAvailabilityInfoQuestion(previousUserText) ||
+        isSalonExistenceQuestion(previousUserText) ||
+        isServiceCityListQuestion(previousUserText)) &&
+      isServiceCityListFollowUp(latestUserText) &&
+      !isBookingRequestText(latestUserText);
+    const serviceAvailabilityInfoFollowUp =
+      !serviceAvailabilityInfoQuestion &&
+      !serviceCityListFollowUp &&
+      isServiceAvailabilityInfoQuestion(previousUserText) &&
+      Boolean(cityQuestion.city ?? extractedIntent.city ?? extractedIntent.requestedCity) &&
+      !isBookingRequestText(latestUserText);
+    const salonExistenceFollowUp =
+      !salonExistenceQuestion &&
+      isSalonExistenceQuestion(previousUserText) &&
+      Boolean(cityQuestion.city ?? extractedIntent.city ?? extractedIntent.requestedCity) &&
+      !isBookingRequestText(latestUserText);
+
+    if (nearestSalonQuestion || nearestSalonCityFollowUp) {
+      const platform = await fetchPlatformKnowledge();
+      const city =
+        cityQuestion.city ??
+        extractedIntent.city ??
+        extractedIntent.requestedCity;
+      const contract = buildMariaContract({
+        kind: city ? "faq_answer" : "clarification",
+        message: buildNearestSalonInfoMessage({
+          city,
+          platform,
+        }),
+        domain: "faq",
+        action: city ? "answer_question" : "clarify",
+        confidence: 0.96,
+        entities: city ? { city } : {},
+        missingFields: city ? [] : ["city"],
+        shouldHandoff: false,
+        targetAgent: "maria",
+        reason: nearestSalonQuestion
+          ? "nearest_salon_question"
+          : "nearest_salon_city_followup",
+      });
+      return responseFromContract(contract, {
+        intent: extractedIntent,
+        selectedSlot,
+        aiBookingState: aiBookingStateBefore,
+        pendingContact,
+        aiDebug: {
+          rawExtractedIntent,
+          mergedIntent: extractedIntent,
+          lastIntent,
+          lastRecoveryState,
+          selectedSlotExists: Boolean(selectedSlot),
+          contactDetected: contactInfo.hasContactInfo,
+          aiBookingStateBefore,
+          aiBookingStateAfter: aiBookingStateBefore,
+          skippedSearchReason: "nearest_salon_info",
+          handoffTriggered: false,
+          targetAgent: "none",
+          replyMode: "nearest_salon_info_answer",
+          mariaContract: contract,
+        },
+      });
+    }
+
+    if (serviceCityListQuestion || serviceCityListFollowUp) {
+      const platform = await fetchPlatformKnowledge();
+      const service =
+        rawExtractedIntent.service ??
+        previousServiceIntent ??
+        rawExtractedIntent.category ??
+        extractedIntent.service ??
+        extractedIntent.category;
+      const contract = buildMariaContract({
+        kind: "faq_answer",
+        message: buildServiceCityListMessage({
+          service,
+          platform,
+        }),
+        domain: "faq",
+        action: "answer_question",
+        confidence: 0.95,
+        entities: service ? { service } : {},
+        shouldHandoff: false,
+        targetAgent: "maria",
+        reason: "service_city_list_question",
+      });
+      return responseFromContract(contract, {
+        intent: { ...extractedIntent, city: undefined, requestedCity: undefined },
+        selectedSlot,
+        aiBookingState: aiBookingStateBefore,
+        pendingContact,
+        aiDebug: {
+          rawExtractedIntent,
+          mergedIntent: extractedIntent,
+          lastIntent,
+          lastRecoveryState,
+          selectedSlotExists: Boolean(selectedSlot),
+          contactDetected: contactInfo.hasContactInfo,
+          aiBookingStateBefore,
+          aiBookingStateAfter: aiBookingStateBefore,
+          skippedSearchReason: "service_city_list_question",
+          handoffTriggered: false,
+          targetAgent: "none",
+          replyMode: "service_city_list_answer",
+          mariaContract: contract,
+        },
+      });
+    }
+
+    if (serviceAvailabilityInfoQuestion || serviceAvailabilityInfoFollowUp) {
+      const platform = await fetchPlatformKnowledge();
+      const city =
+        cityQuestion.city ??
+        extractedIntent.city ??
+        extractedIntent.requestedCity;
+      const service =
+        extractedIntent.service ??
+        previousServiceIntent ??
+        extractedIntent.category;
+      const contract = buildMariaContract({
+        kind: "faq_answer",
+        message: buildServiceAvailabilityInfoMessage({
+          city,
+          service,
+          platform,
+        }),
+        domain: "faq",
+        action: "answer_question",
+        confidence: 0.95,
+        entities: city || service ? { city, service } : {},
+        shouldHandoff: false,
+        targetAgent: "maria",
+        reason: "service_availability_info_question",
+      });
+      return responseFromContract(contract, {
+        intent: extractedIntent,
+        selectedSlot,
+        aiBookingState: aiBookingStateBefore,
+        pendingContact,
+        aiDebug: {
+          rawExtractedIntent,
+          mergedIntent: extractedIntent,
+          lastIntent,
+          lastRecoveryState,
+          selectedSlotExists: Boolean(selectedSlot),
+          contactDetected: contactInfo.hasContactInfo,
+          aiBookingStateBefore,
+          aiBookingStateAfter: aiBookingStateBefore,
+          skippedSearchReason: "service_availability_info_question",
+          handoffTriggered: false,
+          targetAgent: "none",
+          replyMode: "service_availability_info_answer",
+          mariaContract: contract,
+        },
+      });
+    }
+
+    if (salonExistenceQuestion || salonExistenceFollowUp) {
+      const platform = await fetchPlatformKnowledge();
+      const city =
+        cityQuestion.city ??
+        extractedIntent.city ??
+        extractedIntent.requestedCity;
+      const service =
+        extractedIntent.service ??
+        previousServiceIntent ??
+        extractedIntent.category;
+      const contract = buildMariaContract({
+        kind: "faq_answer",
+        message: buildSalonExistenceMessage({
+          city,
+          service,
+          platform,
+        }),
+        domain: "faq",
+        action: "answer_question",
+        confidence: 0.95,
+        entities: city || service ? { city, service } : {},
+        shouldHandoff: false,
+        targetAgent: "maria",
+        reason: "salon_existence_question",
+      });
+      return responseFromContract(contract, {
+        intent: extractedIntent,
+        selectedSlot,
+        aiBookingState: aiBookingStateBefore,
+        pendingContact,
+        aiDebug: {
+          rawExtractedIntent,
+          mergedIntent: extractedIntent,
+          lastIntent,
+          lastRecoveryState,
+          selectedSlotExists: Boolean(selectedSlot),
+          contactDetected: contactInfo.hasContactInfo,
+          aiBookingStateBefore,
+          aiBookingStateAfter: aiBookingStateBefore,
+          skippedSearchReason: "salon_existence_question",
+          handoffTriggered: false,
+          targetAgent: "none",
+          replyMode: "salon_existence_answer",
+          mariaContract: contract,
+        },
+      });
+    }
 
     const confirmation = detectBookingConfirmation({
       userMessage: latestUserText,
@@ -1242,7 +1684,7 @@ export async function POST(req: Request) {
     if (isNotifyMeIntent(latestUserText)) {
       const contract = buildMariaContract({
         kind: "intent",
-        message: "U redu, zovem Claudiu da pripremi obaveštenje za slobodan termin.",
+        message: "Molim vas sačekajte, Claudia će pripremiti obaveštenje za slobodan termin.",
         domain: "notify_me",
         action: "create_notify_watch",
         confidence: 0.94,
@@ -1324,7 +1766,7 @@ export async function POST(req: Request) {
       });
       const contract = buildMariaContract({
         kind: "intent",
-        message: "Tražim slobodne termine za tebe.",
+        message: "Molim vas sačekajte, prebacujem vas na Claudiu za termine.",
         domain: "booking",
         action: "search_slots",
         confidence: extractedIntent.service || extractedIntent.category ? 0.95 : 0.78,
@@ -1344,8 +1786,35 @@ export async function POST(req: Request) {
       });
     }
 
-    const { salonsText, servicesText, citiesText, categoriesText } =
+    const { salonsText, servicesText, citiesText, categoriesText, semanticMemory } =
       await fetchPlatformKnowledge();
+    const lastAssistantMessage =
+      [...conversationMessages]
+        .reverse()
+        .find((message) => message.role === "assistant")?.content;
+    const lastRecoveryReason =
+      lastRecoveryState && typeof lastRecoveryState === "object"
+        ? String(
+            (lastRecoveryState as unknown as Record<string, unknown>).reason ??
+              (lastRecoveryState as unknown as Record<string, unknown>).scenario ??
+              "",
+          ) || undefined
+        : undefined;
+    const memoryContext = formatAgentMemoryForPrompt(
+      buildAgentMemoryContext({
+        activeAgent: "maria",
+        bookingWorkflowStep: aiBookingStateBefore,
+        bookingFlowCollected: extractedIntent as unknown as Record<string, unknown>,
+        selectedSlot: selectedSlot as Record<string, unknown> | undefined,
+        pendingBooking: pendingContact
+          ? ({ contact: pendingContact } as Record<string, unknown>)
+          : null,
+        lastRecoveryReason,
+        lastAssistantMessage,
+        contactRequired: CONTACT_FLOW_STATES.includes(aiBookingStateBefore),
+        semanticMemory,
+      }),
+    );
 
     const systemPrompt = buildMariaSystemPrompt(
       salonsText,
@@ -1356,6 +1825,7 @@ export async function POST(req: Request) {
       isAuthenticated,
       userCity,
       language,
+      memoryContext,
     );
 
     const response = await withTimeout(fetch(

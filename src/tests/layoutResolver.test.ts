@@ -7,7 +7,12 @@ import {
   blockFactory,
   contentBlockFactory,
 } from "@/components/layout/blockFactory";
+import { claudiaContractToLegacyResponse } from "@/lib/ai/schemas/claudia-contract.schema";
+import type { ClaudiaContract } from "@/lib/ai/schemas/claudia-contract.schema";
 import { blockActionToSystemAction } from "@/lib/ai/layout/blockActionToSystemAction";
+import { createThreadItems } from "@/lib/ai/createThreadItems";
+import { bookingFlow } from "@/lib/ai/booking-flow-state";
+import { sendSystemAction } from "@/lib/ai/events/systemActionDispatcher";
 import {
   getBlockRegistryEntry,
   isAIWorkflowBlock,
@@ -45,9 +50,11 @@ describe("Layout resolver and LayoutEngine boundary", () => {
   beforeEach(() => {
     jest.spyOn(console, "debug").mockImplementation(() => undefined);
     jest.spyOn(console, "warn").mockImplementation(() => undefined);
+    bookingFlow.get().reset();
   });
 
   afterEach(() => {
+    bookingFlow.get().reset();
     jest.restoreAllMocks();
   });
 
@@ -127,6 +134,59 @@ describe("Layout resolver and LayoutEngine boundary", () => {
     ]);
   });
 
+  it("AppointmentCalendarBlock with salonId/serviceId is not skipped by resolveLayout", () => {
+    const resolved = resolveLayout([
+      {
+        type: "AppointmentCalendarBlock",
+        priority: 1,
+        metadata: {
+          salonId: "beauty-m-glow",
+          salonName: "Beauty M Glow",
+          serviceId: "svc-madero",
+          serviceName: "Maderoterapija",
+          city: "Bor",
+          date: "2026-05-28",
+          timeWindowStart: 12,
+          timeWindowEnd: null,
+        },
+      },
+    ]);
+
+    expect(resolved.blocks).toHaveLength(1);
+    expect(resolved.skipped).toEqual([]);
+  });
+
+  it("two AppointmentCalendarBlock blocks with different salonId/serviceId are not duplicate", () => {
+    const resolved = resolveLayout([
+      {
+        type: "AppointmentCalendarBlock",
+        priority: 1,
+        metadata: {
+          salonId: "salon-1",
+          serviceId: "service-1",
+          serviceName: "Maderoterapija",
+          city: "Bor",
+          date: "2026-05-28",
+          timeWindowStart: 12,
+        },
+      },
+      {
+        type: "AppointmentCalendarBlock",
+        priority: 2,
+        metadata: {
+          salonId: "salon-2",
+          serviceId: "service-2",
+          serviceName: "Maderoterapija - Celo telo",
+          city: "Bor",
+          date: "2026-05-28",
+          timeWindowStart: 12,
+        },
+      },
+    ]);
+
+    expect(resolved.blocks).toHaveLength(2);
+  });
+
   it("LayoutEngine renders legacy layout through resolver", () => {
     const source = readFileSync(
       path.join(process.cwd(), "src/components/layout/LayoutEngine.tsx"),
@@ -170,7 +230,10 @@ describe("Layout resolver and LayoutEngine boundary", () => {
         expect.objectContaining({
           action: "SLOT_SELECTED",
           visibleInThread: false,
-          payload: { selectedSlot: slot },
+          payload: expect.objectContaining({
+            selectedSlot: slot,
+            flowVersion: expect.any(Number),
+          }),
         }),
       ]),
     );
@@ -207,6 +270,24 @@ describe("Layout resolver and LayoutEngine boundary", () => {
     );
   });
 
+  it("CITY_SELECTED does not render a user bubble through thread builder", () => {
+    const items = createThreadItems("system_action:CITY_SELECTED", {
+      messages: [{ id: "a-1", type: "text", role: "assistant", content: "Biramo grad." }],
+      layout: [],
+    });
+
+    expect(items.some((item) => item.type === "message" && item.data.role === "user")).toBe(false);
+  });
+
+  it("SERVICE_SELECTED_FOR_SALON does not render a user bubble through thread builder", () => {
+    const items = createThreadItems("system_action:SERVICE_SELECTED_FOR_SALON", {
+      messages: [{ id: "a-1", type: "text", role: "assistant", content: "Biramo salon." }],
+      layout: [],
+    });
+
+    expect(items.some((item) => item.type === "message" && item.data.role === "user")).toBe(false);
+  });
+
   it("landing/content block fixtures are not touched or imported by resolver", () => {
     const source = readFileSync(
       path.join(process.cwd(), "src/lib/ai/layout/resolveLayout.ts"),
@@ -229,6 +310,194 @@ describe("Layout resolver and LayoutEngine boundary", () => {
     const direct = aiWorkflowBlockFactory(block);
 
     expect(routed?.type).toBe(direct?.type);
+  });
+
+  it("blockFactory renders AppointmentCalendarBlock for ai_workflow registry", () => {
+    const block = {
+      id: "appointment-1",
+      type: "AppointmentCalendarBlock",
+      priority: 1,
+      metadata: {
+        serviceId: "svc-madero",
+        serviceName: "Maderoterapija",
+        variantName: "",
+        salonId: "beauty-m-glow",
+        salonName: "Beauty M Glow",
+        city: "Bor",
+        date: "2026-05-28",
+        timeWindowStart: 12,
+      },
+    } as const;
+
+    const element = blockFactory(block);
+
+    expect(element).toBeTruthy();
+    expect(getBlockRegistryEntry("AppointmentCalendarBlock")?.kind).toBe("ai_workflow");
+  });
+
+  it("AppointmentCalendarBlock metadata survives Claudia legacy adapter", () => {
+    const contract: ClaudiaContract = {
+      kind: "booking_result",
+      message: "Prikazujem termine.",
+      workflow: { domain: "booking", step: "select_salon", status: "ready" },
+      nextAction: { type: "SHOW_SLOTS", reason: "service_selected_for_salon" },
+      ui: {
+        blocks: [
+          {
+            type: "AppointmentCalendarBlock",
+            priority: 1,
+            metadata: {
+              salonId: "beauty-m-glow",
+              salonName: "Beauty M Glow",
+              serviceId: "svc-madero",
+              serviceName: "Maderoterapija",
+              city: "Bor",
+              date: "2026-05-28",
+              timeWindowStart: 12,
+              timeWindowEnd: null,
+            },
+          },
+        ],
+        hideBlocks: [],
+        showBlocks: [],
+      },
+      intent: {
+        type: "select_salon",
+        confidence: 1,
+        entities: {},
+        missingFields: [],
+      },
+    };
+
+    const legacy = claudiaContractToLegacyResponse(contract);
+
+    expect(legacy.layout[0]).toMatchObject({
+      type: "AppointmentCalendarBlock",
+      metadata: {
+        salonId: "beauty-m-glow",
+        serviceId: "svc-madero",
+        date: "2026-05-28",
+        timeWindowStart: 12,
+      },
+    });
+  });
+
+  it("AppointmentCalendarBlockView does not return null when platform metadata exists", () => {
+    const element = aiWorkflowBlockFactory({
+      id: "appointment-1",
+      type: "AppointmentCalendarBlock",
+      priority: 1,
+      metadata: {
+        serviceId: "svc-madero",
+        serviceName: "Maderoterapija",
+        variantName: "",
+        salonId: "beauty-m-glow",
+        salonName: "Beauty M Glow",
+        city: "Bor",
+      },
+    });
+
+    expect(element).toBeTruthy();
+  });
+
+  it("missing salonId renders fallback recovery UI, not blank workspace", () => {
+    const source = readFileSync(
+      path.join(process.cwd(), "src/components/blocks/AppointmentCalendarBlockView.tsx"),
+      "utf8",
+    );
+
+    expect(source).toContain("Nedostaju podaci za prikaz termina.");
+    expect(source).toContain("BOOKING_PAYLOAD_INCOMPLETE");
+    expect(source).not.toContain("if (services?.length === 0) return null");
+  });
+
+  it("SERVICE_SELECTED_FOR_SALON payload includes salonId serviceId date and timeWindow", () => {
+    const events = collectSystemActions();
+
+    blockActionToSystemAction("SalonListBlock", "service_selected_for_salon", {
+      salonId: "beauty-m-glow",
+      salonName: "Beauty M Glow",
+      city: "Bor",
+      serviceId: "svc-madero",
+      serviceName: "Maderoterapija",
+      date: "2026-05-28",
+      timeWindowStart: 12,
+      timeWindowEnd: null,
+    });
+
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: "SERVICE_SELECTED_FOR_SALON",
+          payload: expect.objectContaining({
+            salonId: "beauty-m-glow",
+            serviceId: "svc-madero",
+            date: "2026-05-28",
+            timeWindowStart: 12,
+            timeWindowEnd: null,
+          }),
+        }),
+      ]),
+    );
+  });
+
+  it("SERVICE_SELECTED_FOR_SALON displayMessage is sanitized and hides ids", () => {
+    const event = blockActionToSystemAction("SalonListBlock", "service_selected_for_salon", {
+      salonId: "beauty-m-glow-id",
+      salonName: "Beauty M Glow",
+      city: "Bor",
+      serviceId: "svc-madero-secret",
+      serviceName: "Maderoterapija",
+      date: "2026-05-28",
+      timeWindowStart: 12,
+    });
+
+    expect(event?.displayMessage).toBe("Izabrala si Beauty M Glow u Boru.");
+    expect(event?.displayMessage).not.toContain("beauty-m-glow-id");
+    expect(event?.displayMessage).not.toContain("svc-madero-secret");
+  });
+
+  it("stale CityListBlock click is ignored before it can restart flow", () => {
+    const oldVersion = bookingFlow.get().flowVersion;
+    bookingFlow.get().bumpFlowVersion("test_progressed");
+
+    const event = sendSystemAction({
+      action: "CITY_SELECTED",
+      actionId: "old-city-click",
+      source: "CalendarBlock",
+      notifyAgent: true,
+      visibleInThread: false,
+      payload: {
+        city: "Bor",
+        service: "maderoterapija",
+        flowVersion: oldVersion,
+      },
+    });
+
+    expect(event).toBeNull();
+    expect(console.debug).toHaveBeenCalledWith(
+      "[STALE_BOOKING_ACTION_IGNORED]",
+      expect.objectContaining({ action: "CITY_SELECTED" }),
+    );
+  });
+
+  it("selection block views disable consumed and stale actions", () => {
+    const citySource = readFileSync(
+      path.join(process.cwd(), "src/components/blocks/CityListBlockView.tsx"),
+      "utf8",
+    );
+    const salonSource = readFileSync(
+      path.join(process.cwd(), "src/components/blocks/SalonListBlockView.tsx"),
+      "utf8",
+    );
+
+    expect(citySource).toContain("[STALE_BLOCK_ACTION_IGNORED]");
+    expect(citySource).toContain("disabled={disabled}");
+    expect(citySource).not.toContain("Izabrao sam grad:");
+    expect(salonSource).toContain("[STALE_BLOCK_ACTION_IGNORED]");
+    expect(salonSource).toContain("disabled={disabled}");
+    expect(salonSource).not.toContain("Izabrao sam salon:");
+    expect(salonSource).not.toContain("[salonId:");
   });
 
   it("blockFactory routes content block through content factory", () => {

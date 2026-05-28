@@ -261,6 +261,73 @@ export function useAIQuery(user?: AuthUser | null) {
     [isStreaming, setThread, thread],
   );
 
+  const appendAssistantMessage = useCallback(
+    (content: string) => {
+      const trimmed = content.trim();
+      if (!trimmed) return;
+      const id = `handoff-${crypto.randomUUID()}`;
+      const item: ThreadItem = {
+        id,
+        type: "message",
+        data: {
+          id,
+          role: "assistant",
+          content: trimmed,
+          timestamp: Date.now(),
+        },
+      };
+      setThread((prev) => {
+        const updated = [...prev, item];
+        saveToHistory(updated);
+        return updated;
+      });
+    },
+    [saveToHistory, setThread],
+  );
+
+  const appendLocalExchange = useCallback(
+    (query: string, response: string) => {
+      const userText = query.trim();
+      const assistantText = response.trim();
+      if (!userText && !assistantText) return;
+      const now = Date.now();
+      const userId = `local-user-${crypto.randomUUID()}`;
+      const assistantId = `local-assistant-${crypto.randomUUID()}`;
+      const items: ThreadItem[] = [
+        ...(userText
+          ? [{
+              id: userId,
+              type: "message" as const,
+              data: {
+                id: userId,
+                role: "user" as const,
+                content: userText,
+                timestamp: now,
+              },
+            }]
+          : []),
+        ...(assistantText
+          ? [{
+              id: assistantId,
+              type: "message" as const,
+              data: {
+                id: assistantId,
+                role: "assistant" as const,
+                content: assistantText,
+                timestamp: now + 1,
+              },
+            }]
+          : []),
+      ];
+      setThread((prev) => {
+        const updated = [...prev, ...items];
+        saveToHistory(updated);
+        return updated;
+      });
+    },
+    [saveToHistory, setThread],
+  );
+
   const retry = useCallback(async () => {
     const lastUserMessage = [...thread]
       .reverse()
@@ -291,5 +358,7 @@ export function useAIQuery(user?: AuthUser | null) {
     resetError: () => setError(null),
     clearChat: clearHistory,
     claudiaStreaming,
+    appendAssistantMessage,
+    appendLocalExchange,
   };
 }

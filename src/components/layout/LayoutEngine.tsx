@@ -42,6 +42,15 @@ export function LayoutEngine({
   disableGlobalDedupe = false,
 }: Props) {
   const blocksArray = blocks ? (Array.isArray(blocks) ? blocks : [blocks]) : [];
+  if (process.env.NODE_ENV !== "production") {
+    console.debug("[LAYOUT_INPUT]", {
+      blockTypes: blocksArray.map((block) => block.type),
+      metadataKeys: blocksArray.map((block) => ({
+        type: block.type,
+        keys: Object.keys(block.metadata ?? {}),
+      })),
+    });
+  }
   const layoutIntents = useMemo<LayoutIntent[]>(
     () =>
       blocksArray.map((block) => ({
@@ -62,6 +71,12 @@ export function LayoutEngine({
     () => resolveLayout(layoutIntents, { surface: "workspace" }),
     [layoutIntents],
   );
+  if (process.env.NODE_ENV !== "production") {
+    console.debug("[LAYOUT_RESOLVED]", {
+      blockTypes: resolvedLayout.blocks.map((block) => block.type),
+      skipped: resolvedLayout.skipped,
+    });
+  }
 
   // Tracks the block types this LayoutEngine instance has claimed.
   // We keep this in a ref so that the dedupe filter computed on every render

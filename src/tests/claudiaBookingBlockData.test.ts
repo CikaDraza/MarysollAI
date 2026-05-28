@@ -3,6 +3,7 @@ import { bookingFlow } from "@/lib/ai/booking-flow-state";
 import {
   matchingCityItems,
   matchingSalonItems,
+  resolveSalonsForService,
 } from "@/lib/ai/booking/booking-block-data";
 import { askAgent } from "@/services/askAgent";
 
@@ -174,8 +175,11 @@ describe("Claudia booking city/salon block data", () => {
     );
     const data = JSON.parse(await readStream(stream));
 
-    expect(data.layout[0].metadata.salons).toEqual([
+    expect(data.layout[0].metadata.salons).toMatchObject([
       { id: "beauty-m-glow", name: "Beauty M Glow" },
+    ]);
+    expect(data.layout[0].metadata.salons[0].matchingServices).toMatchObject([
+      { serviceName: "Maderoterapija", matchReason: "exact" },
     ]);
   });
 
@@ -201,5 +205,73 @@ describe("Claudia booking city/salon block data", () => {
     });
 
     expect(matches.map((match) => match.name)).not.toContain("Shi Sham");
+  });
+
+  it("maderoterapija + Bor strict resolver returns only Beauty M Glow", () => {
+    const resolved = resolveSalonsForService({
+      serviceQuery: "maderoterapija",
+      city: "Bor",
+      salons,
+    });
+
+    expect(resolved.salons.map((salon) => salon.salonName)).toEqual(["Beauty M Glow"]);
+  });
+
+  it("maderoterapija + Bor strict resolver returns matching services", () => {
+    const resolved = resolveSalonsForService({
+      serviceQuery: "maderoterapija",
+      city: "Bor",
+      salons,
+    });
+
+    expect(resolved.salons[0].matchingServices).toMatchObject([
+      { serviceName: "Maderoterapija", matchReason: "exact" },
+    ]);
+  });
+
+  it("maderoterapija + Novi Sad does not return Shi Sham", () => {
+    const resolved = resolveSalonsForService({
+      serviceQuery: "maderoterapija",
+      city: "Novi Sad",
+      salons,
+    });
+
+    expect(resolved.salons.map((salon) => salon.salonName)).not.toContain("Shi Sham");
+    expect(resolved.salons).toEqual([]);
+  });
+
+  it("feniranje + Novi Sad strict resolver returns Shi Sham", () => {
+    const resolved = resolveSalonsForService({
+      serviceQuery: "feniranje",
+      city: "Novi Sad",
+      salons,
+    });
+
+    expect(resolved.salons.map((salon) => salon.salonName)).toEqual(["Shi Sham"]);
+  });
+
+  it("specific service does not category-drift to unrelated services", () => {
+    const resolved = resolveSalonsForService({
+      serviceQuery: "maderoterapija",
+      salons,
+    });
+
+    expect(resolved.salons.flatMap((salon) => salon.matchingServices).map((service) => service.category)).not.toContain("Kosa");
+  });
+
+  it("no matching salons does not show all salons in city", async () => {
+    const stream = await askAgent(
+      "Novi Sad",
+      false,
+      [],
+      "Gost",
+      false,
+      { service: "maderoterapija", date: "2026-05-19", timeWindowStart: 12 },
+      { intent: "select_city", city: "Novi Sad" },
+    );
+    const data = JSON.parse(await readStream(stream));
+
+    expect(data.layout).toEqual([]);
+    expect(data.messages[0].content).toContain("Nema salona za maderoterapija u Novom Sadu");
   });
 });

@@ -15,7 +15,9 @@ export const createThreadItems = (
 ): ThreadItem[] => {
   const newItems: ThreadItem[] = [];
   const requestId = crypto.randomUUID();
-  const includeUserMessage = options.includeUserMessage ?? true;
+  const isInternalSystemAction = /^system_action:/i.test(userInput.trim());
+  const includeUserMessage =
+    !isInternalSystemAction && (options.includeUserMessage ?? true);
 
   // 1. Dodajemo poruku korisnika samo za realan user input.
   if (includeUserMessage) {

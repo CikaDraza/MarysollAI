@@ -49,17 +49,39 @@ export function blockFactory(
   isLanding?: boolean,
 ) {
   const entry = getBlockRegistryEntry(block.type);
+  let rendered: React.ReactNode = null;
   if (isAIWorkflowBlock(block.type)) {
-    return aiWorkflowBlockFactory(block, onMessageAction, isLanding);
+    rendered = aiWorkflowBlockFactory(block, onMessageAction, isLanding);
+    if (isDev()) {
+      console.debug("[BLOCK_FACTORY_RENDER]", {
+        type: block.type,
+        registryKind: entry?.kind,
+        rendered: Boolean(rendered),
+      });
+    }
+    return rendered;
   }
   if (isContentBlock(block.type)) {
-    return contentBlockFactory(block);
+    rendered = contentBlockFactory(block);
+    if (isDev()) {
+      console.debug("[BLOCK_FACTORY_RENDER]", {
+        type: block.type,
+        registryKind: entry?.kind,
+        rendered: Boolean(rendered),
+      });
+    }
+    return rendered;
   }
 
   if (isDev()) {
     console.warn("Factory: Unknown block type", {
       type: block.type,
       kind: entry?.kind,
+    });
+    console.debug("[BLOCK_FACTORY_RENDER]", {
+      type: block.type,
+      registryKind: entry?.kind,
+      rendered: false,
     });
   }
   return null;

@@ -36,6 +36,8 @@ export interface CollectedBookingFields {
 interface BookingFlowValue {
   state: BookingFlowState;
   collected: CollectedBookingFields;
+  flowVersion: number;
+  pendingSelectionFlowVersion?: number;
   /** Last user-stated intent ("Hocu masaza sutra ujutru"). Used for prompt context. */
   lastIntent: string;
   /** Epoch ms when the current flow snapshot was last touched. Used to drop
@@ -48,6 +50,9 @@ interface BookingFlowActions {
   setState: (state: BookingFlowState) => void;
   /** Merge new fields into collected; never overwrites with undefined. */
   collect: (fields: Partial<CollectedBookingFields>) => void;
+  bumpFlowVersion: (reason?: string) => number;
+  startPendingSelectionFlow: () => number;
+  cancelPendingSelectionFlow: () => number;
   setLastIntent: (intent: string) => void;
   /** Reset to idle (called when booking completes or chat is cleared). */
   reset: () => void;
@@ -56,6 +61,8 @@ interface BookingFlowActions {
 const initialState: BookingFlowValue = {
   state: "idle",
   collected: {},
+  flowVersion: 0,
+  pendingSelectionFlowVersion: undefined,
   lastIntent: "",
   updatedAt: 0,
 };
@@ -89,9 +96,47 @@ export const useBookingFlow = create<BookingFlowValue & BookingFlowActions>()(
           return touch({ collected: next });
         }),
 
+      bumpFlowVersion: () => {
+        let nextVersion = 0;
+        set((prev) => {
+          nextVersion = prev.flowVersion + 1;
+          return touch({ flowVersion: nextVersion });
+        });
+        return nextVersion;
+      },
+
+      startPendingSelectionFlow: () => {
+        let nextVersion = 0;
+        set((prev) => {
+          nextVersion = prev.flowVersion + 1;
+          return touch({
+            flowVersion: nextVersion,
+            pendingSelectionFlowVersion: nextVersion,
+          });
+        });
+        return nextVersion;
+      },
+
+      cancelPendingSelectionFlow: () => {
+        let nextVersion = 0;
+        set((prev) => {
+          nextVersion = prev.flowVersion + 1;
+          return touch({
+            flowVersion: nextVersion,
+            pendingSelectionFlowVersion: undefined,
+          });
+        });
+        return nextVersion;
+      },
+
       setLastIntent: (intent) => set(touch({ lastIntent: intent })),
 
-      reset: () => set({ ...initialState, updatedAt: 0 }),
+      reset: () =>
+        set((prev) => ({
+          ...initialState,
+          flowVersion: prev.flowVersion + 1,
+          updatedAt: 0,
+        })),
     }),
     {
       name: BOOKING_FLOW_STORAGE_KEY,
@@ -100,6 +145,8 @@ export const useBookingFlow = create<BookingFlowValue & BookingFlowActions>()(
       partialize: (state) => ({
         state: state.state,
         collected: state.collected,
+        flowVersion: state.flowVersion,
+        pendingSelectionFlowVersion: state.pendingSelectionFlowVersion,
         lastIntent: state.lastIntent,
         updatedAt: state.updatedAt,
       }),

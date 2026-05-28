@@ -17,6 +17,7 @@ function detectCity(text: string): string | undefined {
       "novi sad": ["novom sadu", "novi sad"],
       "beograd": ["beogradu", "beograd"],
       "sremska mitrovica": ["sremskoj mitrovici", "sremska mitrovica", "sremskoj"],
+      "loznica": ["loznici", "loznicu", "loznica"],
       "bor": ["boru", "bor"],
     };
     return (
@@ -29,6 +30,13 @@ function detectCity(text: string): string | undefined {
 
 function extractService(text: string): string | undefined {
   const normalized = normalizeSemanticTerm(text);
+  if (/\bmasaz\w*\b/.test(normalized)) return "masaža";
+  if (/\bmaderoterap\w*\b/.test(normalized)) return "maderoterapija";
+  if (/\bfenir\w*\b/.test(normalized)) return "feniranje";
+  if (/\bsmink\w*\b|\bmakeup\b/.test(normalized)) return "šminka";
+  if (/\bnokt\w*\b|\bnails\b/.test(normalized)) return "nokti";
+  if (/\btrepav\w*\b|\blashes\b/.test(normalized)) return "trepavice";
+
   for (const bucket of Object.values(SERVICE_SEMANTIC_MAP)) {
     const term = [...bucket.terms]
       .sort((a, b) => normalizeSemanticTerm(b).length - normalizeSemanticTerm(a).length)

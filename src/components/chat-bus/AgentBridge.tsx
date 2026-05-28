@@ -20,6 +20,7 @@ import {
 } from "@/lib/ai/events/chat-event-types";
 import {
   logSystemActionEvent,
+  shouldIgnoreSystemActionForRouting,
   systemActionToAgentRequest,
 } from "@/lib/ai/events/systemActionDispatcher";
 import { useAIQuery } from "@/hooks/useAIQuery";
@@ -209,6 +210,20 @@ export function AgentBridge({ children, claudiaAskAI }: AgentBridgeProps) {
 
   useEffect(() => {
     const routeSystemAction = async (event: SystemActionEvent) => {
+      if (shouldIgnoreSystemActionForRouting(event)) {
+        logSystemActionEvent("[EVENT_IGNORED]", event, {
+          reason: "stale_or_duplicate_booking_action",
+        });
+        return;
+      }
+
+      if (event.notifyAgent) {
+        executeUICommand({
+          type: "OPEN_DRAWER",
+          reason: "system_action_notify_agent",
+        });
+      }
+
       const agentRequest = systemActionToAgentRequest(event);
       if (!event.notifyAgent || !agentRequest) {
         logSystemActionEvent("[EVENT_IGNORED]", event, {
@@ -263,13 +278,6 @@ export function AgentBridge({ children, claudiaAskAI }: AgentBridgeProps) {
 
     const unsubscribe = chatEvents.subscribe("system_action", async (event) => {
       if (!isSystemActionEvent(event)) return;
-
-      if (event.notifyAgent) {
-        executeUICommand({
-          type: "OPEN_DRAWER",
-          reason: "system_action_notify_agent",
-        });
-      }
 
       if (isProcessingRef.current) {
         pendingSystemActionRef.current = event;

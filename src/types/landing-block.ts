@@ -52,6 +52,7 @@ export interface BaseBlock {
     salonName?: string;
     timeWindowStart?: number | null;
     timeWindowEnd?: number | null;
+    flowVersion?: number;
     slots?: SearchResult[];
     price?: number;
     duration?: number;
@@ -159,6 +160,7 @@ export interface AppointmentCalendarBlockType extends BaseBlock {
     salonName?: string;
     timeWindowStart?: number | null;
     timeWindowEnd?: number | null;
+    flowVersion?: number;
     slots?: SearchResult[];
     price?: number;
     duration?: number;
@@ -192,6 +194,15 @@ export interface SalonItem {
   rating?: number;
   reviewCount?: number;
   verified?: boolean;
+  matchingServices?: Array<{
+    serviceId?: string;
+    serviceName: string;
+    category?: string;
+    subcategory?: string;
+    duration?: number;
+    price?: number;
+    matchReason?: "exact" | "synonym" | "subcategory" | "category";
+  }>;
 }
 
 export interface SalonListBlockType extends BaseBlock {

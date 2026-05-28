@@ -58,6 +58,7 @@ interface UseChatWithAIReturn {
   deleteSession: (sessionId: string) => void;
   getSessionTitle: (messages: Message[]) => string;
   createNewChat: () => void;
+  appendLocalExchange: (query: string, response: string) => void;
 }
 
 /** Extract the (possibly incomplete) `message` field from a partial Maria
@@ -509,6 +510,46 @@ export function useChatSeek(
     [sendMessageMutation],
   );
 
+  const appendLocalExchange = useCallback(
+    (query: string, response: string): void => {
+      const userText = query.trim();
+      const assistantText = response.trim();
+      if (!userText && !assistantText) return;
+
+      let session = currentSession;
+      if (!session) {
+        session = createNewSession();
+      }
+
+      const nextMessages: Message[] = [
+        ...session.messages,
+        ...(userText
+          ? [{
+              id: generateId(),
+              role: "user" as const,
+              content: userText,
+              createdAt: new Date(),
+            }]
+          : []),
+        ...(assistantText
+          ? [{
+              id: generateId(),
+              role: "assistant" as const,
+              content: assistantText,
+              createdAt: new Date(),
+            }]
+          : []),
+      ];
+
+      updateSession(session.id, {
+        messages: nextMessages,
+        title: getSessionTitle(nextMessages),
+      });
+      lastActivityAtRef.current = Date.now();
+    },
+    [createNewSession, currentSession, getSessionTitle, updateSession],
+  );
+
   const clearChat = useCallback((): void => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
@@ -600,5 +641,6 @@ export function useChatSeek(
     deleteSession,
     getSessionTitle,
     createNewChat,
+    appendLocalExchange,
   };
 }

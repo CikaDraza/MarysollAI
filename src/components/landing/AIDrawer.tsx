@@ -20,9 +20,9 @@ import { useAIContext } from "@/context/landing/AIContext";
 type Agent = "maria" | "claudia";
 
 const AGENT_INFO: Record<Agent, { name: string; avatar: string }> = {
-  maria: { name: "Maria Deep", avatar: "/avatars/maria.png" },
+  maria: { name: "Maria", avatar: "/avatars/maria.png" },
   claudia: {
-    name: "Claudia Makelele",
+    name: "Claudia",
     avatar: "/avatars/claudia-makelele.png",
   },
 };
@@ -45,12 +45,7 @@ type DisplayItem =
 
 type Message = { from: "maria" | "me"; text: string; kind?: "suggest" };
 
-const INITIAL: Message[] = [
-  {
-    from: "maria",
-    text: "Zdravo! Ja sam Maria. Mogu da pronađem slobodan termin, popunim formu ili da te prijavim. Šta želiš?",
-  },
-];
+const INITIAL: Message[] = [];
 
 const CHIPS = [
   { label: "Najbliži salon", value: "Koji je meni najbliži salon?" },

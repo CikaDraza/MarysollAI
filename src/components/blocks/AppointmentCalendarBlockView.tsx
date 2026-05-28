@@ -15,6 +15,7 @@ import LoaderButton from "../LoaderButton";
 import MiniLoader from "../MiniLoader";
 import { formatDatePretty } from "@/helpers/formatISODate";
 import { Reveal } from "../motion/Reveal";
+import { sendSystemAction } from "@/lib/ai/events/systemActionDispatcher";
 
 interface Props {
   block: AppointmentCalendarBlockType;
@@ -26,6 +27,20 @@ export default function AppointmentCalendarBlockView({
   onActionComplete,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const hasPlatformMetadata = Boolean(block.metadata.salonId);
+  if (process.env.NODE_ENV !== "production") {
+    console.debug("[APPOINTMENT_BLOCK_INPUT]", {
+      metadataKeys: Object.keys(block.metadata ?? {}),
+      salonId: block.metadata.salonId,
+      salonName: block.metadata.salonName,
+      serviceId: block.metadata.serviceId,
+      serviceName: block.metadata.serviceName,
+      city: block.metadata.city,
+      date: block.metadata.date,
+      timeWindowStart: block.metadata.timeWindowStart,
+      timeWindowEnd: block.metadata.timeWindowEnd,
+    });
+  }
   const { user } = useAuthActions();
   const { data: services = [], isLoading } = useServices({ query: "" });
   const { data: profile } = useSalonProfile();
@@ -112,14 +127,30 @@ export default function AppointmentCalendarBlockView({
     }
   }, [isLoading, services.length]);
 
-  if (isLoading)
+  const missingFields = [
+    !block.metadata.salonId ? "salonId" : "",
+    !(block.metadata.serviceId || block.metadata.serviceName || block.metadata.service) ? "service" : "",
+    !block.metadata.city ? "city" : "",
+  ].filter(Boolean);
+
+  if (missingFields.length > 0) {
+    return <AppointmentMetadataFallback block={block} missingFields={missingFields} />;
+  }
+
+  if (isLoading && !hasPlatformMetadata)
     return (
       <div className="py-20 text-center">
         <MiniLoader text="Učitavanje cena" />
       </div>
     );
 
-  if (services?.length === 0) return null;
+  if (services?.length === 0 && hasPlatformMetadata) {
+    return <PlatformAppointmentSummary block={block} />;
+  }
+
+  if (services?.length === 0) {
+    return <AppointmentMetadataFallback block={block} missingFields={["services"]} />;
+  }
 
   const locationLabel = [profile?.city, profile?.name]
     .filter(Boolean)
@@ -356,6 +387,61 @@ export default function AppointmentCalendarBlockView({
   );
 }
 
+function AppointmentMetadataFallback({
+  block,
+  missingFields,
+}: {
+  block: AppointmentCalendarBlockType;
+  missingFields: string[];
+}) {
+  return (
+    <div style={fallbackStyle}>
+      <p style={fallbackTitleStyle}>Nedostaju podaci za prikaz termina.</p>
+      <p style={fallbackTextStyle}>{missingFields.join(", ")}</p>
+      <button
+        type="button"
+        onClick={() => {
+          sendSystemAction({
+            action: "BOOKING_PAYLOAD_INCOMPLETE",
+            source: "CalendarBlock",
+            payload: {
+              intent: "recover_missing_salon",
+              missingFields,
+              city: block.metadata.city,
+              service: block.metadata.serviceName || block.metadata.service,
+              salonId: block.metadata.salonId,
+              salonName: block.metadata.salonName,
+            },
+            notifyAgent: true,
+            visibleInThread: false,
+          });
+        }}
+        style={fallbackButtonStyle}
+      >
+        Vrati me na izbor salona
+      </button>
+    </div>
+  );
+}
+
+function PlatformAppointmentSummary({ block }: { block: AppointmentCalendarBlockType }) {
+  return (
+    <div style={fallbackStyle}>
+      <p style={fallbackTitleStyle}>
+        {block.metadata.serviceName || block.metadata.service}
+      </p>
+      <p style={fallbackTextStyle}>
+        {[block.metadata.salonName, block.metadata.city, block.metadata.date]
+          .filter(Boolean)
+          .join(" · ")}
+      </p>
+      <p style={fallbackTextStyle}>
+        Prikaz termina je spreman za salon i uslugu. Ako se termini ne učitaju, izaberi salon ponovo.
+      </p>
+    </div>
+  );
+}
+
 function Row({ label, value }: { label: string; value: string }) {
   return (
     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -380,4 +466,39 @@ const inputStyle: React.CSSProperties = {
   color: "var(--fg-1)",
   outline: "none",
   boxSizing: "border-box",
+};
+
+const fallbackStyle: React.CSSProperties = {
+  background: "var(--surface-2)",
+  borderRadius: 18,
+  padding: "18px 18px 16px",
+  fontFamily: "var(--main-font)",
+  textAlign: "center",
+};
+
+const fallbackTitleStyle: React.CSSProperties = {
+  margin: "0 0 6px",
+  fontSize: 14,
+  fontWeight: 700,
+  color: "var(--fg-1)",
+};
+
+const fallbackTextStyle: React.CSSProperties = {
+  margin: "0 0 12px",
+  fontSize: 12,
+  fontWeight: 500,
+  color: "var(--fg-3)",
+  lineHeight: 1.45,
+};
+
+const fallbackButtonStyle: React.CSSProperties = {
+  border: "none",
+  borderRadius: 12,
+  padding: "10px 14px",
+  background: "var(--secondary-color)",
+  color: "#fff",
+  fontFamily: "var(--main-font)",
+  fontSize: 13,
+  fontWeight: 700,
+  cursor: "pointer",
 };

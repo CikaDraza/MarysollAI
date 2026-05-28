@@ -14,6 +14,7 @@ export const ClaudiaIntentSchema = z.enum([
   "prices",
   "recover_missing_salon",
   "booking",
+  "update_booking_selection",
   "booking_success",
   "booking_conflict",
   "select_city",

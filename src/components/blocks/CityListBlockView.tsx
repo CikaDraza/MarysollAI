@@ -6,7 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import type { CityListBlockType } from "@/types/landing-block";
 import type { SearchApiResponse } from "@/types/slots";
 import { Reveal } from "@/components/motion/Reveal";
-import { bookingFlow } from "@/lib/ai/booking-flow-state";
+import { bookingFlow, useBookingFlow } from "@/lib/ai/booking-flow-state";
 import { blockActionToSystemAction } from "@/lib/ai/layout/blockActionToSystemAction";
 import { executeUICommand } from "@/lib/ai/ui/ui-command-executor";
 
@@ -20,9 +20,17 @@ interface CityEntry {
   slotCount: number;
 }
 
-export default function CityListBlockView({ block, onActionComplete }: Props) {
+export default function CityListBlockView({ block }: Props) {
   const service = block.metadata.service ?? block.metadata.serviceName ?? "";
   const category = block.metadata.category ?? "";
+  const currentFlowVersion = useBookingFlow((state) => state.flowVersion);
+  const blockFlowVersion =
+    typeof block.metadata.flowVersion === "number"
+      ? block.metadata.flowVersion
+      : currentFlowVersion;
+  const [consumed, setConsumed] = useState(false);
+  const stale = blockFlowVersion < currentFlowVersion;
+  const disabled = consumed || stale;
   const providedCities: CityEntry[] = (block.metadata.cities ?? []).map((city) => ({
     name: city.name,
     slotCount: city.salonCount ?? 0,
@@ -104,7 +112,17 @@ export default function CityListBlockView({ block, onActionComplete }: Props) {
           <Reveal key={`${city.name}-${i}`} delay={i * 0.05}>
             <CityCard
               city={city}
+              disabled={disabled}
               onPick={() => {
+                if (disabled) {
+                  console.debug("[STALE_BLOCK_ACTION_IGNORED]", {
+                    blockType: "CityListBlock",
+                    blockFlowVersion,
+                    currentFlowVersion,
+                  });
+                  return;
+                }
+                setConsumed(true);
                 // Phase 2 Task 10 — hydrate bookingFlow from UI selection so
                 // the next Claudia turn won't re-ask for city.
                 bookingFlow.get().collect({ city: city.name });
@@ -117,24 +135,36 @@ export default function CityListBlockView({ block, onActionComplete }: Props) {
                   time: block.metadata.time,
                   timeWindowStart: block.metadata.timeWindowStart,
                   timeWindowEnd: block.metadata.timeWindowEnd,
+                  flowVersion: block.metadata.flowVersion,
                 };
                 executeUICommand({
                   type: "OPEN_DRAWER",
                   reason: "city_selected",
                 });
-                if (!blockActionToSystemAction("CityListBlock", "city_selected", payload)) {
-                  onActionComplete(`Izabrao sam grad: ${city.name}`, payload);
-                }
+                blockActionToSystemAction("CityListBlock", "city_selected", payload);
               }}
             />
           </Reveal>
         ))}
       </div>
+      {disabled && (
+        <p style={consumedNoteStyle}>
+          Izabrano
+        </p>
+      )}
     </div>
   );
 }
 
-function CityCard({ city, onPick }: { city: CityEntry; onPick: () => void }) {
+function CityCard({
+  city,
+  onPick,
+  disabled,
+}: {
+  city: CityEntry;
+  onPick: () => void;
+  disabled: boolean;
+}) {
   const [hovered, setHovered] = useState(false);
 
   return (
@@ -210,24 +240,27 @@ function CityCard({ city, onPick }: { city: CityEntry; onPick: () => void }) {
 
       <button
         onClick={onPick}
+        disabled={disabled}
         style={{
           border: "none",
-          cursor: "pointer",
+          cursor: disabled ? "not-allowed" : "pointer",
           fontFamily: "var(--main-font)",
           fontWeight: 700,
           fontSize: 13,
           padding: "10px 0",
           borderRadius: 12,
-          background: hovered
+          background: disabled
+            ? "var(--surface-3, #f5f3f7)"
+            : hovered
             ? "var(--secondary-color)"
             : "var(--brand-100, #f3e8ff)",
-          color: hovered ? "#fff" : "var(--secondary-color)",
+          color: disabled ? "var(--fg-3)" : hovered ? "#fff" : "var(--secondary-color)",
           transition:
             "background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out)",
           width: "100%",
         }}
       >
-        Izaberi {city.name}
+        {disabled ? "Izabrano" : `Izaberi ${city.name}`}
       </button>
     </div>
   );
@@ -237,4 +270,12 @@ const gridStyle: React.CSSProperties = {
   display: "grid",
   gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))",
   gap: 12,
+};
+
+const consumedNoteStyle: React.CSSProperties = {
+  margin: "12px 0 0",
+  fontFamily: "var(--main-font)",
+  fontSize: 12,
+  fontWeight: 700,
+  color: "var(--fg-3)",
 };

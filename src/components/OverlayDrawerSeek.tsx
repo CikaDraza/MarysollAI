@@ -33,29 +33,45 @@ export default function OverlayDrawerSeek() {
   const lastMessageCount = useRef(0);
   const [showScrollButton, setShowScrollButton] = useState(false);
 
-  const { thread: claudiaThread, claudiaStreaming, askAI: askClaudia } = useAIQuery(user);
+  const {
+    thread: claudiaThread,
+    claudiaStreaming,
+    askAI: askClaudia,
+  } = useAIQuery(user);
 
   // Show all messages (user + assistant) and blocks in Claudia's section
   const claudiaItems = useMemo(
-    () => claudiaThread.filter((item) => item.type === "block" || item.type === "message"),
+    () =>
+      claudiaThread.filter(
+        (item) => item.type === "block" || item.type === "message",
+      ),
     [claudiaThread],
   );
 
   // Once Claudia has responded, route future messages directly to her (skip Maria)
   const claudiaIsActive = useMemo(
-    () => claudiaItems.some(i => i.type === "message" && i.data.role === "assistant"),
+    () =>
+      claudiaItems.some(
+        (i) => i.type === "message" && i.data.role === "assistant",
+      ),
     [claudiaItems],
   );
 
   // Track which block IDs are allowed to render (new ones are delayed 1.2s after streaming ends)
   const visibleBlockIdsRef = useRef<Set<string>>(new Set());
-  const [visibleBlockIds, setVisibleBlockIds] = useState<Set<string>>(new Set());
+  const [visibleBlockIds, setVisibleBlockIds] = useState<Set<string>>(
+    new Set(),
+  );
 
   useEffect(() => {
     if (claudiaStreaming.isStreaming) return;
 
-    const allBlockIds = claudiaItems.filter(i => i.type === "block").map(i => i.id);
-    const newIds = allBlockIds.filter(id => !visibleBlockIdsRef.current.has(id));
+    const allBlockIds = claudiaItems
+      .filter((i) => i.type === "block")
+      .map((i) => i.id);
+    const newIds = allBlockIds.filter(
+      (id) => !visibleBlockIdsRef.current.has(id),
+    );
     if (newIds.length === 0) return;
 
     const t = setTimeout(() => {
@@ -68,11 +84,15 @@ export default function OverlayDrawerSeek() {
 
   // Scroll to Claudia's section when she starts streaming so the user sees the typing indicator
   useEffect(() => {
-    const justStarted = !prevClaudiaStreamingRef.current && claudiaStreaming.isStreaming;
+    const justStarted =
+      !prevClaudiaStreamingRef.current && claudiaStreaming.isStreaming;
     prevClaudiaStreamingRef.current = claudiaStreaming.isStreaming;
     if (justStarted) {
       setTimeout(() => {
-        claudiaStartRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        claudiaStartRef.current?.scrollIntoView({
+          behavior: "smooth",
+          block: "nearest",
+        });
       }, 100);
     }
   }, [claudiaStreaming.isStreaming]);
@@ -104,7 +124,9 @@ export default function OverlayDrawerSeek() {
   });
 
   const handleBlockAction = useCallback(
-    (q: string) => { void sendMessage(q); },
+    (q: string) => {
+      void sendMessage(q);
+    },
     [sendMessage],
   );
 
@@ -313,7 +335,12 @@ export default function OverlayDrawerSeek() {
               <div className="flex items-center gap-2 text-xs text-gray-400">
                 <div className="flex-1 h-px bg-gray-200" />
                 <SparklesIcon className="size-3 text-(--secondary-color)" />
-                <span className="font-semibold" style={{ color: "var(--secondary-color)" }}>Claudia Makelele</span>
+                <span
+                  className="font-semibold"
+                  style={{ color: "var(--secondary-color)" }}
+                >
+                  Claudia
+                </span>
                 <div className="flex-1 h-px bg-gray-200" />
               </div>
 
@@ -323,7 +350,10 @@ export default function OverlayDrawerSeek() {
                   if (!visibleBlockIds.has(item.id)) return null;
                   return (
                     <div key={item.id} className="w-full">
-                      <LayoutEngine blocks={item.data} onMessageAction={handleBlockAction} />
+                      <LayoutEngine
+                        blocks={item.data}
+                        onMessageAction={handleBlockAction}
+                      />
                     </div>
                   );
                 }
@@ -356,9 +386,18 @@ export default function OverlayDrawerSeek() {
                   ) : (
                     <div className="bg-purple-50 border-l-4 border-(--secondary-color) rounded-lg px-4 py-3">
                       <div className="flex space-x-1">
-                        <div className="w-2 h-2 bg-purple-400 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
-                        <div className="w-2 h-2 bg-purple-400 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
-                        <div className="w-2 h-2 bg-purple-400 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+                        <div
+                          className="w-2 h-2 bg-purple-400 rounded-full animate-bounce"
+                          style={{ animationDelay: "0ms" }}
+                        />
+                        <div
+                          className="w-2 h-2 bg-purple-400 rounded-full animate-bounce"
+                          style={{ animationDelay: "150ms" }}
+                        />
+                        <div
+                          className="w-2 h-2 bg-purple-400 rounded-full animate-bounce"
+                          style={{ animationDelay: "300ms" }}
+                        />
                       </div>
                     </div>
                   )}
@@ -390,8 +429,12 @@ export default function OverlayDrawerSeek() {
               ref={inputRef}
               type="text"
               name="message"
-              placeholder={claudiaIsActive ? "Pitaj Claudiu..." : "Poruči nešto..."}
-              disabled={claudiaIsActive ? claudiaStreaming.isStreaming : isSending}
+              placeholder={
+                claudiaIsActive ? "Pitaj Claudiu..." : "Poruči nešto..."
+              }
+              disabled={
+                claudiaIsActive ? claudiaStreaming.isStreaming : isSending
+              }
               className="flex-1 rounded-md border-0 px-3.5 py-2 text-gray-900 dark:text-white bg-white dark:bg-gray-800 shadow-sm  placeholder:text-gray-400 sm:text-sm sm:leading-6 disabled:opacity-50"
               autoComplete="off"
             />
@@ -410,7 +453,9 @@ export default function OverlayDrawerSeek() {
 
             <button
               type="submit"
-              disabled={claudiaIsActive ? claudiaStreaming.isStreaming : isSending}
+              disabled={
+                claudiaIsActive ? claudiaStreaming.isStreaming : isSending
+              }
               className="cursor-pointer rounded-full bg-(--secondary-color)/90 p-2.5 text-sm font-semibold text-white shadow-sm hover:bg-(--secondary-color) focus-visible:outline focus-visible:outline-offset-2 focus-visible:outline-(--secondary-color) disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {(claudiaIsActive ? claudiaStreaming.isStreaming : isSending) ? (

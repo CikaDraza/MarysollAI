@@ -9,6 +9,7 @@ import { executeUICommand } from "@/lib/ai/ui/ui-command-executor";
 import { handleRecoveryEvent } from "@/lib/ai/recovery/recovery-engine";
 import type { RecoveryReason, RecoverySeverity } from "@/lib/ai/recovery/recovery-types";
 import { bookingWorkflow } from "@/lib/ai/workflow/booking-workflow-store";
+import { recordEpisodicSystemAction } from "@/lib/ai/memory/episodic-session-store";
 import {
   SystemActionEventSchema,
   type SystemActionEvent,
@@ -38,6 +39,75 @@ function isDev(): boolean {
 
 function payloadKeys(payload?: Record<string, unknown>): string[] {
   return payload ? Object.keys(payload) : [];
+}
+
+const BOOKING_REPLAY_GUARDED_ACTIONS: ReadonlySet<SystemActionName> = new Set([
+  "CITY_SELECTED",
+  "SALON_SELECTED",
+  "SERVICE_SELECTED_FOR_SALON",
+  "SLOT_SELECTED",
+  "BOOKING_PAYLOAD_INCOMPLETE",
+  "BOOKING_CONFLICT",
+  "BOOKING_SUBMIT_STARTED",
+  "BOOKING_SUBMIT_SUCCESS",
+]);
+
+const dispatchedActionIds = new Set<string>();
+const routedActionIds = new Set<string>();
+
+function createActionId(action: SystemActionName): string {
+  return `${action}:${Date.now()}:${Math.random().toString(36).slice(2)}`;
+}
+
+function readFlowVersion(payload?: Record<string, unknown>): number | undefined {
+  return typeof payload?.flowVersion === "number" ? payload.flowVersion : undefined;
+}
+
+function withBookingFlowVersion(event: SystemActionEvent): SystemActionEvent {
+  if (!BOOKING_REPLAY_GUARDED_ACTIONS.has(event.action)) return event;
+  const payload = event.payload ?? {};
+  if (typeof payload.flowVersion === "number") return event;
+  return {
+    ...event,
+    payload: {
+      ...payload,
+      flowVersion: bookingFlow.get().flowVersion,
+    },
+  };
+}
+
+function isStaleBookingAction(event: SystemActionEvent): boolean {
+  if (!BOOKING_REPLAY_GUARDED_ACTIONS.has(event.action)) return false;
+  const eventVersion = readFlowVersion(event.payload);
+  if (eventVersion == null) return false;
+  return eventVersion < bookingFlow.get().flowVersion;
+}
+
+export function shouldIgnoreSystemActionForRouting(event: SystemActionEvent): boolean {
+  if (event.actionId) {
+    if (routedActionIds.has(event.actionId)) {
+      console.debug("[DUPLICATE_SYSTEM_ACTION_IGNORED]", {
+        action: event.action,
+        actionId: event.actionId,
+        payloadKeys: payloadKeys(event.payload),
+      });
+      return true;
+    }
+    routedActionIds.add(event.actionId);
+  }
+
+  if (isStaleBookingAction(event)) {
+    console.debug("[STALE_BOOKING_ACTION_IGNORED]", {
+      action: event.action,
+      actionId: event.actionId,
+      eventFlowVersion: readFlowVersion(event.payload),
+      currentFlowVersion: bookingFlow.get().flowVersion,
+      payloadKeys: payloadKeys(event.payload),
+    });
+    return true;
+  }
+
+  return false;
 }
 
 function logEvent(
@@ -114,6 +184,7 @@ function severityForRecovery(reason: RecoveryReason): RecoverySeverity {
 }
 
 function collectSelectedSlot(slot: SearchResult): void {
+  bookingFlow.get().bumpFlowVersion("slot_selected");
   bookingFlow.get().collect({
     category: slot.category,
     service: slot.serviceName,
@@ -128,6 +199,42 @@ function collectSelectedSlot(slot: SearchResult): void {
   bookingFlow.get().setState("reviewing_slots");
 }
 
+function collectServiceSelectedForSalon(payload?: Record<string, unknown>): void {
+  if (!payload) return;
+  bookingFlow.get().bumpFlowVersion("service_selected_for_salon");
+  bookingFlow.get().collect({
+    city: asString(payload.city),
+    salonId: asString(payload.salonId),
+    salonName: asString(payload.salonName),
+    serviceId: asString(payload.serviceId),
+    serviceName: asString(payload.serviceName),
+    service: asString(payload.serviceName) ?? asString(payload.service),
+    category: asString(payload.category),
+    subcategory: asString(payload.subcategory),
+    date: asString(payload.date),
+    time: asString(payload.time),
+    timeWindowStart:
+      typeof payload.timeWindowStart === "number"
+        ? payload.timeWindowStart
+        : payload.timeWindowStart === null
+          ? null
+          : undefined,
+    timeWindowEnd:
+      typeof payload.timeWindowEnd === "number"
+        ? payload.timeWindowEnd
+        : payload.timeWindowEnd === null
+          ? null
+          : undefined,
+  });
+  bookingFlow.get().setState("reviewing_slots");
+  if (isDev()) {
+    console.debug("[BOOKING_FLOW_COLLECT_SERVICE_SELECTED]", {
+      payloadKeys: payloadKeys(payload),
+      collectedAfter: bookingFlow.get().collected,
+    });
+  }
+}
+
 function applyLocalWorkflowEffects(event: SystemActionEvent): void {
   if (event.action === "SLOT_SELECTED") {
     const slot = selectedSlotFromPayload(event.payload);
@@ -135,12 +242,19 @@ function applyLocalWorkflowEffects(event: SystemActionEvent): void {
     return;
   }
 
+  if (event.action === "SERVICE_SELECTED_FOR_SALON") {
+    collectServiceSelectedForSalon(event.payload);
+    return;
+  }
+
   if (event.action === "BOOKING_SUBMIT_STARTED") {
+    bookingFlow.get().bumpFlowVersion("booking_submit_started");
     bookingFlow.get().setState("confirming");
     return;
   }
 
   if (event.action === "BOOKING_SUBMIT_SUCCESS") {
+    bookingFlow.get().bumpFlowVersion("booking_submit_success");
     bookingFlow.get().setState("completed");
   }
 }
@@ -376,6 +490,7 @@ export function systemActionToAgentRequest(
         time: payload.time,
         timeWindowStart: payload.timeWindowStart,
         timeWindowEnd: payload.timeWindowEnd,
+        flowVersion: payload.flowVersion,
       },
     };
   }
@@ -395,6 +510,30 @@ export function systemActionToAgentRequest(
         time: payload.time,
         timeWindowStart: payload.timeWindowStart,
         timeWindowEnd: payload.timeWindowEnd,
+        flowVersion: payload.flowVersion,
+      },
+    };
+  }
+
+  if (event.action === "SERVICE_SELECTED_FOR_SALON") {
+    return {
+      agentType: "booking",
+      input: "system_action:SERVICE_SELECTED_FOR_SALON",
+      handoffPayload: {
+        intent: "select_salon",
+        city: payload.city,
+        service: payload.serviceName ?? payload.service,
+        serviceId: payload.serviceId,
+        serviceName: payload.serviceName,
+        category: payload.category,
+        subcategory: payload.subcategory,
+        salonId: payload.salonId,
+        salonName: payload.salonName,
+        date: payload.date,
+        time: payload.time,
+        timeWindowStart: payload.timeWindowStart,
+        timeWindowEnd: payload.timeWindowEnd,
+        flowVersion: payload.flowVersion,
       },
     };
   }
@@ -406,11 +545,12 @@ export function sendSystemAction(input: SystemActionInput): SystemActionEvent | 
   const event: SystemActionEvent = {
     ...input,
     type: "system_action",
+    actionId: input.actionId ?? createActionId(input.action),
     visibleInThread: false,
     timestamp: input.timestamp ?? Date.now(),
   };
 
-  const parsed = SystemActionEventSchema.safeParse(event);
+  const parsed = SystemActionEventSchema.safeParse(withBookingFlowVersion(event));
   if (!parsed.success) {
     if (isDev()) {
       console.warn("[EVENT_IGNORED]", {
@@ -424,13 +564,52 @@ export function sendSystemAction(input: SystemActionInput): SystemActionEvent | 
   }
 
   const safeEvent = parsed.data;
+  if (safeEvent.actionId) {
+    if (dispatchedActionIds.has(safeEvent.actionId)) {
+      console.debug("[DUPLICATE_SYSTEM_ACTION_IGNORED]", {
+        action: safeEvent.action,
+        actionId: safeEvent.actionId,
+        payloadKeys: payloadKeys(safeEvent.payload),
+      });
+      return null;
+    }
+    dispatchedActionIds.add(safeEvent.actionId);
+  }
+  if (isStaleBookingAction(safeEvent)) {
+    console.debug("[STALE_BOOKING_ACTION_IGNORED]", {
+      action: safeEvent.action,
+      actionId: safeEvent.actionId,
+      eventFlowVersion: readFlowVersion(safeEvent.payload),
+      currentFlowVersion: bookingFlow.get().flowVersion,
+      payloadKeys: payloadKeys(safeEvent.payload),
+    });
+    return null;
+  }
+  if (
+    safeEvent.action === "SERVICE_SELECTED_FOR_SALON" &&
+    process.env.NODE_ENV !== "production"
+  ) {
+    console.debug("[SERVICE_SELECTED_FOR_SALON]", {
+      payloadKeys: payloadKeys(safeEvent.payload),
+    });
+  }
   logEvent("[SYSTEM_ACTION]", safeEvent);
   applyLocalWorkflowEffects(safeEvent);
+  recordEpisodicSystemAction(safeEvent);
   applyUICommandEffects(safeEvent);
   handleRecoveryFromSystemAction(safeEvent);
   applyBookingWorkflowEffects(safeEvent);
-  chatEvents.emit(safeEvent);
-  return safeEvent;
+  const eventForEmit = BOOKING_REPLAY_GUARDED_ACTIONS.has(safeEvent.action)
+    ? {
+        ...safeEvent,
+        payload: {
+          ...(safeEvent.payload ?? {}),
+          flowVersion: bookingFlow.get().flowVersion,
+        },
+      }
+    : safeEvent;
+  chatEvents.emit(eventForEmit);
+  return eventForEmit;
 }
 
 export function legacyActionTextToSystemAction(

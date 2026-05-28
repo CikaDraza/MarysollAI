@@ -168,6 +168,9 @@ export async function handleMariaResponse(
         salonName,
       } = safeResponse.payload;
       const beforeCollected = { ...bookingFlow.get().collected };
+      if (safeResponse.payload.intent === "booking") {
+        bookingFlow.get().bumpFlowVersion("new_booking_intent");
+      }
       bookingFlow.get().collect({
         category: typeof category === "string" ? category : undefined,
         subcategory: typeof subcategory === "string" ? subcategory : undefined,

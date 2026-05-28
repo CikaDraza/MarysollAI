@@ -23,14 +23,41 @@ function stableStringify(value: unknown): string {
 
 function stableKey(intent: LayoutIntent, surface: LayoutSurface): string {
   const metadata = intent.metadata ?? {};
-  const identity = {
+  const identity =
+    intent.type === "AppointmentCalendarBlock"
+      ? {
+          type: intent.type,
+          surface: intent.surface ?? surface,
+          salonId: metadata.salonId,
+          serviceId: metadata.serviceId,
+          serviceName: metadata.serviceName ?? metadata.service,
+          date: metadata.date,
+          timeWindowStart: metadata.timeWindowStart,
+          timeWindowEnd: metadata.timeWindowEnd,
+        }
+      : intent.type === "SalonListBlock"
+        ? {
+            type: intent.type,
+            surface: intent.surface ?? surface,
+            city: metadata.city,
+            service: metadata.serviceName ?? metadata.service,
+            category: metadata.category,
+          }
+        : intent.type === "CityListBlock"
+          ? {
+              type: intent.type,
+              surface: intent.surface ?? surface,
+              service: metadata.serviceName ?? metadata.service,
+              category: metadata.category,
+            }
+          : {
     type: intent.type,
     surface: intent.surface ?? surface,
     salonId: metadata.salonId,
     serviceId: metadata.serviceId,
     appointmentId: metadata.appointmentId,
     mode: metadata.mode,
-  };
+          };
   return stableStringify(identity);
 }
 
@@ -81,7 +108,7 @@ export function resolveLayout(
     }
 
     const key = stableKey(intent, surface);
-    if (seen.has(key) || blocks.some((block) => block.type === intent.type)) {
+    if (seen.has(key)) {
       skipped.push({ type: intent.type, reason: "duplicate" });
       logResolve("[LAYOUT_SKIP]", {
         type: intent.type,

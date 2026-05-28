@@ -16,6 +16,7 @@ export function detectCityAvailabilityQuestion(
       "novi sad": ["novom sadu", "novi sad"],
       "beograd": ["beogradu", "beograd"],
       "sremska mitrovica": ["sremskoj mitrovici", "sremska mitrovica", "sremskoj"],
+      "loznica": ["loznici", "loznicu", "loznica"],
       "bor": ["boru", "bor"],
     };
     const shortNorm = cityNorm.split(" ")[0];
@@ -27,7 +28,7 @@ export function detectCityAvailabilityQuestion(
   })?.name;
 
   const hasAvailabilityPhrase =
-    /\b(da li ima|ima li|a u|moze|može|radite|imate)\b/.test(normalized) ||
+    /\b(da li ima|ima li|da li postoji|postoji|a u|moze|može|radite|imate)\b/.test(normalized) ||
     (Boolean(city) && normalized.length <= 40);
 
   return {

@@ -203,6 +203,18 @@ function firstNonEmpty(...values: Array<string | undefined>): string | undefined
   return values.find((value) => typeof value === "string" && value.trim().length > 0)?.trim();
 }
 
+function envEnabled(value: string | undefined): boolean {
+  return /^(1|true|yes|on)$/i.test(value ?? "");
+}
+
+export function isBookingSmsEnabled(): boolean {
+  return envEnabled(process.env.NEXT_PUBLIC_BOOKING_SMS_ENABLED);
+}
+
+export function isBookingInstagramDmEnabled(): boolean {
+  return envEnabled(process.env.NEXT_PUBLIC_BOOKING_INSTAGRAM_DM_ENABLED);
+}
+
 export function getUserPhone(user?: AuthUser | null): string {
   return firstNonEmpty(user?.phone, user?.phoneNumber, user?.mobile, user?.mobilePhone) ?? "";
 }
@@ -246,24 +258,31 @@ export function buildBookingContactPayload(input: {
   const formInstagram = input.form.instagram?.trim() ?? "";
   const profilePhone = getUserPhone(user);
   const profileInstagram = getUserInstagram(user);
+  const automaticSmsEnabled = isBookingSmsEnabled();
+  const automaticInstagramDmEnabled = isBookingInstagramDmEnabled();
 
   if (isAuthenticated && user) {
-    const preferredContact: PreferredContact = formPhone
+    const accountEmail = formEmail || user.email;
+    const preferredContact: PreferredContact = automaticSmsEnabled && formPhone
       ? "phone"
-      : formInstagram
+      : automaticInstagramDmEnabled && formInstagram
         ? "instagram"
-        : "platform";
+        : accountEmail
+          ? "email"
+          : "platform";
     const contactNote =
       preferredContact === "phone"
         ? "Klijent želi kontakt za ovaj termin preko unetog telefona."
         : preferredContact === "instagram"
           ? "Klijent želi kontakt za ovaj termin preko Instagrama."
+          : preferredContact === "email"
+            ? "Klijent želi kontakt za ovaj termin preko email adrese sa naloga."
           : undefined;
 
     return {
       clientId: user.id,
       clientName: formName || user.name,
-      clientEmail: formEmail || user.email,
+      clientEmail: accountEmail,
       clientPhone: formPhone || profilePhone || undefined,
       clientInstagram: formInstagram || profileInstagram || undefined,
       preferredContact,

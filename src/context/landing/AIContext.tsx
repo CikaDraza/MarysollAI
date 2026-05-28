@@ -22,6 +22,11 @@ import { resetAgentState } from "@/lib/ai/orchestrator/ai-orchestrator";
 import {
   legacyActionTextToSystemAction,
 } from "@/lib/ai/events/systemActionDispatcher";
+import { bookingFlow } from "@/lib/ai/booking-flow-state";
+import {
+  acknowledgementReply,
+  routeUserMessageToAgent,
+} from "@/lib/ai/routing/agentEntryRouter";
 
 // Public ActiveAgent for legacy consumers — derived from the Zustand store.
 // Kept for backward compatibility with components reading `useAIContext().activeAgent`.
@@ -50,6 +55,21 @@ function deriveLegacyAgent(
 function isAuthIntentText(text: string): boolean {
   return /\b(login|prijavi|prijavim|uloguj|registruj|registracija|nalog|lozink)\b/i.test(
     text,
+  );
+}
+
+function legacyAgentForClaudiaSub(sub: ClaudiaSubAgent | undefined): ActiveAgent {
+  if (sub === "appointments") return "claudia-appointments";
+  if (sub === "auth") return "claudia-auth";
+  if (sub === "prices") return "claudia-prices";
+  if (sub === "testimonials") return "claudia-testimonials";
+  return "claudia-booking";
+}
+
+function hasCollectedBookingContext(): boolean {
+  const collected = bookingFlow.get().collected;
+  return Object.values(collected).some(
+    (value) => value !== undefined && value !== null && value !== "",
   );
 }
 
@@ -172,7 +192,41 @@ export function AIProvider({ children }: { children: ReactNode }) {
         activeAgentRef.current = "maria";
       }
 
-      // When Claudia is active, route directly to Claudia — never re-invoke Maria
+      const routingDecision = routeUserMessageToAgent({
+        message: q,
+        activeAgent: activeAgentRef.current === "maria" ? "maria" : "claudia",
+        hasActiveBooking: hasCollectedBookingContext(),
+      });
+
+      console.debug("[AGENT_ENTRY_ROUTER]", {
+        activeAgent: activeAgentRef.current,
+        targetAgent: routingDecision.targetAgent,
+        claudiaSubAgent: routingDecision.claudiaSubAgent,
+        reason: routingDecision.reason,
+      });
+
+      if (routingDecision.reason === "acknowledgement") {
+        const reply = acknowledgementReply(q);
+        if (activeAgentRef.current === "maria") {
+          maria.appendLocalExchange(q, reply);
+        } else {
+          claudia.appendLocalExchange(q, reply);
+        }
+        return;
+      }
+
+      if (routingDecision.targetAgent === "claudia") {
+        const sub = routingDecision.claudiaSubAgent ?? "booking";
+        setActiveAgentInStore("claudia", sub);
+        activeAgentRef.current = legacyAgentForClaudiaSub(sub);
+        if (latestBlockType === "AuthBlock" && isAuthIntentText(q)) {
+          blockOrchestrator.focusBlock("AuthBlock");
+          return;
+        }
+        void claudia.askAI(q);
+        return;
+      }
+
       if (activeAgentRef.current === "maria") {
         void maria.sendMessage(q);
       } else {
@@ -180,10 +234,17 @@ export function AIProvider({ children }: { children: ReactNode }) {
           blockOrchestrator.focusBlock("AuthBlock");
           return;
         }
-        void claudia.askAI(q);
+        setActiveAgentInStore("maria");
+        activeAgentRef.current = "maria";
+        void maria.sendMessage(q);
+        if (routingDecision.transitionMessage) {
+          window.setTimeout(() => {
+            claudia.appendAssistantMessage(routingDecision.transitionMessage!);
+          }, 20);
+        }
       }
     },
-    [maria, claudia, lastInteractionAt, latestBlockType],
+    [maria, claudia, lastInteractionAt, latestBlockType, setActiveAgentInStore],
   );
 
   // Block interactions always go straight to Claudia with isBlockInteraction flag.

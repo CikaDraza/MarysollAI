@@ -19,6 +19,8 @@ import {
   buildBookingContactPayload,
   buildBelgradeStartTime,
   BOOKING_CONFLICT_MESSAGE,
+  isBookingInstagramDmEnabled,
+  isBookingSmsEnabled,
   isBookingConflict,
   mapBookingErrorMessage,
   normalizeBookingPayload,
@@ -439,6 +441,34 @@ describe("AI workflow stabilization", () => {
     expect(filtered.results[0].timeLabel).toBe("15:30");
     expect(filtered.slotsByCity[0].slots).toHaveLength(1);
     expect(filtered.bestSlot?.timeLabel).toBe("15:30");
+  });
+
+  it("Claudia search filter treats 'posle 12' as strictly after 12:00", () => {
+    const atNoon: SearchResult = {
+      ...selectedSlot,
+      startTime: "2026-05-14T12:00:00.000Z",
+      timeLabel: "12:00",
+    };
+    const afterNoon: SearchResult = {
+      ...selectedSlot,
+      startTime: "2026-05-14T12:30:00.000Z",
+      timeLabel: "12:30",
+    };
+
+    const filtered = filterSearchResultByStartHour(
+      {
+        results: [atNoon, afterNoon],
+        slotsByCity: [{ city: "Bor", slots: [atNoon, afterNoon] }],
+        bestSlot: atNoon,
+        fallbackLevel: 0,
+        totalSalons: 1,
+        debug: {},
+      },
+      12,
+    );
+
+    expect(filtered.results.map((slot) => slot.timeLabel)).toEqual(["12:30"]);
+    expect(filtered.bestSlot?.timeLabel).toBe("12:30");
   });
 
   it("Claudia returns AuthBlock deterministically for login handoff", async () => {
@@ -916,8 +946,9 @@ describe("AI workflow stabilization", () => {
       clientId: "user-1",
       clientName: "Milica",
       clientEmail: "milica@example.com",
-      preferredContact: "platform",
+      preferredContact: "email",
     });
+    expect(payload.contactNote).toContain("email adrese");
     expect(payload.clientPhone).toBeUndefined();
     expect(payload.clientInstagram).toBeUndefined();
   });
@@ -936,10 +967,10 @@ describe("AI workflow stabilization", () => {
     });
 
     expect(payload.clientPhone).toBe("0601234567");
-    expect(payload.preferredContact).toBe("platform");
+    expect(payload.preferredContact).toBe("email");
   });
 
-  it("authenticated user can add override phone", () => {
+  it("authenticated user with phone still prefers email when SMS is not enabled", () => {
     const payload = buildBookingContactPayload({
       user: {
         id: "user-1",
@@ -953,8 +984,30 @@ describe("AI workflow stabilization", () => {
     });
 
     expect(payload.clientPhone).toBe("0602222222");
-    expect(payload.preferredContact).toBe("phone");
-    expect(payload.contactNote).toContain("unetog telefona");
+    expect(payload.preferredContact).toBe("email");
+    expect(payload.contactNote).toContain("email adrese");
+  });
+
+  it("authenticated user with Instagram still prefers email when Instagram DM is not enabled", () => {
+    const payload = buildBookingContactPayload({
+      user: {
+        id: "user-1",
+        email: "milica@example.com",
+        name: "Milica",
+        isAdmin: false,
+        token: "token",
+      },
+      form: { name: "Milica", instagram: "@milica", email: "milica@example.com" },
+    });
+
+    expect(payload.clientInstagram).toBe("@milica");
+    expect(payload.preferredContact).toBe("email");
+    expect(payload.contactNote).toContain("email adrese");
+  });
+
+  it("booking SMS and Instagram DM capabilities are disabled by default", () => {
+    expect(isBookingSmsEnabled()).toBe(false);
+    expect(isBookingInstagramDmEnabled()).toBe(false);
   });
 
   it("guest without contact cannot submit contact form", () => {

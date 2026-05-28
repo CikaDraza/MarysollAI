@@ -24,6 +24,7 @@ export const SystemActionNameSchema = z.enum([
   "SLOT_SELECTED",
   "CITY_SELECTED",
   "SALON_SELECTED",
+  "SERVICE_SELECTED_FOR_SALON",
   "BOOKING_MODAL_OPENED",
   "BOOKING_MODAL_CLOSED",
   "BOOKING_PAYLOAD_INCOMPLETE",
@@ -41,8 +42,10 @@ export const SystemActionNameSchema = z.enum([
 
 export const SystemActionEventSchema = z.object({
   type: z.literal("system_action"),
+  actionId: z.string().optional(),
   action: SystemActionNameSchema,
   payload: z.record(z.string(), z.unknown()).optional(),
+  displayMessage: z.string().optional(),
   source: SystemActionSourceSchema,
   notifyAgent: z.boolean().optional(),
   visibleInThread: z.literal(false),
