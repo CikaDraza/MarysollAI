@@ -52,7 +52,8 @@ export default function NotifyMeWidget() {
   const [service, setService] = useState(category ?? "");
   const [city, setCity] = useState(cityName ?? "");
   const [salon, setSalon] = useState("");
-  const [preferredTimeMode, setPreferredTimeMode] = useState<PreferredTimeMode>("anytime");
+  const [preferredTimeMode, setPreferredTimeMode] =
+    useState<PreferredTimeMode>("anytime");
   const [timeRelation, setTimeRelation] = useState<TimeRelation>("after");
   const [selectedTime, setSelectedTime] = useState("15:00");
   const [pushAllowed, setPushAllowed] = useState(false);
@@ -75,7 +76,9 @@ export default function NotifyMeWidget() {
     setName((current) => current || user.name || "");
     setEmail((current) => current || user.email || "");
     setPhone((current) => current || user.phone || user.phoneNumber || "");
-    setInstagram((current) => current || user.instagram || user.instagramUsername || "");
+    setInstagram(
+      (current) => current || user.instagram || user.instagramUsername || "",
+    );
   }, [user]);
 
   const isLoggedIn = Boolean(user?.id);
@@ -127,18 +130,23 @@ export default function NotifyMeWidget() {
     const trimmedEmail = email.trim();
     const trimmedInstagram = instagram.trim();
     const trimmedTiktok = tiktok.trim();
-    const hasAnyContact = Boolean(trimmedEmail || trimmedPhone || trimmedInstagram || trimmedTiktok);
+    const hasAnyContact = Boolean(
+      trimmedEmail || trimmedPhone || trimmedInstagram || trimmedTiktok,
+    );
 
     if (!service.trim() || !city.trim()) {
       setError("Usluga i grad su obavezni.");
       return;
     }
     if (!isLoggedIn && (!trimmedName || !hasAnyContact)) {
-      setError("Unesite ime i bar jedan kontakt: email, telefon, Instagram ili TikTok.");
+      setError(
+        "Unesite ime i bar jedan kontakt: email, telefon, Instagram ili TikTok.",
+      );
       return;
     }
 
-    const cutoffHour = preferredTimeMode === "anytime" ? undefined : hourFromTime(selectedTime);
+    const cutoffHour =
+      preferredTimeMode === "anytime" ? undefined : hourFromTime(selectedTime);
     const preferredDate =
       preferredTimeMode === "today"
         ? todayIso()
@@ -146,7 +154,9 @@ export default function NotifyMeWidget() {
           ? todayIso(1)
           : undefined;
     const token =
-      typeof window !== "undefined" ? localStorage.getItem("assistant_token") : null;
+      typeof window !== "undefined"
+        ? localStorage.getItem("assistant_token")
+        : null;
 
     setLoading(true);
     try {
@@ -166,9 +176,13 @@ export default function NotifyMeWidget() {
           preferredTimeMode,
           preferredDate,
           timeWindowStart:
-            cutoffHour != null && timeRelation === "after" ? cutoffHour : undefined,
+            cutoffHour != null && timeRelation === "after"
+              ? cutoffHour
+              : undefined,
           timeWindowEnd:
-            cutoffHour != null && timeRelation === "before" ? cutoffHour : undefined,
+            cutoffHour != null && timeRelation === "before"
+              ? cutoffHour
+              : undefined,
           instagram: trimmedInstagram || undefined,
           tiktok: trimmedTiktok || undefined,
           pushAllowed,
@@ -186,24 +200,31 @@ export default function NotifyMeWidget() {
         });
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Slanje trenutno nije uspelo.");
+      setError(
+        err instanceof Error ? err.message : "Slanje trenutno nije uspelo.",
+      );
     } finally {
       setLoading(false);
     }
   }
 
   return (
-    <section id="notify-me" style={{ marginTop: 56 }} className="ms-nmw-section">
+    <section
+      id="notify-me"
+      style={{ marginTop: 56 }}
+      className="ms-nmw-section pt-28"
+    >
       <div style={{ paddingTop: 12 }}>
         <p className="ms-nmw-eyebrow">Nema termina?</p>
         <h2 className="ms-nmw-title">
           Nema slobodnih termina za ovu uslugu.
           <br />
-          <span>Možemo da te obavestimo</span> čim se pojavi prvi slobodan termin.
+          <span>Možemo da te obavestimo</span> čim se pojavi prvi slobodan
+          termin.
         </h2>
         <p className="ms-nmw-copy">
-          Ostavi uslugu, grad i željeni vremenski okvir. Ne rezervišemo automatski;
-          šaljemo link da potvrdiš termin kada se pojavi.
+          Ostavi uslugu, grad i željeni vremenski okvir. Ne rezervišemo
+          automatski; šaljemo link da potvrdiš termin kada se pojavi.
         </p>
         <button type="button" onClick={onOpenAI} className="ms-nmw-ai">
           <SparklesIcon style={{ width: 16, height: 16 }} strokeWidth={1.5} />
@@ -214,8 +235,15 @@ export default function NotifyMeWidget() {
       <div className="ms-nmw-card">
         <div className="ms-nmw-card-head">
           <h3>Obavesti me</h3>
-          <button type="button" onClick={requestBrowserPush} className="ms-nmw-icon-btn">
-            <BellAlertIcon style={{ width: 18, height: 18 }} strokeWidth={1.7} />
+          <button
+            type="button"
+            onClick={requestBrowserPush}
+            className="ms-nmw-icon-btn"
+          >
+            <BellAlertIcon
+              style={{ width: 18, height: 18 }}
+              strokeWidth={1.7}
+            />
             <span>{pushAllowed ? "Browser uključen" : "Browser push"}</span>
           </button>
         </div>
@@ -286,19 +314,31 @@ export default function NotifyMeWidget() {
             <div>
               <span className="ms-nmw-label">Preferirano vreme</span>
               <div className="ms-nmw-segments">
-                <SegmentButton active={preferredTimeMode === "anytime"} onClick={() => setPreferredTimeMode("anytime")}>
+                <SegmentButton
+                  active={preferredTimeMode === "anytime"}
+                  onClick={() => setPreferredTimeMode("anytime")}
+                >
                   Bilo kada
                 </SegmentButton>
-                <SegmentButton active={preferredTimeMode === "today"} onClick={() => setPreferredTimeMode("today")}>
+                <SegmentButton
+                  active={preferredTimeMode === "today"}
+                  onClick={() => setPreferredTimeMode("today")}
+                >
                   Danas
                 </SegmentButton>
-                <SegmentButton active={preferredTimeMode === "tomorrow"} onClick={() => setPreferredTimeMode("tomorrow")}>
+                <SegmentButton
+                  active={preferredTimeMode === "tomorrow"}
+                  onClick={() => setPreferredTimeMode("tomorrow")}
+                >
                   Sutra
                 </SegmentButton>
               </div>
               {preferredTimeMode !== "anytime" && (
                 <div className="ms-nmw-time-row">
-                  <SegmentButton active={timeRelation === "before"} onClick={() => setTimeRelation("before")}>
+                  <SegmentButton
+                    active={timeRelation === "before"}
+                    onClick={() => setTimeRelation("before")}
+                  >
                     Pre
                   </SegmentButton>
                   <input
@@ -307,7 +347,10 @@ export default function NotifyMeWidget() {
                     onChange={(e) => setSelectedTime(e.target.value)}
                     style={inputStyle}
                   />
-                  <SegmentButton active={timeRelation === "after"} onClick={() => setTimeRelation("after")}>
+                  <SegmentButton
+                    active={timeRelation === "after"}
+                    onClick={() => setTimeRelation("after")}
+                  >
                     Posle
                   </SegmentButton>
                 </div>
@@ -558,7 +601,13 @@ function SegmentButton({
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
   return (
     <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
       <span className="ms-nmw-label">{label}</span>

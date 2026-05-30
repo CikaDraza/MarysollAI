@@ -442,6 +442,7 @@ export default function BookingModal() {
             width: "100%",
             maxWidth: 440,
             maxHeight: "90vh",
+            overflowY: "auto",
             padding: 28,
             fontFamily: "var(--main-font)",
           }}

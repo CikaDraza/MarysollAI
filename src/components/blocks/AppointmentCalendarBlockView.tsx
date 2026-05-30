@@ -187,6 +187,7 @@ export default function AppointmentCalendarBlockView({
             maxWidth: 400,
             maxHeight: "90vh",
             margin: "0 auto",
+            overflowY: "auto",
           }}
         >
           <h3
