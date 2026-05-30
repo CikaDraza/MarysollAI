@@ -1,18 +1,49 @@
 import {
   acknowledgementReply,
+  isMariaOwnedIntent,
   routeUserMessageToAgent,
 } from "@/lib/ai/routing/agentEntryRouter";
 
-describe("agent entry router", () => {
-  it("routes clear first booking intent directly to Claudia", () => {
+describe("agent entry router ownership inversion", () => {
+  it("routes booking directly to Claudia", () => {
     const decision = routeUserMessageToAgent({
       activeAgent: "maria",
-      message: "maderoterapija danas posle 12",
+      message: "Želim da zakažem šminkanje u Kiki Kiss za nedelju",
     });
 
     expect(decision.targetAgent).toBe("claudia");
     expect(decision.claudiaSubAgent).toBe("booking");
     expect(decision.reason).toBe("direct_booking");
+  });
+
+  it("routes price list directly to Claudia", () => {
+    const decision = routeUserMessageToAgent({
+      activeAgent: "maria",
+      message: "Mogu li da vidim cenovnik?",
+    });
+
+    expect(decision.targetAgent).toBe("claudia");
+    expect(decision.reason).toBe("default_booking_concierge");
+  });
+
+  it("routes salon existence directly to Claudia", () => {
+    const decision = routeUserMessageToAgent({
+      activeAgent: "maria",
+      message: "Da li imate salon u Rumi?",
+    });
+
+    expect(decision.targetAgent).toBe("claudia");
+    expect(decision.reason).toBe("default_booking_concierge");
+  });
+
+  it("routes registration FAQ directly to Claudia", () => {
+    const decision = routeUserMessageToAgent({
+      activeAgent: "maria",
+      message: "Da li moram da se registrujem?",
+    });
+
+    expect(decision.targetAgent).toBe("claudia");
+    expect(decision.reason).toBe("default_booking_concierge");
   });
 
   it("routes appointments directly to Claudia", () => {
@@ -26,177 +57,67 @@ describe("agent entry router", () => {
     expect(decision.reason).toBe("direct_appointments");
   });
 
-  it("keeps FAQ and platform info with Maria", () => {
+  it("routes slot conflict FAQ directly to Claudia", () => {
     const decision = routeUserMessageToAgent({
       activeAgent: "maria",
-      message: "Da li može online plaćanje ili pretplata?",
-    });
-
-    expect(decision.targetAgent).toBe("maria");
-    expect(decision.reason).toBe("faq_or_platform_info");
-  });
-
-  it("keeps booking how-to questions with Maria", () => {
-    const decision = routeUserMessageToAgent({
-      activeAgent: "maria",
-      message: "Kako mogu da zakažem?",
-    });
-
-    expect(decision.targetAgent).toBe("maria");
-    expect(decision.reason).toBe("faq_or_platform_info");
-  });
-
-  it("keeps registration questions with Maria", () => {
-    const decision = routeUserMessageToAgent({
-      activeAgent: "maria",
-      message: "Da li moram da se registrujem?",
-    });
-
-    expect(decision.targetAgent).toBe("maria");
-    expect(decision.reason).toBe("faq_or_platform_info");
-  });
-
-  it("keeps salon existence questions with Maria", () => {
-    const decision = routeUserMessageToAgent({
-      activeAgent: "maria",
-      message: "Da li postoji salon u Sremskoj Mitrovici?",
-    });
-
-    expect(decision.targetAgent).toBe("maria");
-  });
-
-  it("keeps service salon existence questions with Maria", () => {
-    const decision = routeUserMessageToAgent({
-      activeAgent: "maria",
-      message: "Da li postoji salon za masazu u Loznici?",
-    });
-
-    expect(decision.targetAgent).toBe("maria");
-  });
-
-  it("keeps hair salon existence questions with Maria", () => {
-    const decision = routeUserMessageToAgent({
-      activeAgent: "maria",
-      message: "Da li imate frizerski salon u Sremskoj Mitrovici?",
-    });
-
-    expect(decision.targetAgent).toBe("maria");
-    expect(decision.reason).toBe("faq_or_platform_info");
-  });
-
-  it("keeps Maria continuation after nearest-city offer with Maria", () => {
-    const decision = routeUserMessageToAgent({
-      activeAgent: "maria",
-      message: "Može",
-    });
-
-    expect(decision.targetAgent).toBe("maria");
-  });
-
-  it("keeps city-only follow-up with Maria", () => {
-    const decision = routeUserMessageToAgent({
-      activeAgent: "maria",
-      message: "Loznica",
-    });
-
-    expect(decision.targetAgent).toBe("maria");
-  });
-
-  it("treats thanks as acknowledgement, not a repeated intent", () => {
-    const decision = routeUserMessageToAgent({
-      activeAgent: "claudia",
-      message: "Hvala",
-    });
-
-    expect(decision.reason).toBe("acknowledgement");
-    expect(decision.targetAgent).toBe("claudia");
-    expect(acknowledgementReply("Hvala")).toBe("Nema na čemu.");
-  });
-
-  it("treats ok as acknowledgement, not a repeated intent", () => {
-    const decision = routeUserMessageToAgent({
-      activeAgent: "maria",
-      message: "U redu",
-    });
-
-    expect(decision.reason).toBe("acknowledgement");
-    expect(decision.targetAgent).toBe("maria");
-    expect(acknowledgementReply("U redu")).toBe("U redu.");
-  });
-
-  it("routes online payment wording with platim to Maria", () => {
-    const decision = routeUserMessageToAgent({
-      activeAgent: "claudia",
-      message: "Da li mogu da platim online termin u salonu Beauty M Glow?",
-    });
-
-    expect(decision.targetAgent).toBe("maria");
-    expect(decision.reason).toBe("faq_or_platform_info");
-  });
-
-  it("keeps service availability info questions with Maria", () => {
-    const decision = routeUserMessageToAgent({
-      activeAgent: "claudia",
-      message: "Da li ima masaza tretman u Beogradu?",
-    });
-
-    expect(decision.targetAgent).toBe("maria");
-    expect(decision.reason).toBe("faq_or_platform_info");
-  });
-
-  it("keeps service city list questions with Maria", () => {
-    const decision = routeUserMessageToAgent({
-      activeAgent: "maria",
-      message: "Dajte mi gradove u kojima imate masazu?",
-    });
-
-    expect(decision.targetAgent).toBe("maria");
-    expect(decision.reason).toBe("faq_or_platform_info");
-  });
-
-  it("keeps nearest salon questions with Maria", () => {
-    const decision = routeUserMessageToAgent({
-      activeAgent: "maria",
-      message: "Koji je meni najbliži salon?",
-    });
-
-    expect(decision.targetAgent).toBe("maria");
-    expect(decision.reason).toBe("faq_or_platform_info");
-  });
-
-  it("still routes service plus date/time directly to Claudia", () => {
-    const decision = routeUserMessageToAgent({
-      activeAgent: "maria",
-      message: "maderoterapija danas posle 12",
+      message: "Šta ako je termin zauzet?",
     });
 
     expect(decision.targetAgent).toBe("claudia");
-    expect(decision.claudiaSubAgent).toBe("booking");
+    expect(decision.reason).toBe("default_booking_concierge");
   });
 
-  it("routes explicit booking request with city and time to Claudia", () => {
-    const decision = routeUserMessageToAgent({
-      activeAgent: "maria",
-      message: "Hoću termin za feniranje u Novom Sadu posle 15",
-    });
-
-    expect(decision.targetAgent).toBe("claudia");
-    expect(decision.claudiaSubAgent).toBe("booking");
-  });
-
-  it("routes FAQ from Claudia back to Maria with a transition message", () => {
+  it("routes salon owner business questions to Maria", () => {
     const decision = routeUserMessageToAgent({
       activeAgent: "claudia",
-      hasActiveBooking: true,
-      message: "Da li može da se plati online?",
+      message: "Kako moj salon da bude deo Marysoll?",
     });
 
     expect(decision.targetAgent).toBe("maria");
-    expect(decision.reason).toBe("faq_or_platform_info");
-    expect(decision.transitionMessage).toContain("Maria");
+    expect(decision.reason).toBe("b2b_marysoll_business");
   });
 
-  it("keeps active booking time corrections with Claudia", () => {
+  it("routes salon application questions to Maria", () => {
+    const decision = routeUserMessageToAgent({
+      activeAgent: "claudia",
+      message: "Želim da prijavim salon",
+    });
+
+    expect(decision.targetAgent).toBe("maria");
+    expect(decision.reason).toBe("b2b_marysoll_business");
+  });
+
+  it("routes salon platform pricing to Maria", () => {
+    const decision = routeUserMessageToAgent({
+      activeAgent: "claudia",
+      message: "Koliko košta platforma za salone?",
+    });
+
+    expect(decision.targetAgent).toBe("maria");
+    expect(decision.reason).toBe("b2b_marysoll_business");
+  });
+
+  it("routes promotions to Maria/promo ownership", () => {
+    const decision = routeUserMessageToAgent({
+      activeAgent: "claudia",
+      message: "Imate li promocije?",
+    });
+
+    expect(decision.targetAgent).toBe("maria");
+    expect(decision.reason).toBe("promotion_marketing");
+  });
+
+  it("routes default unknown app query to Claudia, not Maria", () => {
+    const decision = routeUserMessageToAgent({
+      activeAgent: "maria",
+      message: "Nedelja",
+    });
+
+    expect(decision.targetAgent).toBe("claudia");
+    expect(decision.reason).toBe("default_booking_concierge");
+  });
+
+  it("keeps active booking follow-ups with Claudia", () => {
     const decision = routeUserMessageToAgent({
       activeAgent: "claudia",
       hasActiveBooking: true,
@@ -206,5 +127,31 @@ describe("agent entry router", () => {
     expect(decision.targetAgent).toBe("claudia");
     expect(decision.claudiaSubAgent).toBe("booking");
     expect(decision.reason).toBe("booking_follow_up");
+  });
+
+  it("does not show visible handoff text for default Claudia route", () => {
+    const decision = routeUserMessageToAgent({
+      activeAgent: "maria",
+      message: "Da li imate salon u Rumi?",
+    });
+
+    expect(decision.targetAgent).toBe("claudia");
+    expect(decision.transitionMessage).toBeUndefined();
+  });
+
+  it("detects Maria-owned intents only for business/promo", () => {
+    expect(isMariaOwnedIntent("Vlasnik sam salona, zanima me saradnja")).toBe(true);
+    expect(isMariaOwnedIntent("Da li moram da se registrujem?")).toBe(false);
+  });
+
+  it("treats thanks as acknowledgement on active agent", () => {
+    const decision = routeUserMessageToAgent({
+      activeAgent: "claudia",
+      message: "Hvala",
+    });
+
+    expect(decision.reason).toBe("acknowledgement");
+    expect(decision.targetAgent).toBe("claudia");
+    expect(acknowledgementReply("Hvala")).toBe("Nema na čemu.");
   });
 });

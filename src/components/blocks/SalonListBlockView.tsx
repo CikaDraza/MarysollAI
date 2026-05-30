@@ -10,6 +10,9 @@ import { Reveal } from "@/components/motion/Reveal";
 import { bookingFlow, useBookingFlow } from "@/lib/ai/booking-flow-state";
 import { blockActionToSystemAction } from "@/lib/ai/layout/blockActionToSystemAction";
 import { executeUICommand } from "@/lib/ai/ui/ui-command-executor";
+import {
+  useBlockLifecycle,
+} from "@/lib/ai/layout/block-lifecycle";
 
 interface Props {
   block: SalonListBlockType;
@@ -26,8 +29,9 @@ export default function SalonListBlockView({ block }: Props) {
       ? block.metadata.flowVersion
       : currentFlowVersion;
   const [consumed, setConsumed] = useState(false);
+  const lifecycle = useBlockLifecycle(block.id);
   const stale = blockFlowVersion < currentFlowVersion;
-  const disabled = consumed || stale;
+  const disabled = consumed || stale || lifecycle?.state === "consumed";
   const providedSalons: SalonItem[] = block.metadata.salons ?? [];
 
   const { data, isLoading } = useQuery<SearchApiResponse>({
@@ -160,6 +164,8 @@ export default function SalonListBlockView({ block }: Props) {
                   timeWindowStart: block.metadata.timeWindowStart,
                   timeWindowEnd: block.metadata.timeWindowEnd,
                   flowVersion: block.metadata.flowVersion,
+                  sourceBlockId: block.id,
+                  sourceBlockType: block.type,
                 };
                 executeUICommand({
                   type: "OPEN_DRAWER",

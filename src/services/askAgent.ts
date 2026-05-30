@@ -11,6 +11,15 @@ import { platformClient } from "@/lib/api/platformClient";
 import { bookingWorkflow } from "@/lib/ai/workflow/booking-workflow-store";
 import { buildAgentMemoryContext } from "@/lib/ai/memory/buildAgentMemoryContext";
 import { formatAgentMemoryForPrompt } from "@/lib/ai/memory/formatAgentMemoryForPrompt";
+import { formatCommunicationRulesForPrompt } from "@/lib/ai/communication/formatCommunicationRulesForPrompt";
+import { sanitizeVisibleAgentMessage } from "@/lib/ai/communication/agent-communication-rules";
+import {
+  formatSalonExistenceAnswer,
+  formatNearestSalonAnswer,
+  formatServiceAvailabilityAnswer,
+  resolveCityServiceAvailability,
+  validateAgentClaim,
+} from "@/lib/ai/guards/agent-data-truth-guard";
 import {
   describeBookingService,
   matchingCityItems,
@@ -18,7 +27,10 @@ import {
   resolveSalonsForService,
   type ResolvedServiceSalon,
 } from "@/lib/ai/booking/booking-block-data";
-import { bookingFlow, type CollectedBookingFields } from "@/lib/ai/booking-flow-state";
+import {
+  bookingFlow,
+  type CollectedBookingFields,
+} from "@/lib/ai/booking-flow-state";
 import type { AiBookingContact } from "@/types/aiBooking";
 import { runBookingSearch } from "@/lib/search/runBookingSearch";
 import { normalizeSemanticTerm } from "@/lib/search/serviceSemanticMap";
@@ -30,8 +42,34 @@ import {
   sortAppointmentsByScheduledDesc,
   type AppointmentFilterInput,
 } from "@/lib/appointments/appointmentFilters";
+import { sliceFromCollected } from "@/lib/ai/slicePlatformKnowledge";
 
 type AppointmentPayload = Record<string, unknown> & AppointmentFilterInput;
+
+export interface ClaudiaDirectIntent {
+  type:
+    | "booking"
+    | "prices"
+    | "salon_info"
+    | "service_info"
+    | "appointments"
+    | "auth"
+    | "notify_me"
+    | "follow_up"
+    | "unknown";
+  confidence: number;
+  entities: {
+    city?: string;
+    service?: string;
+    category?: string;
+    salonName?: string;
+    date?: string;
+    dateMode?: string;
+    time?: string;
+    timeWindowStart?: number | null;
+    timeWindowEnd?: number | null;
+  };
+}
 
 let deepseekClient: OpenAI | null = null;
 
@@ -108,8 +146,12 @@ export function buildClaudiaSystemPrompt(
     day: "numeric",
   });
 
-  const tomorrow = new Date(Date.now() + 86_400_000).toISOString().split("T")[0];
-  const dayAfter = new Date(Date.now() + 172_800_000).toISOString().split("T")[0];
+  const tomorrow = new Date(Date.now() + 86_400_000)
+    .toISOString()
+    .split("T")[0];
+  const dayAfter = new Date(Date.now() + 172_800_000)
+    .toISOString()
+    .split("T")[0];
 
   return `
 # IDENTITY
@@ -117,6 +159,10 @@ export function buildClaudiaSystemPrompt(
 Ti si **Claudia**, AI booking orchestrator za Marysoll Booking platformu.
 Obraćaj se korisniku u ženskom rodu.
 Ton: profesionalan, brz, jasan, moderan UX stil, kao recepcionarka poznatog hotela sa 5 zvezdica. Bez emojia.
+
+Claudia je podrazumevani korisnički concierge za Marysoll booking app.
+Ti pokrivaš booking FAQ, cenovnik, salone, gradove, usluge, registraciju, moje termine, otkazivanje, pomeranje, konflikt termina, NotifyMe i recovery.
+Ne vraćaš korisnika Mariji za booking/data pitanja.
 
 Tvoj jedini cilj:
 1. Razumeti intent korisnika
@@ -185,6 +231,8 @@ ${currentDate}
 - AUTHENTICATED: ${isAuthenticated}
 
 ${memoryContext}
+
+${formatCommunicationRulesForPrompt("claudia")}
 
 --------------------------------------------------
 # PLATFORM KNOWLEDGE
@@ -342,9 +390,60 @@ function makeClaudiaContract(input: {
   confidence?: number;
   missingFields?: string[];
 }): ClaudiaContract {
+  const firstBlock = input.blocks?.find((block) => Boolean(block)) as
+    | { metadata?: Record<string, unknown> }
+    | undefined;
+  const firstSlot = Array.isArray(firstBlock?.metadata?.slots)
+    ? (firstBlock.metadata.slots[0] as Record<string, unknown> | undefined)
+    : undefined;
+  const selectedSlot =
+    input.entities?.selectedSlot &&
+    typeof input.entities.selectedSlot === "object"
+      ? (input.entities.selectedSlot as Record<string, unknown>)
+      : firstSlot;
+  const requestedCity =
+    asString(input.entities?.requestedCity) ?? asString(input.entities?.city);
+  const requestedService =
+    asString(input.entities?.serviceName) ?? asString(input.entities?.service);
+  const truth = validateAgentClaim({
+    agent: "claudia",
+    requestedCity,
+    requestedService,
+    requestedCategory: asString(input.entities?.category),
+    slot: selectedSlot
+      ? {
+          city: asString(selectedSlot.city),
+          salonId: asString(selectedSlot.salonId),
+          salonName: asString(selectedSlot.salonName),
+          serviceName: asString(selectedSlot.serviceName),
+          startTime: asString(selectedSlot.startTime),
+        }
+      : undefined,
+    salon:
+      asString(input.entities?.salonName) || asString(input.entities?.salonId)
+        ? {
+            id: asString(input.entities?.salonId),
+            name: asString(input.entities?.salonName),
+            city: asString(input.entities?.salonCity),
+          }
+        : undefined,
+    message: input.message,
+  });
+  if (!truth.valid) {
+    console.debug("[AGENT_DATA_TRUTH_GUARD]", {
+      agent: "claudia",
+      reason: truth.reason,
+      before: input.message,
+      after: truth.correctedMessage,
+    });
+  }
+  const message = sanitizeVisibleAgentMessage(
+    truth.correctedMessage ?? input.message,
+    "claudia",
+  );
   return {
     kind: input.kind,
-    message: input.message,
+    message,
     workflow: {
       domain: input.workflowDomain,
       step: input.step,
@@ -446,7 +545,8 @@ function makeBookingResultContract(input: {
     message: input.message,
     workflowDomain: "booking",
     step: input.step ?? input.intentType,
-    nextAction: input.nextAction ?? (input.blocks.length > 0 ? "SHOW_SLOTS" : "NONE"),
+    nextAction:
+      input.nextAction ?? (input.blocks.length > 0 ? "SHOW_SLOTS" : "NONE"),
     intentType: input.intentType,
     blocks: input.blocks,
     entities: input.entities,
@@ -469,7 +569,9 @@ function makeRecoveryContract(input: {
     message: input.message,
     workflowDomain: "recovery",
     step: input.step ?? input.intentType,
-    nextAction: input.nextAction ?? (input.blocks.length > 0 ? "SHOW_RECOVERY_ALTERNATIVES" : "NONE"),
+    nextAction:
+      input.nextAction ??
+      (input.blocks.length > 0 ? "SHOW_RECOVERY_ALTERNATIVES" : "NONE"),
     intentType: input.intentType,
     blocks: input.blocks,
     entities: input.entities,
@@ -561,13 +663,20 @@ async function fetchServicesBySalon(
       if (typeof platformClient.getSalonServices !== "function") {
         return [id, []] as const;
       }
-      const services = await platformClient.getSalonServices(id).catch(() => []);
+      const services = await platformClient
+        .getSalonServices(id)
+        .catch(() => []);
       return [id, services] as const;
     }),
   );
   return Object.fromEntries(
-    entries.filter((entry): entry is readonly [string, Awaited<ReturnType<typeof platformClient.getSalonServices>>] =>
-      Boolean(entry),
+    entries.filter(
+      (
+        entry,
+      ): entry is readonly [
+        string,
+        Awaited<ReturnType<typeof platformClient.getSalonServices>>,
+      ] => Boolean(entry),
     ),
   );
 }
@@ -656,6 +765,8 @@ function inCity(city: string): string {
   if (city === "Bor") return "Boru";
   if (city === "Novi Sad") return "Novom Sadu";
   if (city === "Beograd") return "Beogradu";
+  if (city === "Ruma") return "Rumi";
+  if (city === "Leskovac") return "Leskovcu";
   if (city === "Sremska Mitrovica") return "Sremskoj Mitrovici";
   return city;
 }
@@ -674,12 +785,204 @@ function asNumberOrNull(value: unknown): number | null | undefined {
   return undefined;
 }
 
+function normalizeDirectText(value: string): string {
+  return value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/đ/g, "dj")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function detectDirectCity(
+  text: string,
+  platform?: Awaited<ReturnType<typeof fetchPlatformKnowledge>>,
+): string | undefined {
+  const normalized = normalizeDirectText(text);
+  const cityNames = [
+    ...new Set([
+      ...(platform?.citiesText
+        .split(",")
+        .map((city) => city.trim())
+        .filter(Boolean) ?? []),
+      "Beograd",
+      "Novi Sad",
+      "Bor",
+      "Ruma",
+      "Leskovac",
+      "Niš",
+    ]),
+  ];
+  return cityNames.find((city) => {
+    const n = normalizeDirectText(city);
+    const variants = [n];
+    if (n.endsWith("ac")) variants.push(`${n.slice(0, -2)}cu`);
+    if (n.endsWith("a")) variants.push(`${n.slice(0, -1)}i`);
+    if (n === "novi sad") variants.push("novom sadu");
+    return variants.some((variant) =>
+      new RegExp(`(^|\\s)${variant}(?=$|\\s|[,.!?])`).test(normalized),
+    );
+  });
+}
+
+function detectDirectSalonName(
+  text: string,
+  platform?: Awaited<ReturnType<typeof fetchPlatformKnowledge>>,
+): string | undefined {
+  const normalized = normalizeDirectText(text);
+  return platform?.raw?.salons.find((salon) => {
+    const name = salon.name ? normalizeDirectText(salon.name) : "";
+    if (!name) return false;
+    return (
+      normalized.includes(name) ||
+      name
+        .split(" ")
+        .some((part) => part.length >= 4 && normalized.includes(part))
+    );
+  })?.name;
+}
+
+function detectDirectService(text: string): {
+  service?: string;
+  category?: string;
+} {
+  const normalized = normalizeDirectText(text);
+  if (/\b(smink\w*|makeup)\b/.test(normalized))
+    return { service: "šminkanje", category: "Šminka" };
+  if (/\b(fenir\w*)\b/.test(normalized))
+    return { service: "feniranje", category: "Kosa" };
+  if (/\b(friz\w*|frizer\w*|sis\w*|šiš\w*|kosa)\b/.test(normalized))
+    return { service: "frizerski salon", category: "Kosa" };
+  if (/\b(masaz\w*|masaž\w*|maderoterap\w*)\b/.test(normalized))
+    return { service: "masaža", category: "Masaža" };
+  if (/\b(nokt\w*|manikir|pedikir)\b/.test(normalized))
+    return { service: "nokti", category: "Nokti" };
+  return {};
+}
+
+function detectDirectDate(
+  text: string,
+): Pick<ClaudiaDirectIntent["entities"], "date" | "dateMode"> {
+  const normalized = normalizeDirectText(text);
+  if (/\b(danas)\b/.test(normalized)) return { dateMode: "today" };
+  if (/\b(sutra)\b/.test(normalized)) return { dateMode: "tomorrow" };
+  if (/\b(nedelja|nedelju|nedjelja|nedjelju|vikend)\b/.test(normalized))
+    return { dateMode: "weekend" };
+  return {};
+}
+
+function detectDirectTime(
+  text: string,
+): Pick<
+  ClaudiaDirectIntent["entities"],
+  "time" | "timeWindowStart" | "timeWindowEnd"
+> {
+  const normalized = normalizeDirectText(text);
+  const exact = normalized.match(
+    /\bu\s*(\d{1,2})(?::(\d{2}))?\s*(?:h|sati|casova)?\b/,
+  );
+  if (exact) {
+    return {
+      time: `${exact[1].padStart(2, "0")}:${(exact[2] ?? "00").padStart(2, "0")}`,
+    };
+  }
+  const after = normalized.match(/\b(posle|nakon|od)\s*(\d{1,2})/);
+  if (after) return { timeWindowStart: Number(after[2]), timeWindowEnd: null };
+  return {};
+}
+
+export function parseClaudiaDirectIntent(input: {
+  text: string;
+  platformKnowledge?: Awaited<ReturnType<typeof fetchPlatformKnowledge>>;
+  collectedBookingFields?: CollectedBookingFields;
+}): ClaudiaDirectIntent {
+  const text = normalizeDirectText(input.text);
+  const city = detectDirectCity(input.text, input.platformKnowledge);
+  const salonName = detectDirectSalonName(input.text, input.platformKnowledge);
+  const service = detectDirectService(input.text);
+  const date = detectDirectDate(input.text);
+  const time = detectDirectTime(input.text);
+  const hasContext = Boolean(
+    input.collectedBookingFields?.service ||
+    input.collectedBookingFields?.city ||
+    input.collectedBookingFields?.salonName,
+  );
+
+  if (
+    /\b(moji termini|moje termine|moje rezervacije|zakazano|status termina)\b/.test(
+      text,
+    )
+  ) {
+    return { type: "appointments", confidence: 0.96, entities: {} };
+  }
+  if (/\b(login|prijavi|uloguj|registruj|nalog|lozink)\b/.test(text)) {
+    return { type: "auth", confidence: 0.94, entities: {} };
+  }
+  if (
+    /\b(obavesti me|javi mi|notify|lista cekanja|kad bude slobod)\b/.test(text)
+  ) {
+    return {
+      type: "notify_me",
+      confidence: 0.9,
+      entities: { city, ...service, ...date, ...time },
+    };
+  }
+  if (/\b(cenovnik|cene|cena|koliko kosta|koliko košta|vrste)\b/.test(text)) {
+    return {
+      type: "prices",
+      confidence: 0.9,
+      entities: { city, salonName, ...service, ...date, ...time },
+    };
+  }
+  if (
+    /\b(salon|salona|saloni|najbliz|najbliž|postoji|imate|ima li|da li ima)\b/.test(
+      text,
+    ) &&
+    !date.dateMode &&
+    !time.time
+  ) {
+    return {
+      type: service.service ? "salon_info" : "salon_info",
+      confidence: city || service.service ? 0.88 : 0.62,
+      entities: { city, salonName, ...service },
+    };
+  }
+  if (
+    hasContext &&
+    (/^(nedelja|nedelju|u \d{1,2}(?::\d{2})?|drugi salon|taj prvi|moze|može|ne taj)$/i.test(
+      input.text.trim(),
+    ) ||
+      date.dateMode ||
+      time.time)
+  ) {
+    return {
+      type: "follow_up",
+      confidence: 0.84,
+      entities: { city, salonName, ...service, ...date, ...time },
+    };
+  }
+  if (
+    service.service ||
+    salonName ||
+    city ||
+    (hasContext && (date.dateMode || time.time || time.timeWindowStart != null))
+  ) {
+    return {
+      type: "booking",
+      confidence: service.service || salonName ? 0.86 : 0.62,
+      entities: { city, salonName, ...service, ...date, ...time },
+    };
+  }
+  return { type: "unknown", confidence: 0.2, entities: {} };
+}
+
 function hasDateAndTimeIntent(intent: StructuredBookingIntent): boolean {
   return Boolean(
     intent.date &&
-      (intent.time ||
-        intent.timeWindowStart != null ||
-        intent.timeWindowEnd != null),
+    (intent.time ||
+      intent.timeWindowStart != null ||
+      intent.timeWindowEnd != null),
   );
 }
 
@@ -703,7 +1006,9 @@ function buildIntentFromHandoff(
       ? payloadTimeWindowStart
       : collected?.timeWindowStart;
   const timeWindowEnd =
-    payloadTimeWindowEnd !== undefined ? payloadTimeWindowEnd : collected?.timeWindowEnd;
+    payloadTimeWindowEnd !== undefined
+      ? payloadTimeWindowEnd
+      : collected?.timeWindowEnd;
 
   return {
     city,
@@ -716,6 +1021,9 @@ function buildIntentFromHandoff(
     salonId: asString(handoffPayload.salonId) ?? collected?.salonId,
     salonName: asString(handoffPayload.salonName) ?? collected?.salonName,
     date: asString(handoffPayload.date) ?? collected?.date,
+    dateMode: asString(
+      handoffPayload.dateMode,
+    ) as StructuredBookingIntent["dateMode"],
     time: asString(handoffPayload.time) ?? collected?.time,
     timeWindowStart,
     timeWindowEnd,
@@ -724,7 +1032,9 @@ function buildIntentFromHandoff(
         ? `${String(timeWindowStart).padStart(2, "0")}:00`
         : asString(handoffPayload.earliestTime),
     latestTime: asString(handoffPayload.latestTime),
-    queryType: asString(handoffPayload.queryType) as StructuredBookingIntent["queryType"],
+    queryType: asString(
+      handoffPayload.queryType,
+    ) as StructuredBookingIntent["queryType"],
   };
 }
 
@@ -778,35 +1088,78 @@ function parseExactTimeCorrection(input: string): string | null {
   return normalizeTimeLabel(hour * 60 + minute);
 }
 
-function hasCompleteActiveBooking(collected?: CollectedBookingFields): collected is CollectedBookingFields & {
+function hasCompleteActiveBooking(
+  collected?: CollectedBookingFields,
+): collected is CollectedBookingFields & {
   service: string;
   city: string;
   date: string;
 } {
   return Boolean(
     (collected?.service || collected?.serviceId || collected?.serviceName) &&
-      collected.city &&
-      collected.date &&
-      (collected.salonId || collected.salonName),
+    collected.city &&
+    collected.date &&
+    (collected.salonId || collected.salonName),
   );
 }
 
-function isBookingSelectionUpdate(input: string, collected?: CollectedBookingFields): boolean {
+function isBookingSelectionUpdate(
+  input: string,
+  collected?: CollectedBookingFields,
+): boolean {
   if (!hasCompleteActiveBooking(collected)) return false;
   return Boolean(parseExactTimeCorrection(input));
 }
 
-function isInclusiveStartRequest(input: string, timeWindowStart?: number | null): boolean {
+function isInclusiveStartRequest(
+  input: string,
+  timeWindowStart?: number | null,
+): boolean {
   if (timeWindowStart == null) return false;
   const hour = String(timeWindowStart);
-  return new RegExp(`\\b(?:od|from)\\s*${hour}(?::00)?\\s*(?:h|časova|sati)?\\b`, "i").test(input);
+  return new RegExp(
+    `\\b(?:od|from)\\s*${hour}(?::00)?\\s*(?:h|časova|sati)?\\b`,
+    "i",
+  ).test(input);
 }
 
-function isStaleSelectionHandoff(handoffPayload?: Record<string, unknown>): boolean {
+function isStaleSelectionHandoff(
+  handoffPayload?: Record<string, unknown>,
+): boolean {
   const intent = asString(handoffPayload?.intent);
   if (intent !== "select_city" && intent !== "select_salon") return false;
   const flowVersion = asNumberOrNull(handoffPayload?.flowVersion);
-  return typeof flowVersion === "number" && flowVersion < bookingFlow.get().flowVersion;
+  return (
+    typeof flowVersion === "number" &&
+    flowVersion < bookingFlow.get().flowVersion
+  );
+}
+
+function isSalonCityExistenceFollowUp(input: string): boolean {
+  const normalized = input
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+  return (
+    /\b(da li|jel|je l|postoji|ima li)\b/.test(normalized) &&
+    /\b(taj salon|salon)\b/.test(normalized) &&
+    /\b(ruma|rumi|beograd|beogradu|novi sad|novom sadu|bor|boru|leskovac|leskovcu)\b/.test(
+      normalized,
+    )
+  );
+}
+
+function extractAskedCity(input: string): string | undefined {
+  const normalized = input
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+  if (/\b(ruma|rumi)\b/.test(normalized)) return "Ruma";
+  if (/\b(beograd|beogradu)\b/.test(normalized)) return "Beograd";
+  if (/\b(novi sad|novom sadu)\b/.test(normalized)) return "Novi Sad";
+  if (/\b(bor|boru)\b/.test(normalized)) return "Bor";
+  if (/\b(leskovac|leskovcu)\b/.test(normalized)) return "Leskovac";
+  return undefined;
 }
 
 export function filterSearchResultByStartHour(
@@ -880,11 +1233,15 @@ function inferRequestedDurationMinutes(
     intent.serviceName ?? intent.service ?? "",
   );
   for (const slot of searchResult.results) {
-    const sameServiceId = intent.serviceId && slot.serviceId === intent.serviceId;
+    const sameServiceId =
+      intent.serviceId && slot.serviceId === intent.serviceId;
     const sameServiceName =
       normalizedService &&
       normalizeSemanticTerm(slot.serviceName ?? "") === normalizedService;
-    if ((sameServiceId || sameServiceName) && typeof slot.serviceDuration === "number") {
+    if (
+      (sameServiceId || sameServiceName) &&
+      typeof slot.serviceDuration === "number"
+    ) {
       return slot.serviceDuration;
     }
   }
@@ -899,17 +1256,29 @@ function bookingSearchMessage(input: {
   slots: SearchResult[];
   originalCount: number;
 }): string {
-  const service = input.intent.serviceName ?? input.intent.service ?? "traženu uslugu";
+  const service = input.intent.serviceName ?? input.intent.service;
   const city = input.intent.requestedCity ?? input.intent.city;
   const place = city ? ` u ${city}` : "";
-  const after = input.intent.timeWindowStart != null ? ` posle ${input.intent.timeWindowStart}h` : "";
+  const after =
+    input.intent.timeWindowStart != null
+      ? ` posle ${input.intent.timeWindowStart}h`
+      : "";
   if (input.slots.length > 0) {
-    return `Pozdrav, imamo slobodne termine za uslugu ${service}${place}${after}.`;
+    const cityMismatch =
+      city && input.slots[0]?.city && input.slots[0].city !== city;
+    if (cityMismatch) {
+      return formatServiceAvailabilityAnswer({
+        requestedCity: city,
+        service,
+        slots: input.slots,
+      });
+    }
+    return `Pozdrav, imamo slobodne termine za ${service || "ovu uslugu"}${place}${after}.`;
   }
   if (input.intent.timeWindowStart != null && input.originalCount > 0) {
     return `Nema slobodnih termina${place} posle ${input.intent.timeWindowStart}h; mogu da proverim drugi dan ili širi vremenski okvir.`;
   }
-  return `Trenutno nema slobodnih termina za ${service}${place}; mogu da proverim drugi dan ili drugu uslugu.`;
+  return `Trenutno nema slobodnih termina za ${service || "ovu uslugu"}${place}; mogu da proverim drugi dan ili drugu uslugu.`;
 }
 
 function readAppointmentsFromPayload(
@@ -921,10 +1290,9 @@ function readAppointmentsFromPayload(
       ? [payload.appointment]
       : []),
   ];
-  return raw
-    .filter((appointment): appointment is Record<string, unknown> =>
-      Boolean(appointment && typeof appointment === "object"),
-    );
+  return raw.filter((appointment): appointment is Record<string, unknown> =>
+    Boolean(appointment && typeof appointment === "object"),
+  );
 }
 
 function readActiveAppointments(payload: Record<string, unknown> | undefined) {
@@ -967,7 +1335,10 @@ export async function askAgent(
   if (handoffPayload?.intent !== undefined) {
     const intentParse = ClaudiaIntentSchema.safeParse(handoffPayload.intent);
     if (!intentParse.success) {
-      console.error("[askAgent] Unknown intent from Maria, refusing LLM fallback:", handoffPayload.intent);
+      console.error(
+        "[askAgent] Unknown intent from Maria, refusing LLM fallback:",
+        handoffPayload.intent,
+      );
       return streamClaudiaContract(
         makeClarificationContract({
           message: "Ne razumem zahtev. Pokušajte ponovo.",
@@ -986,13 +1357,20 @@ export async function askAgent(
       asString(handoffPayload?.serviceName) ??
       asString(handoffPayload?.service) ??
       collectedBookingFields?.service,
-    serviceId: asString(handoffPayload?.serviceId) ?? collectedBookingFields?.serviceId,
+    serviceId:
+      asString(handoffPayload?.serviceId) ?? collectedBookingFields?.serviceId,
     serviceName:
-      asString(handoffPayload?.serviceName) ?? collectedBookingFields?.serviceName,
-    category: asString(handoffPayload?.category) ?? collectedBookingFields?.category,
-    subcategory: asString(handoffPayload?.subcategory) ?? collectedBookingFields?.subcategory,
-    salonId: asString(handoffPayload?.salonId) ?? collectedBookingFields?.salonId,
-    salonName: asString(handoffPayload?.salonName) ?? collectedBookingFields?.salonName,
+      asString(handoffPayload?.serviceName) ??
+      collectedBookingFields?.serviceName,
+    category:
+      asString(handoffPayload?.category) ?? collectedBookingFields?.category,
+    subcategory:
+      asString(handoffPayload?.subcategory) ??
+      collectedBookingFields?.subcategory,
+    salonId:
+      asString(handoffPayload?.salonId) ?? collectedBookingFields?.salonId,
+    salonName:
+      asString(handoffPayload?.salonName) ?? collectedBookingFields?.salonName,
     date: asString(handoffPayload?.date) ?? collectedBookingFields?.date,
     time: asString(handoffPayload?.time) ?? collectedBookingFields?.time,
     timeWindowStart:
@@ -1015,11 +1393,13 @@ export async function askAgent(
     handoffPayload,
     workflowStep: bookingWorkflow.get().step,
     hasCity: Boolean(mergedBookingContext.city),
-    hasSalon: Boolean(mergedBookingContext.salonId || mergedBookingContext.salonName),
+    hasSalon: Boolean(
+      mergedBookingContext.salonId || mergedBookingContext.salonName,
+    ),
     hasService: Boolean(
       mergedBookingContext.service ||
-        mergedBookingContext.serviceId ||
-        mergedBookingContext.serviceName,
+      mergedBookingContext.serviceId ||
+      mergedBookingContext.serviceName,
     ),
     hasDate: Boolean(mergedBookingContext.date),
     hasExactTime: Boolean(exactTimeAtInput),
@@ -1045,6 +1425,345 @@ export async function askAgent(
         reason: "stale_handoff_ignored",
       }),
     );
+  }
+
+  if (
+    !handoffPayload?.intent &&
+    isSalonCityExistenceFollowUp(userInput) &&
+    (collectedBookingFields?.salonName ||
+      (collectedBookingFields as Record<string, unknown> | undefined)
+        ?.selectedSlot)
+  ) {
+    console.debug("[CLAUDIA_PINGPONG_BLOCKED]", {
+      message: userInput,
+      reason: "salon_city_existence_followup",
+    });
+    const selectedSlot = (
+      collectedBookingFields as Record<string, unknown> | undefined
+    )?.selectedSlot as SearchResult | undefined;
+    const requestedCity =
+      extractAskedCity(userInput) ?? mergedBookingContext.city;
+    const actualCity =
+      selectedSlot?.city ?? asString(handoffPayload?.salonCity);
+    const salonName =
+      selectedSlot?.salonName ??
+      mergedBookingContext.salonName ??
+      asString(handoffPayload?.salonName);
+    return streamClaudiaContract(
+      makeClaudiaContract({
+        kind: "booking_result",
+        message: formatSalonExistenceAnswer({
+          requestedCity,
+          actualCity,
+          salonName,
+        }),
+        workflowDomain: "booking",
+        step: "salon_city_existence_answer",
+        nextAction: "NONE",
+        intentType: "booking",
+        entities: {
+          city: requestedCity,
+          salonName,
+        },
+        status: "ready",
+        reason: "pingpong_blocked_city_fact",
+      }),
+    );
+  }
+
+  if (!handoffPayload?.intent) {
+    const salons = await fetchBookingSalons();
+    const servicesBySalon = await fetchServicesBySalon(salons);
+    const services = Object.entries(servicesBySalon).flatMap(
+      ([salonId, items]) => {
+        const salon = salons.find(
+          (item) => String(item._id ?? item.id ?? "") === salonId,
+        );
+        return items.map((service) => ({
+          ...service,
+          salonId,
+          salonName: salon?.name,
+          city: salon?.city,
+        }));
+      },
+    );
+    const directPlatform = {
+      salonsText: "",
+      servicesText: "",
+      citiesText: [
+        ...new Set(
+          salons.map((salon) => salon.city).filter(Boolean) as string[],
+        ),
+      ].join(", "),
+      categoriesText: "",
+      raw: { salons, services, categories: [] },
+      semanticMemory: undefined,
+    };
+    let direct = parseClaudiaDirectIntent({
+      text: userInput,
+      platformKnowledge: directPlatform,
+      collectedBookingFields,
+    });
+    const lastAssistantText = [...history]
+      .reverse()
+      .find(
+        (item): item is Extract<ThreadItem, { type: "message" }> =>
+          item.type === "message" && item.data.role === "assistant",
+      )?.data.content;
+    const priceFollowUp =
+      /za koju uslugu ili salon|za koji grad ili salon|cenovnik|cene/i.test(
+        lastAssistantText ?? "",
+      );
+    if (
+      priceFollowUp &&
+      (direct.entities.service ||
+        direct.entities.city ||
+        direct.entities.salonName)
+    ) {
+      direct = {
+        ...direct,
+        type: "prices",
+        confidence: Math.max(direct.confidence, 0.86),
+      };
+    }
+
+    if (direct.type === "appointments") {
+      return askAgent(
+        userInput,
+        isAuthenticated,
+        history,
+        userName,
+        isBlockInteraction,
+        collectedBookingFields,
+        {
+          intent: "appointments",
+        },
+      );
+    }
+
+    if (direct.type === "auth") {
+      return askAgent(
+        userInput,
+        isAuthenticated,
+        history,
+        userName,
+        isBlockInteraction,
+        collectedBookingFields,
+        {
+          intent: "login",
+        },
+      );
+    }
+
+    if (direct.type === "prices") {
+      const city = direct.entities.city ?? collectedBookingFields?.city;
+      const service =
+        direct.entities.service ??
+        collectedBookingFields?.service ??
+        collectedBookingFields?.category;
+      const salonName =
+        direct.entities.salonName ?? collectedBookingFields?.salonName;
+      const matchedSalon = salonName
+        ? salons.find((salon) =>
+            normalizeSemanticTerm(salon.name ?? "").includes(
+              normalizeSemanticTerm(salonName),
+            ),
+          )
+        : undefined;
+
+      if (!service && !salonName) {
+        return streamClaudiaContract(
+          makeClaudiaContract({
+            kind: "prices",
+            message: "Za koju uslugu ili salon?",
+            workflowDomain: "prices",
+            step: "prices_missing_subject",
+            nextAction: "ASK_CLARIFICATION",
+            intentType: "prices",
+            status: "waiting_for_user",
+            reason: "direct_prices_missing_subject",
+            missingFields: ["service_or_salon"],
+          }),
+        );
+      }
+
+      if (service && !city && !matchedSalon) {
+        return streamClaudiaContract(
+          makeClaudiaContract({
+            kind: "prices",
+            message: "Za koji grad ili salon?",
+            workflowDomain: "prices",
+            step: "prices_missing_city_or_salon",
+            nextAction: "ASK_CLARIFICATION",
+            intentType: "prices",
+            entities: { service },
+            status: "waiting_for_user",
+            reason: "direct_prices_missing_city_or_salon",
+            missingFields: ["city_or_salon"],
+          }),
+        );
+      }
+
+      const resolved = service
+        ? resolveSalonsForService({
+            serviceQuery: service,
+            city,
+            salons,
+            servicesBySalon,
+          })
+        : { salons: [] as ResolvedServiceSalon[] };
+      const priceSalons = matchedSalon
+        ? [
+            {
+              id: String(matchedSalon._id ?? matchedSalon.id ?? ""),
+              name: matchedSalon.name,
+            },
+          ]
+        : resolved.salons.map((salon) => ({
+            id: salon.salonId,
+            name: salon.salonName,
+          }));
+
+      return streamClaudiaContract(
+        makeClaudiaContract({
+          kind: "prices",
+          message: service
+            ? `Prikazujem cene za ${service}${city ? ` u ${city}` : ""}.`
+            : `Prikazujem cenovnik salona ${matchedSalon?.name}.`,
+          workflowDomain: "prices",
+          step:
+            matchedSalon || priceSalons.length <= 1
+              ? "show_service_prices"
+              : "choose_salon",
+          nextAction: "SHOW_PRICES",
+          intentType: "prices",
+          blocks:
+            matchedSalon || priceSalons.length <= 1
+              ? [
+                  {
+                    type: "ServicePriceBlock",
+                    priority: 1,
+                    metadata: {
+                      serviceId: "",
+                      serviceName: service ?? "",
+                      variantName: "",
+                      service: service ?? "",
+                      salonId: matchedSalon
+                        ? String(matchedSalon._id ?? matchedSalon.id ?? "")
+                        : (priceSalons[0]?.id ?? ""),
+                      salonName:
+                        matchedSalon?.name ?? priceSalons[0]?.name ?? "",
+                    },
+                  },
+                ]
+              : [
+                  buildSalonListBlock({
+                    city,
+                    service,
+                    salons: priceSalons.map((salon) => ({
+                      id: salon.id,
+                      name: salon.name ?? "",
+                    })),
+                  }),
+                ],
+          entities: {
+            city,
+            service,
+            salonId: matchedSalon
+              ? String(matchedSalon._id ?? matchedSalon.id ?? "")
+              : priceSalons[0]?.id,
+            salonName: matchedSalon?.name ?? priceSalons[0]?.name,
+            salons: priceSalons,
+          },
+          status:
+            priceSalons.length > 1 && !matchedSalon
+              ? "waiting_for_user"
+              : "ready",
+          reason: "direct_prices",
+        }),
+      );
+    }
+
+    if (direct.type === "salon_info") {
+      const availability = resolveCityServiceAvailability({
+        city: direct.entities.city,
+        service: direct.entities.service,
+        category: direct.entities.category,
+        platformKnowledge: directPlatform,
+      });
+      const alternatives = availability.nearestAlternatives
+        .map((item) => item.city)
+        .filter((city): city is string => Boolean(city))
+        .slice(0, 2);
+      const message = availability.hasSalonInCity
+        ? `Da, imamo salon u ${direct.entities.city}: ${availability.matchingSalons
+            .map((salon) => salon.name)
+            .filter(Boolean)
+            .join(", ")}.`
+        : direct.entities.city
+          ? alternatives.length > 0
+            ? `Trenutno nemamo salon u ${inCity(direct.entities.city)}. Najbliže opcije su ${alternatives.join(" i ")}. Koja usluga vas zanima?`
+            : formatNearestSalonAnswer({ requestedCity: direct.entities.city })
+          : "Za koji grad da proverim salone?";
+      return streamClaudiaContract(
+        makeClaudiaContract({
+          kind: "booking_result",
+          message,
+          workflowDomain: "booking",
+          step: "direct_salon_info",
+          nextAction: "NONE",
+          intentType: "salon_info",
+          entities: direct.entities,
+          status: "ready",
+          reason: "direct_salon_info",
+        }),
+      );
+    }
+
+    if (direct.type === "follow_up" || direct.type === "booking") {
+      const directSalon = direct.entities.salonName
+        ? salons.find((salon) =>
+            normalizeSemanticTerm(salon.name ?? "").includes(
+              normalizeSemanticTerm(direct.entities.salonName ?? ""),
+            ),
+          )
+        : undefined;
+      const bookingPayload = {
+        intent: "booking",
+        city:
+          direct.entities.city ??
+          directSalon?.city ??
+          collectedBookingFields?.city,
+        service:
+          direct.entities.service ??
+          collectedBookingFields?.service ??
+          collectedBookingFields?.serviceName,
+        category: direct.entities.category ?? collectedBookingFields?.category,
+        salonName:
+          direct.entities.salonName ?? collectedBookingFields?.salonName,
+        salonId: directSalon
+          ? String(directSalon._id ?? directSalon.id ?? "")
+          : collectedBookingFields?.salonId,
+        date: direct.entities.date ?? collectedBookingFields?.date,
+        dateMode: direct.entities.dateMode,
+        time: direct.entities.time ?? collectedBookingFields?.time,
+        timeWindowStart:
+          direct.entities.timeWindowStart ??
+          collectedBookingFields?.timeWindowStart,
+        timeWindowEnd:
+          direct.entities.timeWindowEnd ??
+          collectedBookingFields?.timeWindowEnd,
+      };
+      return askAgent(
+        userInput,
+        isAuthenticated,
+        history,
+        userName,
+        isBlockInteraction,
+        collectedBookingFields,
+        bookingPayload,
+      );
+    }
   }
 
   if (handoffPayload?.intent === "appointments") {
@@ -1129,7 +1848,7 @@ export async function askAgent(
           intentType: "confirm_cancel_appointment",
           entities: { appointmentId: appointment._id },
           blocks: [
-          {
+            {
               type: "AppointmentCancelConfirmBlock",
               priority: 1,
               metadata: {
@@ -1316,7 +2035,9 @@ export async function askAgent(
           .filter((salon): salon is { id: string; name: string } => {
             if (!salon || typeof salon !== "object") return false;
             const record = salon as Record<string, unknown>;
-            return typeof record.id === "string" && typeof record.name === "string";
+            return (
+              typeof record.id === "string" && typeof record.name === "string"
+            );
           })
           .map((salon) => ({ id: salon.id, name: salon.name }))
       : [];
@@ -1358,9 +2079,11 @@ export async function askAgent(
       const updatedIntent: StructuredBookingIntent = {
         city: mergedBookingContext.city,
         requestedCity: mergedBookingContext.city,
-        service: mergedBookingContext.service ?? mergedBookingContext.serviceName,
+        service:
+          mergedBookingContext.service ?? mergedBookingContext.serviceName,
         serviceId: mergedBookingContext.serviceId,
-        serviceName: mergedBookingContext.serviceName ?? mergedBookingContext.service,
+        serviceName:
+          mergedBookingContext.serviceName ?? mergedBookingContext.service,
         category: mergedBookingContext.category,
         subcategory: mergedBookingContext.subcategory,
         salonId: mergedBookingContext.salonId,
@@ -1429,7 +2152,10 @@ export async function askAgent(
       }
 
       const requestedStartMinutes = parseTimeLabelToMinutes(time);
-      const requestedDuration = inferRequestedDurationMinutes(searchResult, updatedIntent);
+      const requestedDuration = inferRequestedDurationMinutes(
+        searchResult,
+        updatedIntent,
+      );
       const alternativesStartMinutes =
         requestedStartMinutes != null && requestedDuration != null
           ? requestedStartMinutes + requestedDuration
@@ -1440,12 +2166,20 @@ export async function askAgent(
           : time;
       const alternatives =
         alternativesStartMinutes != null
-          ? filterSearchResultByStartMinutes(searchResult, alternativesStartMinutes, {
-              inclusive: true,
-            }).results.slice(0, 5)
-          : filterSearchResultByStartHour(searchResult, Number(time.split(":")[0]), {
-              inclusive: false,
-            }).results.slice(0, 5);
+          ? filterSearchResultByStartMinutes(
+              searchResult,
+              alternativesStartMinutes,
+              {
+                inclusive: true,
+              },
+            ).results.slice(0, 5)
+          : filterSearchResultByStartHour(
+              searchResult,
+              Number(time.split(":")[0]),
+              {
+                inclusive: false,
+              },
+            ).results.slice(0, 5);
 
       return streamClaudiaContract(
         makeBookingResultContract({
@@ -1524,8 +2258,9 @@ export async function askAgent(
   ) {
     const salons = await fetchBookingSalons();
     const normalizedInput = normalizeSemanticTerm(userInput);
-    const city = [...new Set(salons.map((salon) => salon.city).filter(Boolean) as string[])]
-      .find((candidate) => normalizeSemanticTerm(candidate) === normalizedInput);
+    const city = [
+      ...new Set(salons.map((salon) => salon.city).filter(Boolean) as string[]),
+    ].find((candidate) => normalizeSemanticTerm(candidate) === normalizedInput);
     if (city) {
       const nextCollected = {
         ...collectedBookingFields,
@@ -1549,8 +2284,14 @@ export async function askAgent(
   }
 
   if (handoffPayload?.intent === "booking") {
-    const intent = buildIntentFromHandoff(handoffPayload, collectedBookingFields);
-    const serviceDescriptor = describeBookingService(intent.service, intent.category);
+    const intent = buildIntentFromHandoff(
+      handoffPayload,
+      collectedBookingFields,
+    );
+    const serviceDescriptor = describeBookingService(
+      intent.service,
+      intent.category,
+    );
 
     if (intent.service && !intent.city) {
       const salons = await fetchBookingSalons();
@@ -1613,13 +2354,18 @@ export async function askAgent(
       });
 
       const exactResolved = resolved.salons.filter((salon) =>
-        salon.matchingServices.some((service) => service.matchReason === "exact"),
+        salon.matchingServices.some(
+          (service) => service.matchReason === "exact",
+        ),
       );
       const directSalon = exactResolved.length === 1 ? exactResolved[0] : null;
       const directService =
-        directSalon?.matchingServices.filter((service) => service.matchReason === "exact")
-          .length === 1
-          ? directSalon.matchingServices.find((service) => service.matchReason === "exact")
+        directSalon?.matchingServices.filter(
+          (service) => service.matchReason === "exact",
+        ).length === 1
+          ? directSalon.matchingServices.find(
+              (service) => service.matchReason === "exact",
+            )
           : null;
 
       if (directSalon && directService && hasDateAndTimeIntent(intent)) {
@@ -1636,7 +2382,12 @@ export async function askAgent(
         const filtered = filterSearchResultByStartHour(
           searchResult,
           directIntent.timeWindowStart,
-          { inclusive: isInclusiveStartRequest(userInput, directIntent.timeWindowStart) },
+          {
+            inclusive: isInclusiveStartRequest(
+              userInput,
+              directIntent.timeWindowStart,
+            ),
+          },
         );
         const slots = filtered.results.slice(0, 5);
         if (slots.length > 0) {
@@ -1673,7 +2424,8 @@ export async function askAgent(
         }
       }
 
-      if (resolved.salons.length > 0) bookingFlow.get().startPendingSelectionFlow();
+      if (resolved.salons.length > 0)
+        bookingFlow.get().startPendingSelectionFlow();
       return streamClaudiaContract(
         makeBookingResultContract({
           message:
@@ -1684,16 +2436,18 @@ export async function askAgent(
           step: "booking_select_salon",
           blocks: [
             ...(resolved.salons.length > 0
-              ? [buildSalonListBlockFromResolved({
-              city: intent.city,
-              service: intent.service,
-              category: serviceDescriptor.category,
-                  date: intent.date,
-                  time: intent.time,
-                  timeWindowStart: intent.timeWindowStart,
-                  timeWindowEnd: intent.timeWindowEnd,
-                  salons: resolved.salons,
-                })]
+              ? [
+                  buildSalonListBlockFromResolved({
+                    city: intent.city,
+                    service: intent.service,
+                    category: serviceDescriptor.category,
+                    date: intent.date,
+                    time: intent.time,
+                    timeWindowStart: intent.timeWindowStart,
+                    timeWindowEnd: intent.timeWindowEnd,
+                    salons: resolved.salons,
+                  }),
+                ]
               : []),
           ],
           entities: {
@@ -1739,9 +2493,13 @@ export async function askAgent(
       selectedSlot: filtered.bestSlot,
     });
 
-    const blocks =
-      slots.length > 0
-        ? [
+    if (slots.length > 0) {
+      return streamClaudiaContract(
+        makeBookingResultContract({
+          message,
+          intentType: "booking",
+          step: "booking",
+          blocks: [
             buildAppointmentBlock({
               category: intent.category,
               subcategory: intent.subcategory,
@@ -1757,22 +2515,80 @@ export async function askAgent(
               salonName: intent.salonName,
               slots,
             }),
-          ]
-        : [];
+          ],
+          entities: { ...intent },
+          nextAction: "SHOW_SLOTS",
+        }),
+      );
+    }
+
+    // No slots found — offer concrete next steps instead of looping.
+    // Without this, the user re-sends the same message and gets the
+    // same empty response indefinitely.
+    const noSlotsService = intent.serviceName ?? intent.service ?? "ovu uslugu";
+    const noSlotsCity = intent.requestedCity ?? intent.city;
+    const noSlotsPlace = noSlotsCity ? ` u ${inCity(noSlotsCity)}` : "";
+    const noSlotsDate =
+      intent.dateMode === "tomorrow"
+        ? " sutra"
+        : intent.dateMode === "weekend"
+          ? " u nedelju"
+          : intent.date
+            ? ` ${intent.date}`
+            : "";
+
+    const noSlotsMessage =
+      searchResult.results.length > 0 && intent.timeWindowStart != null
+        ? `Nema slobodnih termina${noSlotsPlace}${noSlotsDate} posle ${intent.timeWindowStart}h. Mogu da proverim ranije taj dan ili drugi dan?`
+        : `Nema slobodnih termina za ${noSlotsService}${noSlotsPlace}${noSlotsDate}. Mogu da proverim drugi dan ili da te obavestim kada se pojavi slobodan termin?`;
+
+    bookingFlow.get().collect({
+      ...(intent.service ? { service: intent.service } : {}),
+      ...(intent.city ? { city: intent.city } : {}),
+      ...(intent.salonId ? { salonId: intent.salonId } : {}),
+      ...(intent.salonName ? { salonName: intent.salonName } : {}),
+    });
+
     return streamClaudiaContract(
-      makeBookingResultContract({
-        message,
-        intentType: "booking",
-        step: "booking",
-        blocks,
-        entities: { ...intent },
-        nextAction: slots.length > 0 ? "SHOW_SLOTS" : "NONE",
+      makeClaudiaContract({
+        kind: "recovery",
+        message: noSlotsMessage,
+        workflowDomain: "booking",
+        step: "no_slots",
+        nextAction: "OFFER_NOTIFY_ME",
+        intentType: "no_slots",
+        blocks: [
+          {
+            type: "NotifyMeBlock",
+            priority: 1,
+            metadata: {
+              serviceId: intent.serviceId ?? "",
+              serviceName: intent.serviceName ?? intent.service ?? "",
+              variantName: "",
+              service: intent.service ?? "",
+              category: intent.category ?? "",
+              city: noSlotsCity ?? "",
+              date: intent.date ?? "",
+              salonId: intent.salonId ?? "",
+              salonName: intent.salonName ?? "",
+              flowVersion: bookingFlow.get().flowVersion,
+            },
+          },
+        ],
+        entities: {
+          ...intent,
+          alternatives: [],
+        },
+        status: "waiting_for_user",
+        reason: "no_slots_found",
       }),
     );
   }
 
   if (handoffPayload?.intent === "booking_success") {
-    const selectedSlot = handoffPayload.selectedSlot as SearchResult | undefined;
+    const selectedSlot = handoffPayload.selectedSlot as
+      | SearchResult
+      | undefined;
     const service =
       asString(handoffPayload.serviceName) ??
       selectedSlot?.serviceName ??
@@ -1832,7 +2648,10 @@ export async function askAgent(
 
   if (handoffPayload?.intent === "select_city") {
     const city = String(handoffPayload.city ?? "");
-    const service = String(handoffPayload.service ?? collectedBookingFields?.service ?? "");
+    const service = String(
+      handoffPayload.service ?? collectedBookingFields?.service ?? "",
+    );
+    const displayMessage = asString(handoffPayload.displayMessage);
     const date = collectedBookingFields?.date ?? "";
     const time = collectedBookingFields?.time ?? "";
     const timeWindowStart = collectedBookingFields?.timeWindowStart;
@@ -1841,7 +2660,9 @@ export async function askAgent(
     if (!service) {
       return streamClaudiaContract(
         makeClarificationContract({
-          message: `Izabrala si ${city}. Koju uslugu želiš da zakažeš?`,
+          message:
+            displayMessage ??
+            `Odlično, proveravam dostupne termine u ${inCity(city)}. Koju uslugu želiš da zakažeš?`,
           step: "select_city_missing_service",
           intentType: "select_city",
           entities: { city },
@@ -1850,7 +2671,10 @@ export async function askAgent(
       );
     }
 
-    const serviceDescriptor = describeBookingService(service, collectedBookingFields?.category);
+    const serviceDescriptor = describeBookingService(
+      service,
+      collectedBookingFields?.category,
+    );
     const salons = await fetchBookingSalons();
     const servicesBySalon = await fetchServicesBySalon(salons);
     const resolved = resolveSalonsForService({
@@ -1860,13 +2684,15 @@ export async function askAgent(
       servicesBySalon,
     });
 
-    if (resolved.salons.length > 0) bookingFlow.get().startPendingSelectionFlow();
+    if (resolved.salons.length > 0)
+      bookingFlow.get().startPendingSelectionFlow();
     return streamClaudiaContract(
       makeBookingResultContract({
         message:
-          resolved.salons.length > 0
-            ? `Dostupni saloni u ${inCity(city)} za ${service}.`
-            : `Nema salona za ${service} u ${inCity(city)}. Mogu da proverim najbliži drugi grad ili da te obavestim kada se pojavi termin.`,
+          displayMessage ??
+          (resolved.salons.length > 0
+            ? `Odlično, proveravam dostupne termine u ${inCity(city)}.`
+            : `Nema salona za ${service} u ${inCity(city)}. Mogu da proverim najbliži drugi grad ili da te obavestim kada se pojavi termin.`),
         intentType: "select_city",
         step: "select_city",
         blocks:
@@ -1901,15 +2727,24 @@ export async function askAgent(
   }
 
   if (handoffPayload?.intent === "select_salon") {
-    const city = String(handoffPayload.city ?? collectedBookingFields?.city ?? "");
-    const service = String(handoffPayload.service ?? collectedBookingFields?.service ?? "");
+    const city = String(
+      handoffPayload.city ?? collectedBookingFields?.city ?? "",
+    );
+    const service = String(
+      handoffPayload.service ?? collectedBookingFields?.service ?? "",
+    );
     const salonId = String(handoffPayload.salonId ?? "");
     const salonName = String(handoffPayload.salonName ?? "");
-    const serviceId = asString(handoffPayload.serviceId) ?? collectedBookingFields?.serviceId;
+    const serviceId =
+      asString(handoffPayload.serviceId) ?? collectedBookingFields?.serviceId;
     const serviceName = asString(handoffPayload.serviceName) ?? service;
-    const date = asString(handoffPayload.date) ?? collectedBookingFields?.date ?? "";
-    const time = asString(handoffPayload.time) ?? collectedBookingFields?.time ?? "";
-    const payloadTimeWindowStart = asNumberOrNull(handoffPayload.timeWindowStart);
+    const date =
+      asString(handoffPayload.date) ?? collectedBookingFields?.date ?? "";
+    const time =
+      asString(handoffPayload.time) ?? collectedBookingFields?.time ?? "";
+    const payloadTimeWindowStart = asNumberOrNull(
+      handoffPayload.timeWindowStart,
+    );
     const payloadTimeWindowEnd = asNumberOrNull(handoffPayload.timeWindowEnd);
     const timeWindowStart =
       payloadTimeWindowStart !== undefined
@@ -1919,11 +2754,14 @@ export async function askAgent(
       payloadTimeWindowEnd !== undefined
         ? payloadTimeWindowEnd
         : collectedBookingFields?.timeWindowEnd;
+    const displayMessage = asString(handoffPayload.displayMessage);
 
     if (!service) {
       return streamClaudiaContract(
         makeClarificationContract({
-          message: `Izabrala si ${salonName}. Koju uslugu želiš da zakažeš?`,
+          message:
+            displayMessage ??
+            `Odlično, ${salonName} je izabran. Koju uslugu želiš da zakažeš?`,
           step: "select_salon_missing_service",
           intentType: "select_salon",
           entities: { city, salonId, salonName },
@@ -1934,9 +2772,11 @@ export async function askAgent(
 
     return streamClaudiaContract(
       makeBookingResultContract({
-        message: time
-          ? `Izabrala si ${salonName}. Nastavljamo sa ${service} u ${time}.`
-          : `Izabrala si ${salonName}. Nastavljamo sa ${service}.`,
+        message:
+          displayMessage ??
+          (time
+            ? `Odlično, ${salonName} ima ${service}. Proveravam slobodne termine za ${time}.`
+            : `Odlično, ${salonName} ima ${service}. Prikazujem slobodne termine.`),
         intentType: "select_salon",
         step: "select_salon",
         blocks: [
@@ -1951,7 +2791,9 @@ export async function askAgent(
             timeWindowEnd,
             salonId,
             salonName,
-            category: asString(handoffPayload.category) ?? collectedBookingFields?.category,
+            category:
+              asString(handoffPayload.category) ??
+              collectedBookingFields?.category,
           }),
         ],
         entities: {
@@ -1974,7 +2816,9 @@ export async function askAgent(
     handoffPayload?.intent === "login" ||
     handoffPayload?.intent === "login_for_booking"
   ) {
-    const selectedSlot = handoffPayload.selectedSlot as SearchResult | undefined;
+    const selectedSlot = handoffPayload.selectedSlot as
+      | SearchResult
+      | undefined;
     const message =
       handoffPayload.intent === "login_for_booking"
         ? "Prijavi se da nastavimo sa zakazivanjem."
@@ -1985,7 +2829,7 @@ export async function askAgent(
         message,
         intentType: String(handoffPayload.intent),
         blocks: [
-        {
+          {
             type: "AuthBlock",
             priority: 1,
             metadata: {
@@ -2003,7 +2847,9 @@ export async function askAgent(
   }
 
   if (handoffPayload?.intent === "resume_booking_after_login") {
-    const selectedSlot = handoffPayload.selectedSlot as SearchResult | undefined;
+    const selectedSlot = handoffPayload.selectedSlot as
+      | SearchResult
+      | undefined;
     const date = selectedSlot?.startTime?.split("T")[0] ?? "";
     console.debug("[AUTH_RESUME]", {
       selectedSlot,
@@ -2012,27 +2858,27 @@ export async function askAgent(
     });
     const blocks = selectedSlot
       ? [
-            {
-              type: "AppointmentCalendarBlock",
-              priority: 1,
-              metadata: {
-                serviceId: selectedSlot.serviceId ?? "",
-                serviceName: selectedSlot.serviceName,
-                variantName: "",
-                service: selectedSlot.serviceName,
-                category: selectedSlot.category,
-                city: selectedSlot.city,
-                date,
-                time: selectedSlot.timeLabel,
-                salonId: selectedSlot.salonId,
-                salonName: selectedSlot.salonName,
-                price: selectedSlot.price,
-                duration: selectedSlot.serviceDuration,
-                selectedSlot,
-                clientName: isAuthenticated ? userName : "",
-              },
+          {
+            type: "AppointmentCalendarBlock",
+            priority: 1,
+            metadata: {
+              serviceId: selectedSlot.serviceId ?? "",
+              serviceName: selectedSlot.serviceName,
+              variantName: "",
+              service: selectedSlot.serviceName,
+              category: selectedSlot.category,
+              city: selectedSlot.city,
+              date,
+              time: selectedSlot.timeLabel,
+              salonId: selectedSlot.salonId,
+              salonName: selectedSlot.salonName,
+              price: selectedSlot.price,
+              duration: selectedSlot.serviceDuration,
+              selectedSlot,
+              clientName: isAuthenticated ? userName : "",
             },
-          ]
+          },
+        ]
       : [];
 
     return streamClaudiaContract(
@@ -2049,7 +2895,9 @@ export async function askAgent(
   }
 
   if (handoffPayload?.intent === "create_booking") {
-    const selectedSlot = handoffPayload.selectedSlot as SearchResult | undefined;
+    const selectedSlot = handoffPayload.selectedSlot as
+      | SearchResult
+      | undefined;
     const contact = handoffPayload.contact as AiBookingContact | undefined;
     const date = selectedSlot?.startTime?.split("T")[0] ?? "";
     console.debug("[BOOKING_PREFILL]", {
@@ -2059,30 +2907,30 @@ export async function askAgent(
     });
     const blocks = selectedSlot
       ? [
-            {
-              type: "AppointmentCalendarBlock",
-              priority: 1,
-              metadata: {
-                serviceId: selectedSlot.serviceId ?? "",
-                serviceName: selectedSlot.serviceName,
-                variantName: "",
-                service: selectedSlot.serviceName,
-                category: selectedSlot.category,
-                city: selectedSlot.city,
-                date,
-                time: selectedSlot.timeLabel,
-                salonId: selectedSlot.salonId,
-                salonName: selectedSlot.salonName,
-                price: selectedSlot.price,
-                duration: selectedSlot.serviceDuration,
-                selectedSlot,
-                clientName: contact?.name ?? (isAuthenticated ? userName : ""),
-                clientPhone: contact?.phone,
-                instagram: contact?.instagram,
-                contact,
-              },
+          {
+            type: "AppointmentCalendarBlock",
+            priority: 1,
+            metadata: {
+              serviceId: selectedSlot.serviceId ?? "",
+              serviceName: selectedSlot.serviceName,
+              variantName: "",
+              service: selectedSlot.serviceName,
+              category: selectedSlot.category,
+              city: selectedSlot.city,
+              date,
+              time: selectedSlot.timeLabel,
+              salonId: selectedSlot.salonId,
+              salonName: selectedSlot.salonName,
+              price: selectedSlot.price,
+              duration: selectedSlot.serviceDuration,
+              selectedSlot,
+              clientName: contact?.name ?? (isAuthenticated ? userName : ""),
+              clientPhone: contact?.phone,
+              instagram: contact?.instagram,
+              contact,
             },
-          ]
+          },
+        ]
       : [];
 
     return streamClaudiaContract(
@@ -2099,7 +2947,9 @@ export async function askAgent(
   }
 
   if (handoffPayload?.intent === "booking_conflict") {
-    const conflictSlot = handoffPayload.selectedSlot as SearchResult | undefined;
+    const conflictSlot = handoffPayload.selectedSlot as
+      | SearchResult
+      | undefined;
     const service =
       asString(handoffPayload.serviceName) ??
       asString(handoffPayload.service) ??
@@ -2184,7 +3034,8 @@ export async function askAgent(
               service,
               city,
               salonId: sameSalonSlots.length > 0 ? originalSalonId : undefined,
-              salonName: sameSalonSlots.length > 0 ? originalSalonName : undefined,
+              salonName:
+                sameSalonSlots.length > 0 ? originalSalonName : undefined,
               date: conflictDate,
               timeWindowStart: conflictHour + 1,
               timeWindowEnd: null,
@@ -2210,14 +3061,31 @@ export async function askAgent(
     );
   }
 
-  const { salonsText, servicesText, citiesText, categoriesText, semanticMemory } =
-    await fetchPlatformKnowledge();
+  const platform = await fetchPlatformKnowledge();
+  const { semanticMemory } = platform;
+  // Slice platform knowledge to only what's relevant for this conversation.
+  // Reduces LLM context from ~2000 tokens to ~200-600 tokens with no I/O cost.
+  const platformSlice = sliceFromCollected(platform, mergedBookingContext, {
+    queryType:
+      (handoffPayload?.intent as
+        | "booking"
+        | "prices"
+        | "appointments"
+        | undefined) ?? "booking",
+    nearestCityCandidates: Array.isArray(handoffPayload?.nearestCityCandidates)
+      ? (handoffPayload.nearestCityCandidates as string[])
+      : undefined,
+  });
+  const { salonsText, servicesText, citiesText, categoriesText } =
+    platformSlice;
   const selectedSlot =
-    handoffPayload?.selectedSlot && typeof handoffPayload.selectedSlot === "object"
+    handoffPayload?.selectedSlot &&
+    typeof handoffPayload.selectedSlot === "object"
       ? (handoffPayload.selectedSlot as Record<string, unknown>)
       : undefined;
   const pendingBooking =
-    handoffPayload?.pendingBooking && typeof handoffPayload.pendingBooking === "object"
+    handoffPayload?.pendingBooking &&
+    typeof handoffPayload.pendingBooking === "object"
       ? (handoffPayload.pendingBooking as Record<string, unknown>)
       : undefined;
   const lastSystemAction = userInput.startsWith("system_action:")
@@ -2273,7 +3141,8 @@ export async function askAgent(
     .filter((item) => item.type === "message")
     .slice(-10)
     .map((item) => ({
-      role: item.data.role === "user" ? ("user" as const) : ("assistant" as const),
+      role:
+        item.data.role === "user" ? ("user" as const) : ("assistant" as const),
       content: item.data.content,
     }));
 

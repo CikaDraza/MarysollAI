@@ -117,6 +117,125 @@ describe("Claudia response boundary", () => {
     expect(data.intent).toEqual({ type: "appointments" });
   });
 
+  it("direct Ruma salon info is handled by Claudia without Maria", async () => {
+    mockedPlatformClient.getSalonProfiles.mockResolvedValueOnce([
+      { id: "bg-1", _id: "bg-1", name: "Kiki Kiss Beauty", city: "Beograd", services: [] },
+      { id: "ns-1", _id: "ns-1", name: "Shi Sham", city: "Novi Sad", services: [] },
+    ]);
+
+    const stream = await askAgent("Da li imate salon u Rumi?", false, [], "Gost");
+    const data = JSON.parse(await readStream(stream));
+
+    expect(data.messages[0].content).toContain("Trenutno nemamo salon u Rumi");
+    expect(data.messages[0].content).toContain("Najbliže opcije");
+    expect(data.layout).toEqual([]);
+  });
+
+  it("direct price query for service asks for city or salon when missing", async () => {
+    const stream = await askAgent("Mogu li cenovnik za feniranje?", false, [], "Gost");
+    const data = JSON.parse(await readStream(stream));
+
+    expect(data.messages[0].content).toBe("Za koji grad ili salon?");
+    expect(data.layout).toEqual([]);
+    expect(JSON.stringify(data)).not.toContain("tražena usluga");
+  });
+
+  it("price follow-up Beograd sminkanje returns focused price block", async () => {
+    mockedPlatformClient.getSalonProfiles.mockResolvedValueOnce([
+      {
+        id: "kiki",
+        _id: "kiki",
+        name: "Kiki Kiss Beauty",
+        city: "Beograd",
+        services: [{ id: "makeup-1", _id: "makeup-1", name: "Šminkanje dnevno", category: "Šminka" }],
+      },
+    ]);
+
+    const stream = await askAgent(
+      "Beograd, šminkanje",
+      false,
+      [{ id: "m1", type: "message", data: { id: "msg-1", role: "assistant", content: "Za koju uslugu ili salon?", timestamp: Date.now() } }],
+      "Gost",
+    );
+    const data = JSON.parse(await readStream(stream));
+
+    expect(data.messages[0].content).toContain("šminkanje");
+    expect(data.layout[0].type).toBe("ServicePriceBlock");
+    expect(data.layout[0].metadata.service).toBe("šminkanje");
+  });
+
+  it("direct makeup variants question uses price context", async () => {
+    mockedPlatformClient.getSalonProfiles.mockResolvedValueOnce([
+      {
+        id: "kiki",
+        _id: "kiki",
+        name: "Kiki Kiss Beauty",
+        city: "Beograd",
+        services: [{ id: "makeup-1", _id: "makeup-1", name: "Šminkanje dnevno", category: "Šminka" }],
+      },
+    ]);
+
+    const stream = await askAgent(
+      "Koje vrste šminkanja ima?",
+      false,
+      [],
+      "Gost",
+      false,
+      { city: "Beograd", service: "šminkanje" },
+    );
+    const data = JSON.parse(await readStream(stream));
+
+    expect(data.layout[0].type).toBe("ServicePriceBlock");
+    expect(data.intent.service).toBe("šminkanje");
+  });
+
+  it("direct booking parses Kiki Kiss sminkanje nedelja without Maria payload", async () => {
+    mockedPlatformClient.getSalonProfiles.mockResolvedValueOnce([
+      {
+        id: "kiki",
+        _id: "kiki",
+        name: "Kiki Kiss Beauty",
+        city: "Beograd",
+        services: [{ id: "makeup-1", _id: "makeup-1", name: "Šminkanje dnevno", category: "Šminka" }],
+      },
+    ]);
+    mockedRunBookingSearch.mockResolvedValueOnce(searchResponse([
+      { ...selectedSlot, salonId: "kiki", salonName: "Kiki Kiss Beauty", serviceName: "Šminkanje dnevno", city: "Beograd" },
+    ]));
+
+    const stream = await askAgent("Želim Kiki Kiss šminkanje u nedelju", false, [], "Gost");
+    const data = JSON.parse(await readStream(stream));
+
+    expect(mockedRunBookingSearch).toHaveBeenCalled();
+    expect(data.intent).toMatchObject({ type: "booking", salonName: "Kiki Kiss Beauty" });
+    expect(JSON.stringify(data)).not.toContain("tražena usluga");
+  });
+
+  it("direct date follow-up uses existing booking context", async () => {
+    mockedRunBookingSearch.mockResolvedValueOnce(searchResponse([selectedSlot]));
+
+    const stream = await askAgent(
+      "Nedelja",
+      false,
+      [],
+      "Gost",
+      false,
+      { city: "Novi Sad", service: "feniranje", salonName: "Shi Sham Frizerski Salon" },
+    );
+    const data = JSON.parse(await readStream(stream));
+
+    expect(mockedRunBookingSearch).toHaveBeenCalled();
+    expect(data.intent).toMatchObject({ type: "booking", service: "feniranje" });
+  });
+
+  it("direct Moji termini goes appointments", async () => {
+    const stream = await askAgent("Moji termini", false, [], "Gost");
+    const data = JSON.parse(await readStream(stream));
+
+    expect(data.layout[0].type).toBe("AuthBlock");
+    expect(data.intent.type).toBe("appointments");
+  });
+
   it("booking branch with city/service adapts to SalonListBlock legacy", async () => {
     mockedRunBookingSearch.mockResolvedValueOnce(searchResponse([selectedSlot]));
 
@@ -181,6 +300,59 @@ describe("Claudia response boundary", () => {
       },
     });
     expect(data.intent).toMatchObject({ type: "booking", service: "feniranje" });
+  });
+
+  it("Claudia select_salon visible message does not include salonId", async () => {
+    const stream = await askAgent(
+      "system_action:SALON_SELECTED",
+      false,
+      [],
+      "Gost",
+      false,
+      undefined,
+      {
+        intent: "select_salon",
+        city: "Novi Sad",
+        service: "feniranje",
+        salonId: "salon-secret-id",
+        salonName: "Shi Sham Frizerski Salon",
+      },
+    );
+
+    const data = JSON.parse(await readStream(stream));
+
+    expect(data.messages[0].content).toContain("Shi Sham Frizerski Salon");
+    expect(data.messages[0].content).not.toContain("salon-secret-id");
+    expect(data.layout[0].type).toBe("AppointmentCalendarBlock");
+  });
+
+  it("Claudia service selected visible message does not include serviceId", async () => {
+    const stream = await askAgent(
+      "system_action:SERVICE_SELECTED_FOR_SALON",
+      false,
+      [],
+      "Gost",
+      false,
+      undefined,
+      {
+        intent: "select_salon",
+        city: "Novi Sad",
+        service: "feniranje",
+        serviceId: "service-secret-id",
+        serviceName: "Feniranje BLOWOUT/WAVES",
+        salonId: "salon-secret-id",
+        salonName: "Shi Sham Frizerski Salon",
+        displayMessage:
+          "Izabrana je usluga Feniranje BLOWOUT/WAVES u salonu Shi Sham Frizerski Salon.",
+      },
+    );
+
+    const data = JSON.parse(await readStream(stream));
+
+    expect(data.messages[0].content).toContain("Feniranje BLOWOUT/WAVES");
+    expect(data.messages[0].content).not.toContain("service-secret-id");
+    expect(data.messages[0].content).not.toContain("salon-secret-id");
+    expect(data.layout[0].type).toBe("AppointmentCalendarBlock");
   });
 
   it("one salon + exact service + date/timeWindow goes directly to slots", async () => {

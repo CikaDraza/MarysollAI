@@ -10,6 +10,11 @@ import { handleRecoveryEvent } from "@/lib/ai/recovery/recovery-engine";
 import type { RecoveryReason, RecoverySeverity } from "@/lib/ai/recovery/recovery-types";
 import { bookingWorkflow } from "@/lib/ai/workflow/booking-workflow-store";
 import { recordEpisodicSystemAction } from "@/lib/ai/memory/episodic-session-store";
+import { systemActionToDisplayMessage } from "@/lib/ai/events/systemActionDisplay";
+import {
+  isBlockConsumed,
+  markBlockConsumed,
+} from "@/lib/ai/layout/block-lifecycle";
 import {
   SystemActionEventSchema,
   type SystemActionEvent,
@@ -81,6 +86,37 @@ function isStaleBookingAction(event: SystemActionEvent): boolean {
   const eventVersion = readFlowVersion(event.payload);
   if (eventVersion == null) return false;
   return eventVersion < bookingFlow.get().flowVersion;
+}
+
+function sourceBlockId(payload?: Record<string, unknown>): string | undefined {
+  return typeof payload?.sourceBlockId === "string" ? payload.sourceBlockId : undefined;
+}
+
+function sourceBlockType(payload?: Record<string, unknown>): string | undefined {
+  return typeof payload?.sourceBlockType === "string" ? payload.sourceBlockType : undefined;
+}
+
+function shouldConsumeSourceBlock(action: SystemActionName): boolean {
+  return (
+    action === "CITY_SELECTED" ||
+    action === "SALON_SELECTED" ||
+    action === "SERVICE_SELECTED_FOR_SALON" ||
+    action === "SLOT_SELECTED" ||
+    action === "LOGIN_SUCCESS" ||
+    action === "BOOKING_SUBMIT_SUCCESS"
+  );
+}
+
+function consumeSourceBlock(event: SystemActionEvent): void {
+  if (!shouldConsumeSourceBlock(event.action)) return;
+  const blockId = sourceBlockId(event.payload);
+  if (!blockId) return;
+  markBlockConsumed(
+    blockId,
+    event.action.toLowerCase(),
+    event.actionId,
+    sourceBlockType(event.payload) ?? "unknown",
+  );
 }
 
 export function shouldIgnoreSystemActionForRouting(event: SystemActionEvent): boolean {
@@ -368,6 +404,7 @@ export function systemActionToAgentRequest(
   event: SystemActionEvent,
 ): SystemActionAgentRequest | null {
   const payload = event.payload ?? {};
+  const displayMessage = systemActionToDisplayMessage(event) ?? undefined;
 
   if (event.action === "BOOKING_CONFLICT") {
     return {
@@ -375,6 +412,7 @@ export function systemActionToAgentRequest(
       input: "system_action:BOOKING_CONFLICT",
       handoffPayload: {
         intent: "booking_conflict",
+        displayMessage,
         ...payload,
       },
     };
@@ -405,6 +443,7 @@ export function systemActionToAgentRequest(
         input: "system_action:BOOKING_PAYLOAD_INCOMPLETE",
         handoffPayload: {
           intent: "recover_missing_salon",
+          displayMessage,
           city,
           service,
           date,
@@ -420,6 +459,7 @@ export function systemActionToAgentRequest(
         input: "system_action:BOOKING_PAYLOAD_INCOMPLETE",
         handoffPayload: {
           intent: "no_slots",
+          displayMessage,
           selectedSlot,
           service,
           city,
@@ -434,6 +474,7 @@ export function systemActionToAgentRequest(
       input: "system_action:BOOKING_PAYLOAD_INCOMPLETE",
       handoffPayload: {
         intent: "booking",
+        displayMessage,
         service,
         city,
         date,
@@ -448,6 +489,7 @@ export function systemActionToAgentRequest(
       input: "system_action:BOOKING_SUBMIT_SUCCESS",
       handoffPayload: {
         intent: "booking_success",
+        displayMessage,
         ...payload,
       },
     };
@@ -461,6 +503,7 @@ export function systemActionToAgentRequest(
       input: "system_action:LOGIN_SUCCESS",
       handoffPayload: {
         intent: "resume_booking_after_login",
+        displayMessage,
         selectedSlot: pendingBooking,
       },
     };
@@ -472,6 +515,7 @@ export function systemActionToAgentRequest(
       input: "system_action:LOGIN_REQUIRED",
       handoffPayload: {
         intent: "login_for_booking",
+        displayMessage,
         selectedSlot: payload.selectedSlot,
       },
     };
@@ -483,6 +527,7 @@ export function systemActionToAgentRequest(
       input: "system_action:CITY_SELECTED",
       handoffPayload: {
         intent: "select_city",
+        displayMessage,
         city: payload.city,
         service: payload.service,
         category: payload.category,
@@ -501,6 +546,7 @@ export function systemActionToAgentRequest(
       input: "system_action:SALON_SELECTED",
       handoffPayload: {
         intent: "select_salon",
+        displayMessage,
         city: payload.city,
         service: payload.service,
         category: payload.category,
@@ -521,6 +567,7 @@ export function systemActionToAgentRequest(
       input: "system_action:SERVICE_SELECTED_FOR_SALON",
       handoffPayload: {
         intent: "select_salon",
+        displayMessage,
         city: payload.city,
         service: payload.serviceName ?? payload.service,
         serviceId: payload.serviceId,
@@ -585,6 +632,23 @@ export function sendSystemAction(input: SystemActionInput): SystemActionEvent | 
     });
     return null;
   }
+  const blockId = sourceBlockId(safeEvent.payload);
+  if (blockId && isBlockConsumed(blockId)) {
+    console.debug("[STALE_BLOCK_ACTION_IGNORED]", {
+      action: safeEvent.action,
+      actionId: safeEvent.actionId,
+      sourceBlockId: blockId,
+      sourceBlockType: sourceBlockType(safeEvent.payload),
+      payloadKeys: payloadKeys(safeEvent.payload),
+    });
+    executeUICommand({
+      type: "SHOW_TOAST",
+      reason: "stale_block_action",
+      message: "Ovaj izbor je već obrađen.",
+      variant: "info",
+    });
+    return null;
+  }
   if (
     safeEvent.action === "SERVICE_SELECTED_FOR_SALON" &&
     process.env.NODE_ENV !== "production"
@@ -595,6 +659,7 @@ export function sendSystemAction(input: SystemActionInput): SystemActionEvent | 
   }
   logEvent("[SYSTEM_ACTION]", safeEvent);
   applyLocalWorkflowEffects(safeEvent);
+  consumeSourceBlock(safeEvent);
   recordEpisodicSystemAction(safeEvent);
   applyUICommandEffects(safeEvent);
   handleRecoveryFromSystemAction(safeEvent);

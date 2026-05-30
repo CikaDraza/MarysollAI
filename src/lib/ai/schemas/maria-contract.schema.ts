@@ -1,8 +1,15 @@
 import { z } from "zod";
 import type { MariaResponse, MariaPayload } from "@/lib/ai/schemas/maria.schema";
 
-const FALLBACK_MESSAGE =
-  "Nisam sigurna da sam razumela. Možeš li da napišeš malo konkretnije?";
+export const FALLBACK_MESSAGES = [
+  "Nisam sigurna šta tražite — da li ste mislili na zakazivanje ili informacije o salonu?",
+  "Možete li malo preciznije — koji salon ili usluga vas zanima?",
+  "Recite mi grad i uslugu, pa pronalazimo zajedno.",
+];
+
+export function getFallbackMessage(): string {
+  return FALLBACK_MESSAGES[0];
+}
 
 const OptionalHourSchema = z.preprocess(
   (value) => {
@@ -114,7 +121,7 @@ export type MariaContract = z.infer<typeof MariaContractSchema>;
 
 export const MARIA_CONTRACT_FALLBACK: MariaContract = {
   kind: "unknown",
-  message: FALLBACK_MESSAGE,
+  message: getFallbackMessage(),
   intent: {
     domain: "unknown",
     action: "clarify",

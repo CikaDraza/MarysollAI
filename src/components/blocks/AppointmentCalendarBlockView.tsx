@@ -16,6 +16,10 @@ import MiniLoader from "../MiniLoader";
 import { formatDatePretty } from "@/helpers/formatISODate";
 import { Reveal } from "../motion/Reveal";
 import { sendSystemAction } from "@/lib/ai/events/systemActionDispatcher";
+import {
+  markBlockConsumed,
+  useBlockLifecycle,
+} from "@/lib/ai/layout/block-lifecycle";
 
 interface Props {
   block: AppointmentCalendarBlockType;
@@ -27,6 +31,8 @@ export default function AppointmentCalendarBlockView({
   onActionComplete,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const lifecycle = useBlockLifecycle(block.id);
+  const consumed = lifecycle?.state === "consumed";
   const hasPlatformMetadata = Boolean(block.metadata.salonId);
   if (process.env.NODE_ENV !== "production") {
     console.debug("[APPOINTMENT_BLOCK_INPUT]", {
@@ -205,25 +211,29 @@ export default function AppointmentCalendarBlockView({
             />
           </div>
           <button
-            onClick={handleAIConfirm}
-            disabled={isPending}
+            onClick={() => {
+              markBlockConsumed(block.id, "booking_confirm", undefined, block.type);
+              void handleAIConfirm();
+            }}
+            disabled={isPending || consumed}
             style={{
               width: "100%",
               border: "none",
-              cursor: isPending ? "not-allowed" : "pointer",
+              cursor: isPending || consumed ? "not-allowed" : "pointer",
               fontFamily: "var(--main-font)",
               fontWeight: 700,
               fontSize: 14,
               padding: "13px 0",
               borderRadius: 14,
-              background: isPending ? "var(--fg-3)" : "var(--secondary-color)",
+              background: isPending || consumed ? "var(--fg-3)" : "var(--secondary-color)",
               color: "#fff",
               transition: "background 150ms",
-              opacity: isPending ? 0.6 : 1,
+              opacity: isPending || consumed ? 0.6 : 1,
             }}
           >
-            {isPending ? "Zakazujem…" : "Potvrdi termin"}
+            {consumed ? "Izabrano" : isPending ? "Zakazujem…" : "Potvrdi termin"}
           </button>
+          {consumed && <p style={consumedNoteStyle}>Izabrano</p>}
         </div>
       </Reveal>
     );
@@ -271,10 +281,14 @@ export default function AppointmentCalendarBlockView({
                 <strong>{selectedTime}</strong>
               </p>
               <button
-                onClick={handleAIConfirm}
+                onClick={() => {
+                  markBlockConsumed(block.id, "booking_confirm", undefined, block.type);
+                  void handleAIConfirm();
+                }}
+                disabled={consumed}
                 className="cursor-pointer bg-(--secondary-color)/80 hover:bg-(--secondary-color) text-white px-3 py-1 rounded-lg text-xs font-bold"
               >
-                {isPending ? <LoaderButton /> : "Potvrdi"}
+                {consumed ? "Izabrano" : isPending ? <LoaderButton /> : "Potvrdi"}
               </button>
             </div>
           )}
@@ -329,6 +343,7 @@ export default function AppointmentCalendarBlockView({
                   <button
                     key={v.name}
                     onClick={() => setters.setVariantName(v.name)}
+                    disabled={consumed}
                     className={`cursor-pointer px-4 py-2 rounded-xl text-sm transition ${
                       activeVariant?.name === v.name
                         ? "bg-gray-800 text-white"
@@ -356,6 +371,7 @@ export default function AppointmentCalendarBlockView({
                   <button
                     key={t}
                     onClick={() => setters.setTime(t)}
+                    disabled={consumed}
                     className={`cursor-pointer p-2 rounded-lg text-xs ${selectedTime === t ? "bg-pink-500 text-white" : "bg-gray-50 hover:bg-gray-100"}`}
                   >
                     {t}
@@ -373,13 +389,17 @@ export default function AppointmentCalendarBlockView({
                 RSD
               </div>
               <button
-                onClick={handleAIConfirm}
-                disabled={isPending || !selectedTime}
+                onClick={() => {
+                  markBlockConsumed(block.id, "booking_confirm", undefined, block.type);
+                  void handleAIConfirm();
+                }}
+                disabled={isPending || !selectedTime || consumed}
                 className="cursor-pointer px-6 py-3 bg-gray-900 hover:bg-gray-800 text-white rounded-2xl font-bold disabled:opacity-30"
               >
-                {isPending ? <LoaderButton /> : "Zakaži termin"}
+                {consumed ? "Izabrano" : isPending ? <LoaderButton /> : "Zakaži termin"}
               </button>
             </div>
+            {consumed && <p style={consumedNoteStyle}>Izabrano</p>}
           </div>
         </div>
       </Reveal>
@@ -411,6 +431,8 @@ function AppointmentMetadataFallback({
               service: block.metadata.serviceName || block.metadata.service,
               salonId: block.metadata.salonId,
               salonName: block.metadata.salonName,
+              sourceBlockId: block.id,
+              sourceBlockType: block.type,
             },
             notifyAgent: true,
             visibleInThread: false,
@@ -501,4 +523,13 @@ const fallbackButtonStyle: React.CSSProperties = {
   fontSize: 13,
   fontWeight: 700,
   cursor: "pointer",
+};
+
+const consumedNoteStyle: React.CSSProperties = {
+  margin: "10px 0 0",
+  fontFamily: "var(--main-font)",
+  fontSize: 12,
+  fontWeight: 700,
+  color: "var(--fg-3)",
+  textAlign: "center",
 };

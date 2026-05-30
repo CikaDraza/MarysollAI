@@ -229,7 +229,7 @@ describe("lightweight episodic memory", () => {
     expect(buildClaudiaSystemPrompt("", "", "", "", false, "Gost", memoryContext)).toContain("Episodic:");
   });
 
-  it("Episodic memory does not override FAQ routing", () => {
+  it("Episodic memory does not override default Claudia routing", () => {
     recordEpisodicSystemAction(
       systemAction("BOOKING_SUBMIT_SUCCESS", { city: "Bor", service: "Maderoterapija" }),
     );
@@ -240,7 +240,7 @@ describe("lightweight episodic memory", () => {
     });
 
     expect(getEpisodicMemorySnapshot().preferredCities).toContain("Bor");
-    expect(decision.targetAgent).toBe("maria");
+    expect(decision.targetAgent).toBe("claudia");
   });
 
   it('"Može" stays continuation, not booking', () => {
@@ -249,7 +249,7 @@ describe("lightweight episodic memory", () => {
       message: "Može",
     });
 
-    expect(decision.targetAgent).toBe("maria");
+    expect(decision.targetAgent).toBe("claudia");
     expect(decision.reason).not.toBe("direct_booking");
   });
 

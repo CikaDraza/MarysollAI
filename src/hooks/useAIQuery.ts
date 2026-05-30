@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AuthUser } from "@/types/auth-types";
 import { createThreadItems } from "@/lib/ai/createThreadItems";
+import { sanitizeVisibleAgentMessage } from "@/lib/ai/communication/agent-communication-rules";
 import { useChatHistory, setGlobalStreaming } from "./useChatHistory";
 import { TextMessage } from "@/types/ai/ai.text-engine";
 import { BaseBlock } from "@/types/landing-block";
@@ -263,7 +264,7 @@ export function useAIQuery(user?: AuthUser | null) {
 
   const appendAssistantMessage = useCallback(
     (content: string) => {
-      const trimmed = content.trim();
+      const trimmed = sanitizeVisibleAgentMessage(content, "claudia");
       if (!trimmed) return;
       const id = `handoff-${crypto.randomUUID()}`;
       const item: ThreadItem = {
@@ -288,7 +289,7 @@ export function useAIQuery(user?: AuthUser | null) {
   const appendLocalExchange = useCallback(
     (query: string, response: string) => {
       const userText = query.trim();
-      const assistantText = response.trim();
+      const assistantText = sanitizeVisibleAgentMessage(response, "claudia");
       if (!userText && !assistantText) return;
       const now = Date.now();
       const userId = `local-user-${crypto.randomUUID()}`;

@@ -2,6 +2,7 @@ import { TextMessage } from "@/types/ai/ai.text-engine";
 import { ThreadItem } from "@/types/ai/chat-thread";
 import { BaseBlock } from "@/types/landing-block";
 import type { ChatEvent } from "@/lib/ai/events/chat-event-types";
+import { sanitizeVisibleAgentMessage } from "@/lib/ai/communication/agent-communication-rules";
 
 const makeId = () =>
   typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
@@ -44,6 +45,7 @@ export const createThreadItems = (
       type: "message",
       data: {
         ...msg,
+        content: sanitizeVisibleAgentMessage(msg.content, "claudia"),
         id: msgId,
         timestamp: Date.now(),
       },
@@ -71,6 +73,7 @@ export const createThreadItems = (
 
 export function createThreadItemsFromChatEvent(event: ChatEvent): ThreadItem[] {
   if (event.type === "user_message") {
+    if (/^system_action:/i.test(event.content.trim())) return [];
     const requestId = makeId();
     return [
       {
@@ -96,7 +99,7 @@ export function createThreadItemsFromChatEvent(event: ChatEvent): ThreadItem[] {
         data: {
           id: `msg-a-${requestId}`,
           role: "assistant",
-          content: event.content,
+          content: sanitizeVisibleAgentMessage(event.content),
           timestamp: event.timestamp,
           attachToBlockType: event.attachToBlockType,
         },

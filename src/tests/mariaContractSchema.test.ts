@@ -1,4 +1,5 @@
 import {
+  FALLBACK_MESSAGES,
   legacyMariaResponseToContract,
   MARIA_CONTRACT_FALLBACK,
   mariaContractToLegacyResponse,
@@ -72,6 +73,8 @@ describe("MariaContract schema", () => {
     const parsed = parseMariaContract("{ bad json");
 
     expect(parsed).toEqual(MARIA_CONTRACT_FALLBACK);
+    expect(parsed.message).toBe(FALLBACK_MESSAGES[0]);
+    expect(parsed.message).not.toContain("Možeš li da napišeš malo konkretnije");
   });
 
   it("confidence clamps invalid range safely", () => {

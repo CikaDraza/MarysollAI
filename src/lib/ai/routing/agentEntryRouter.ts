@@ -17,7 +17,11 @@ export interface AgentEntryRoutingDecision {
     | "booking_follow_up"
     | "faq_or_platform_info"
     | "acknowledgement"
-    | "stay_with_active_agent";
+    | "stay_with_active_agent"
+    | "default_booking_concierge"
+    | "b2b_marysoll_business"
+    | "promotion_marketing"
+    | "active_promo_interruption";
   transitionMessage?: string;
 }
 
@@ -79,6 +83,31 @@ function isFaqOrPlatformInfo(text: string): boolean {
   );
 }
 
+function isPromotionIntent(text: string): boolean {
+  return has(
+    /\b(promocij\w*|akcij\w*|popust\w*|last minute|specijaln\w* ponud\w*|kampanj\w*|newsletter|novost\w*|trend\w*|novi salon|sponzoris\w*)\b/i,
+    text,
+  );
+}
+
+function isB2BMarysollBusinessIntent(text: string): boolean {
+  return has(
+    /\b(moj salon|moj salon da bude|kako da prijavim salon|prijavim salon|vlasnik sam salona|imam salon|saradnj\w*|partnerstv\w*|za salone|platforma za salone|koliko kosta za salon|koliko košta za salon|kako marysoll radi za salone|marysoll za vlasnike salona|deo marysoll)\b/i,
+    text,
+  );
+}
+
+export function isMariaOwnedIntent(text: string): boolean {
+  const normalized = normalizeText(text);
+  return isB2BMarysollBusinessIntent(normalized) || isPromotionIntent(normalized);
+}
+
+function mariaReason(text: string): AgentEntryRoutingDecision["reason"] {
+  if (isPromotionIntent(text)) return "promotion_marketing";
+  if (isB2BMarysollBusinessIntent(text)) return "b2b_marysoll_business";
+  return "active_promo_interruption";
+}
+
 export function isAcknowledgementMessage(message: string): boolean {
   const text = normalizeText(message);
   return /^(hvala|hvala puno|super|odlicno|odlično|u redu|uredu|ok|okej|vazi|važi|jasno|razumem|razumijem|dobro)$/i.test(text);
@@ -115,6 +144,16 @@ function isServiceAvailabilityInfoQuestion(text: string): boolean {
   return asksForAvailability && mentionsService && !asksForBooking;
 }
 
+function isBookingDataQuestion(text: string): boolean {
+  if (has(/\b(online plac|online plać|placanje|plaćanje|placam|plaćam|platim|platiti|kartic)\b/i, text)) {
+    return false;
+  }
+  return has(
+    /\b(salon|salona|saloni|termin|slobod|najbliz|najbliž|uslug|grad|ruma|beograd|novi sad|postoji|ima li|da li taj salon)\b/i,
+    text,
+  );
+}
+
 export function routeUserMessageToAgent(
   input: AgentEntryRoutingInput,
 ): AgentEntryRoutingDecision {
@@ -122,8 +161,9 @@ export function routeUserMessageToAgent(
 
   if (!text) {
     return {
-      targetAgent: input.activeAgent,
-      reason: "stay_with_active_agent",
+      targetAgent: "claudia",
+      claudiaSubAgent: "booking",
+      reason: "default_booking_concierge",
     };
   }
 
@@ -134,33 +174,15 @@ export function routeUserMessageToAgent(
     };
   }
 
-  const appointmentIntent = isAppointmentIntent(text);
-  const salonExistenceQuestion = isSalonExistenceQuestion(text);
-  const serviceAvailabilityInfo = isServiceAvailabilityInfoQuestion(text);
-  const bookingFollowUp = isBookingFollowUp(text);
-  const bookingIntent = !salonExistenceQuestion && !serviceAvailabilityInfo && isBookingIntent(text);
-  const faqIntent = salonExistenceQuestion || serviceAvailabilityInfo || isFaqOrPlatformInfo(text);
-
-  if (input.activeAgent === "maria") {
-    if (appointmentIntent) {
-      return {
-        targetAgent: "claudia",
-        claudiaSubAgent: "appointments",
-        reason: "direct_appointments",
-      };
-    }
-    if (bookingIntent) {
-      return {
-        targetAgent: "claudia",
-        claudiaSubAgent: "booking",
-        reason: "direct_booking",
-      };
-    }
+  if (isMariaOwnedIntent(text)) {
     return {
       targetAgent: "maria",
-      reason: faqIntent ? "faq_or_platform_info" : "stay_with_active_agent",
+      reason: mariaReason(text),
     };
   }
+
+  const appointmentIntent = isAppointmentIntent(text);
+  const bookingFollowUp = isBookingFollowUp(text);
 
   if (appointmentIntent) {
     return {
@@ -170,6 +192,7 @@ export function routeUserMessageToAgent(
     };
   }
 
+  const bookingIntent = isBookingIntent(text);
   if (bookingIntent || (input.hasActiveBooking && bookingFollowUp)) {
     return {
       targetAgent: "claudia",
@@ -178,17 +201,16 @@ export function routeUserMessageToAgent(
     };
   }
 
-  if (faqIntent) {
-    return {
-      targetAgent: "maria",
-      reason: "faq_or_platform_info",
-      transitionMessage: "Samo trenutak, Maria će vam objasniti.",
-    };
+  if (input.activeAgent === "claudia" && isBookingDataQuestion(text)) {
+    console.debug("[CLAUDIA_PINGPONG_BLOCKED]", {
+      message: input.message,
+      reason: "default_claudia_ownership",
+    });
   }
 
   return {
     targetAgent: "claudia",
     claudiaSubAgent: "booking",
-    reason: "stay_with_active_agent",
+    reason: "default_booking_concierge",
   };
 }
