@@ -29,12 +29,16 @@ function formatPrice(price?: number): string {
   return new Intl.NumberFormat("sr-Latn").format(price) + " RSD";
 }
 
-function buildLocationNote(payload: ReturnType<typeof normalizeBookingPayload>): string | undefined {
+function buildLocationNote(
+  payload: ReturnType<typeof normalizeBookingPayload>,
+): string | undefined {
   if (!payload?.mapsLink && !payload?.salonAddress) return undefined;
   return [
     "Lokacija salona:",
     payload.salonName,
-    payload.salonAddress ? `Adresa: ${payload.salonAddress}, ${payload.city}` : undefined,
+    payload.salonAddress
+      ? `Adresa: ${payload.salonAddress}, ${payload.city}`
+      : undefined,
     payload.mapsLink ? `Mapa: ${payload.mapsLink}` : undefined,
   ]
     .filter(Boolean)
@@ -196,7 +200,8 @@ export default function BookingModal() {
         duration: bookingPayload?.duration,
         city: slot.city,
         clientName: user?.name,
-        clientPhone: user?.phone ?? user?.phoneNumber ?? user?.mobile ?? user?.mobilePhone,
+        clientPhone:
+          user?.phone ?? user?.phoneNumber ?? user?.mobile ?? user?.mobilePhone,
         instagram: user?.instagram ?? user?.instagramUsername,
       },
     });
@@ -298,9 +303,10 @@ export default function BookingModal() {
           serviceName: normalized.serviceName,
           startTime: normalized.startTime,
           ...contactPayload,
-          contactNote: [contactPayload.contactNote, locationNote]
-            .filter(Boolean)
-            .join("\n\n") || undefined,
+          contactNote:
+            [contactPayload.contactNote, locationNote]
+              .filter(Boolean)
+              .join("\n\n") || undefined,
         }),
       });
       const data = (await res.json().catch(() => ({}))) as {
@@ -367,7 +373,9 @@ export default function BookingModal() {
       onConfirm();
     } catch (err) {
       const message =
-        err instanceof Error ? mapBookingErrorMessage(err.message) : "Greška pri zakazivanju";
+        err instanceof Error
+          ? mapBookingErrorMessage(err.message)
+          : "Greška pri zakazivanju";
       setFormError(message);
       sendSystemAction({
         action: "BOOKING_SUBMIT_FAILED",
@@ -404,7 +412,12 @@ export default function BookingModal() {
       {/* Backdrop */}
       <div
         onClick={onClose}
-        style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 60 }}
+        style={{
+          position: "fixed",
+          inset: 0,
+          background: "rgba(0,0,0,0.45)",
+          zIndex: 60,
+        }}
       />
 
       {/* Panel */}
@@ -428,6 +441,7 @@ export default function BookingModal() {
             boxShadow: "var(--shadow-lg)",
             width: "100%",
             maxWidth: 440,
+            maxHeight: "90vh",
             padding: 28,
             fontFamily: "var(--main-font)",
           }}
@@ -447,7 +461,12 @@ export default function BookingModal() {
               }}
             >
               <CheckCircleIcon
-                style={{ width: 16, height: 16, color: "var(--secondary-color)", flexShrink: 0 }}
+                style={{
+                  width: 16,
+                  height: 16,
+                  color: "var(--secondary-color)",
+                  flexShrink: 0,
+                }}
                 strokeWidth={2}
               />
               <span
@@ -472,7 +491,8 @@ export default function BookingModal() {
                 lineHeight: 1.45,
               }}
             >
-              Kontakt nije obavezan. Salon može da te kontaktira preko naloga ili emaila.
+              Kontakt nije obavezan. Salon može da te kontaktira preko naloga
+              ili emaila.
             </p>
           )}
 
@@ -577,10 +597,24 @@ export default function BookingModal() {
                 borderBottom: "1px solid var(--border-1)",
               }}
             >
-              <span style={{ fontFamily: "var(--main-font)", fontSize: 13, color: "var(--fg-2)", fontWeight: 500 }}>
+              <span
+                style={{
+                  fontFamily: "var(--main-font)",
+                  fontSize: 13,
+                  color: "var(--fg-2)",
+                  fontWeight: 500,
+                }}
+              >
                 Cena usluge
               </span>
-              <span style={{ fontFamily: "var(--main-font)", fontSize: 15, fontWeight: 700, color: "var(--fg-1)" }}>
+              <span
+                style={{
+                  fontFamily: "var(--main-font)",
+                  fontSize: 15,
+                  fontWeight: 700,
+                  color: "var(--fg-1)",
+                }}
+              >
                 {priceLabel}
               </span>
             </div>
@@ -656,7 +690,9 @@ export default function BookingModal() {
                       <button
                         type="button"
                         onClick={() => {
-                          void navigator.clipboard?.writeText(bookingPayload.mapsLink ?? "");
+                          void navigator.clipboard?.writeText(
+                            bookingPayload.mapsLink ?? "",
+                          );
                           toast.success("Link lokacije je kopiran.");
                         }}
                         style={{
@@ -673,7 +709,9 @@ export default function BookingModal() {
                           cursor: "pointer",
                         }}
                       >
-                        <ClipboardDocumentIcon style={{ width: 13, height: 13 }} />
+                        <ClipboardDocumentIcon
+                          style={{ width: 13, height: 13 }}
+                        />
                         Kopiraj link do lokacije
                       </button>
                     )}
@@ -703,7 +741,10 @@ export default function BookingModal() {
               </>
             )}
 
-            <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <form
+              onSubmit={handleSubmit}
+              style={{ display: "flex", flexDirection: "column", gap: 12 }}
+            >
               <ModalField label="Ime i prezime">
                 <input
                   type="text"
@@ -716,7 +757,11 @@ export default function BookingModal() {
                   style={inputStyle}
                 />
               </ModalField>
-              <ModalField label={user ? "Drugi telefon za ovaj termin (opciono)" : "Telefon"}>
+              <ModalField
+                label={
+                  user ? "Drugi telefon za ovaj termin (opciono)" : "Telefon"
+                }
+              >
                 <input
                   type="tel"
                   value={formPhone}
@@ -742,7 +787,11 @@ export default function BookingModal() {
                   />
                 </ModalField>
               )}
-              <ModalField label={user ? "Instagram za ovaj termin (opciono)" : "Instagram"}>
+              <ModalField
+                label={
+                  user ? "Instagram za ovaj termin (opciono)" : "Instagram"
+                }
+              >
                 <input
                   type="text"
                   value={formInstagram}
@@ -772,7 +821,10 @@ export default function BookingModal() {
                   {formError}
                 </div>
               )}
-              <SubmitBtn loading={loading} label={user ? "Potvrdi termin" : "Zakaži kao gost"} />
+              <SubmitBtn
+                loading={loading}
+                label={user ? "Potvrdi termin" : "Zakaži kao gost"}
+              />
             </form>
           </div>
         </div>
@@ -781,7 +833,13 @@ export default function BookingModal() {
   );
 }
 
-function ModalField({ label, children }: { label: string; children: React.ReactNode }) {
+function ModalField({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
   return (
     <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
       <span
@@ -821,10 +879,13 @@ function SubmitBtn({ loading, label }: { loading: boolean; label: string }) {
         transition: "background var(--dur-fast) var(--ease-out), opacity 150ms",
       }}
       onMouseEnter={(e) => {
-        if (!loading) (e.currentTarget as HTMLButtonElement).style.background = "var(--secondary-hover)";
+        if (!loading)
+          (e.currentTarget as HTMLButtonElement).style.background =
+            "var(--secondary-hover)";
       }}
       onMouseLeave={(e) => {
-        (e.currentTarget as HTMLButtonElement).style.background = "var(--secondary-color)";
+        (e.currentTarget as HTMLButtonElement).style.background =
+          "var(--secondary-color)";
       }}
     >
       {loading ? "Zakazujem…" : label}
@@ -832,7 +893,13 @@ function SubmitBtn({ loading, label }: { loading: boolean; label: string }) {
   );
 }
 
-function OutlineBtn({ onClick, label }: { onClick: () => void; label: string }) {
+function OutlineBtn({
+  onClick,
+  label,
+}: {
+  onClick: () => void;
+  label: string;
+}) {
   return (
     <button
       type="button"
@@ -848,7 +915,8 @@ function OutlineBtn({ onClick, label }: { onClick: () => void; label: string }) 
         background: "transparent",
         color: "var(--secondary-color)",
         width: "100%",
-        transition: "background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out)",
+        transition:
+          "background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out)",
       }}
       onMouseEnter={(e) => {
         const b = e.currentTarget as HTMLButtonElement;
@@ -870,7 +938,14 @@ function Divider({ label }: { label: string }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
       <div style={{ flex: 1, height: 1, background: "var(--border-1)" }} />
-      <span style={{ fontFamily: "var(--main-font)", fontSize: 12, color: "var(--fg-3)", whiteSpace: "nowrap" }}>
+      <span
+        style={{
+          fontFamily: "var(--main-font)",
+          fontSize: 12,
+          color: "var(--fg-3)",
+          whiteSpace: "nowrap",
+        }}
+      >
         {label}
       </span>
       <div style={{ flex: 1, height: 1, background: "var(--border-1)" }} />

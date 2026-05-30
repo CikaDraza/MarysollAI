@@ -39,7 +39,7 @@ export default function StickyOffer() {
       <button
         onClick={() => setMinimized(false)}
         aria-label="Proširi baner"
-        className="fixed bottom-[22px] left-0 sm:left-[22px] z-40 inline-flex items-center gap-2 bg-[#111114] text-white rounded-full px-4 py-2.5 shadow-lg border-none cursor-pointer font-bold text-xs hover:opacity-85 transition-opacity"
+        className="fixed bottom-[22px] left-3 sm:left-[22px] z-40 inline-flex items-center gap-2 bg-[#111114] text-white rounded-full px-4 py-2.5 shadow-lg border-none cursor-pointer font-bold text-xs hover:opacity-85 transition-opacity"
       >
         <BoltIcon
           className="w-4 h-4 text-[var(--secondary-color)]"
@@ -52,7 +52,7 @@ export default function StickyOffer() {
   }
 
   return (
-    <div className="fixed bottom-[22px] sm:left-[22px] z-40 flex items-center gap-3 bg-[#111114] text-white rounded-2xl px-4 py-3.5 shadow-lg max-w-full sm:max-w-[400px]">
+    <div className="fixed bottom-[22px] left-3 right-3 sm:left-[22px] z-40 flex items-center gap-3 bg-[#111114] text-white rounded-2xl px-4 py-3.5 shadow-lg max-w-full sm:max-w-[400px]">
       {/* Icon */}
       <div className="w-[38px] h-[38px] rounded-full bg-[var(--secondary-color)] flex items-center justify-center flex-shrink-0">
         <BoltIcon className="w-[18px] h-[18px] text-white" strokeWidth={1.5} />

@@ -135,12 +135,23 @@ export default function AppointmentCalendarBlockView({
 
   const missingFields = [
     !block.metadata.salonId ? "salonId" : "",
-    !(block.metadata.serviceId || block.metadata.serviceName || block.metadata.service) ? "service" : "",
+    !(
+      block.metadata.serviceId ||
+      block.metadata.serviceName ||
+      block.metadata.service
+    )
+      ? "service"
+      : "",
     !block.metadata.city ? "city" : "",
   ].filter(Boolean);
 
   if (missingFields.length > 0) {
-    return <AppointmentMetadataFallback block={block} missingFields={missingFields} />;
+    return (
+      <AppointmentMetadataFallback
+        block={block}
+        missingFields={missingFields}
+      />
+    );
   }
 
   if (isLoading && !hasPlatformMetadata)
@@ -155,7 +166,9 @@ export default function AppointmentCalendarBlockView({
   }
 
   if (services?.length === 0) {
-    return <AppointmentMetadataFallback block={block} missingFields={["services"]} />;
+    return (
+      <AppointmentMetadataFallback block={block} missingFields={["services"]} />
+    );
   }
 
   const locationLabel = [profile?.city, profile?.name]
@@ -172,10 +185,11 @@ export default function AppointmentCalendarBlockView({
             borderRadius: 20,
             padding: "20px 20px 18px",
             maxWidth: 400,
+            maxHeight: "90vh",
             margin: "0 auto",
           }}
         >
-          <p
+          <h3
             style={{
               fontFamily: "var(--main-font)",
               fontWeight: 700,
@@ -187,14 +201,31 @@ export default function AppointmentCalendarBlockView({
             }}
           >
             Potvrda termina
-          </p>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 18 }}>
+          </h3>
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: 8,
+              marginBottom: 18,
+            }}
+          >
             <Row label="Usluga" value={displayValues.selectedService.name} />
-            <Row label="Datum" value={formatDatePretty(displayValues.selectedDate)} />
+            <Row
+              label="Datum"
+              value={formatDatePretty(displayValues.selectedDate)}
+            />
             <Row label="Vreme" value={displayValues.selectedTime} />
             {locationLabel && <Row label="Salon" value={locationLabel} />}
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 14 }}>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "1fr 1fr",
+              gap: 8,
+              marginBottom: 14,
+            }}
+          >
             <input
               type="text"
               placeholder="Ime i prezime"
@@ -212,7 +243,12 @@ export default function AppointmentCalendarBlockView({
           </div>
           <button
             onClick={() => {
-              markBlockConsumed(block.id, "booking_confirm", undefined, block.type);
+              markBlockConsumed(
+                block.id,
+                "booking_confirm",
+                undefined,
+                block.type,
+              );
               void handleAIConfirm();
             }}
             disabled={isPending || consumed}
@@ -225,13 +261,20 @@ export default function AppointmentCalendarBlockView({
               fontSize: 14,
               padding: "13px 0",
               borderRadius: 14,
-              background: isPending || consumed ? "var(--fg-3)" : "var(--secondary-color)",
+              background:
+                isPending || consumed
+                  ? "var(--fg-3)"
+                  : "var(--secondary-color)",
               color: "#fff",
               transition: "background 150ms",
               opacity: isPending || consumed ? 0.6 : 1,
             }}
           >
-            {consumed ? "Izabrano" : isPending ? "Zakazujem…" : "Potvrdi termin"}
+            {consumed
+              ? "Izabrano"
+              : isPending
+                ? "Zakazujem…"
+                : "Potvrdi termin"}
           </button>
           {consumed && <p style={consumedNoteStyle}>Izabrano</p>}
         </div>
@@ -282,13 +325,24 @@ export default function AppointmentCalendarBlockView({
               </p>
               <button
                 onClick={() => {
-                  markBlockConsumed(block.id, "booking_confirm", undefined, block.type);
+                  markBlockConsumed(
+                    block.id,
+                    "booking_confirm",
+                    undefined,
+                    block.type,
+                  );
                   void handleAIConfirm();
                 }}
                 disabled={consumed}
                 className="cursor-pointer bg-(--secondary-color)/80 hover:bg-(--secondary-color) text-white px-3 py-1 rounded-lg text-xs font-bold"
               >
-                {consumed ? "Izabrano" : isPending ? <LoaderButton /> : "Potvrdi"}
+                {consumed ? (
+                  "Izabrano"
+                ) : isPending ? (
+                  <LoaderButton />
+                ) : (
+                  "Potvrdi"
+                )}
               </button>
             </div>
           )}
@@ -390,13 +444,24 @@ export default function AppointmentCalendarBlockView({
               </div>
               <button
                 onClick={() => {
-                  markBlockConsumed(block.id, "booking_confirm", undefined, block.type);
+                  markBlockConsumed(
+                    block.id,
+                    "booking_confirm",
+                    undefined,
+                    block.type,
+                  );
                   void handleAIConfirm();
                 }}
                 disabled={isPending || !selectedTime || consumed}
                 className="cursor-pointer px-6 py-3 bg-gray-900 hover:bg-gray-800 text-white rounded-2xl font-bold disabled:opacity-30"
               >
-                {consumed ? "Izabrano" : isPending ? <LoaderButton /> : "Zakaži termin"}
+                {consumed ? (
+                  "Izabrano"
+                ) : isPending ? (
+                  <LoaderButton />
+                ) : (
+                  "Zakaži termin"
+                )}
               </button>
             </div>
             {consumed && <p style={consumedNoteStyle}>Izabrano</p>}
@@ -446,7 +511,11 @@ function AppointmentMetadataFallback({
   );
 }
 
-function PlatformAppointmentSummary({ block }: { block: AppointmentCalendarBlockType }) {
+function PlatformAppointmentSummary({
+  block,
+}: {
+  block: AppointmentCalendarBlockType;
+}) {
   return (
     <div style={fallbackStyle}>
       <p style={fallbackTitleStyle}>
@@ -458,7 +527,8 @@ function PlatformAppointmentSummary({ block }: { block: AppointmentCalendarBlock
           .join(" · ")}
       </p>
       <p style={fallbackTextStyle}>
-        Prikaz termina je spreman za salon i uslugu. Ako se termini ne učitaju, izaberi salon ponovo.
+        Prikaz termina je spreman za salon i uslugu. Ako se termini ne učitaju,
+        izaberi salon ponovo.
       </p>
     </div>
   );
@@ -466,11 +536,31 @@ function PlatformAppointmentSummary({ block }: { block: AppointmentCalendarBlock
 
 function Row({ label, value }: { label: string; value: string }) {
   return (
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-      <span style={{ fontFamily: "var(--main-font)", fontSize: 12, color: "var(--fg-3)", fontWeight: 500 }}>
+    <div
+      style={{
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+      }}
+    >
+      <span
+        style={{
+          fontFamily: "var(--main-font)",
+          fontSize: 12,
+          color: "var(--fg-3)",
+          fontWeight: 500,
+        }}
+      >
         {label}
       </span>
-      <span style={{ fontFamily: "var(--main-font)", fontSize: 13, color: "var(--fg-1)", fontWeight: 700 }}>
+      <span
+        style={{
+          fontFamily: "var(--main-font)",
+          fontSize: 13,
+          color: "var(--fg-1)",
+          fontWeight: 700,
+        }}
+      >
         {value}
       </span>
     </div>
