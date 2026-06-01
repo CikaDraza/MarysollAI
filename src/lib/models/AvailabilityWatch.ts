@@ -38,6 +38,21 @@ export interface IAvailabilityWatch {
       auth?: string;
     };
   };
+  /** SHA-256 key used for deduplication on POST. */
+  dedupeKey?: string;
+  /** Per-cron-run advisory lock to prevent concurrent processing. */
+  notificationLock?: {
+    lockedAt: Date;
+    lockId: string;
+  };
+  /** How many notification delivery attempts have been made. */
+  notificationAttempts?: number;
+  /** Last notification error message for observability. */
+  lastNotificationError?: string;
+  /** When this watch was successfully matched to a slot. */
+  matchedAt?: Date;
+  /** When this watch was cancelled by the user. */
+  cancelledAt?: Date;
   expiresAt: Date;
   lastCheckedAt?: Date;
   notifiedAt?: Date;
@@ -78,6 +93,18 @@ const AvailabilityWatchSchema = new Schema<IAvailabilityWatchDoc>(
       default: ["email"],
     },
     pushSubscription: { type: Schema.Types.Mixed },
+    dedupeKey: { type: String, index: true },
+    notificationLock: {
+      type: new Schema({
+        lockedAt: { type: Date, required: true },
+        lockId: { type: String, required: true },
+      }),
+      default: undefined,
+    },
+    notificationAttempts: { type: Number, default: 0 },
+    lastNotificationError: { type: String },
+    matchedAt: { type: Date },
+    cancelledAt: { type: Date },
     expiresAt: { type: Date, required: true, index: true },
     lastCheckedAt: { type: Date },
     notifiedAt: { type: Date },

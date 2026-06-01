@@ -8,6 +8,7 @@ import {
   type IAvailabilityWatch,
   type NotificationChannel,
 } from "@/lib/models/AvailabilityWatch";
+import { buildAvailabilityWatchDedupeKey } from "@/lib/availability/availabilityWatchDedupe";
 
 interface AvailabilityWatchRequest
   extends Partial<
@@ -80,6 +81,60 @@ export async function GET(req: Request) {
   }
 }
 
+/** Statuses that can still be actively cancelled by the user. */
+const CANCELLABLE_STATUSES = ["active", "matched", "notified"] as const;
+type CancellableStatus = (typeof CANCELLABLE_STATUSES)[number];
+
+function isCancellable(status: string): status is CancellableStatus {
+  return (CANCELLABLE_STATUSES as readonly string[]).includes(status);
+}
+
+export async function DELETE(req: Request) {
+  try {
+    const id = new URL(req.url).searchParams.get("id");
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+      return NextResponse.json({ error: "Nedostaje watch id." }, { status: 400 });
+    }
+
+    await connectToDB();
+    const watch = await AvailabilityWatch.findById(id)
+      .select("_id status")
+      .lean();
+
+    if (!watch) {
+      return NextResponse.json({ error: "Zahtev nije pronađen." }, { status: 404 });
+    }
+
+    // Already terminal — return current status without mutating.
+    if (!isCancellable(watch.status)) {
+      return NextResponse.json({
+        id: String(watch._id),
+        status: watch.status,
+        cancelled: watch.status === "cancelled",
+      });
+    }
+
+    await AvailabilityWatch.updateOne(
+      { _id: watch._id },
+      {
+        $set: { status: "cancelled", cancelledAt: new Date() },
+        $unset: { notificationLock: "" },
+      },
+    );
+
+    return NextResponse.json({
+      id: String(watch._id),
+      status: "cancelled",
+      cancelled: true,
+    });
+  } catch (err) {
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "Failed to cancel" },
+      { status: 500 },
+    );
+  }
+}
+
 export async function POST(req: Request) {
   try {
     const body = (await req.json()) as AvailabilityWatchRequest;
@@ -131,7 +186,42 @@ export async function POST(req: Request) {
       ? body.notificationChannels
       : buildChannels({ email, clientId, pushAllowed: Boolean(pushSubscription) });
 
+    const dedupeKey = buildAvailabilityWatchDedupeKey({
+      clientId,
+      email,
+      phone,
+      instagram,
+      tiktok,
+      serviceName,
+      city,
+      salonId,
+      preferredTimeMode,
+      preferredDate,
+      timeWindowStart,
+      timeWindowEnd,
+    });
+
     await connectToDB();
+
+    // Return existing active/matched/notified watch if one exists for this key.
+    const existing = await AvailabilityWatch.findOne({
+      dedupeKey,
+      status: { $in: ["active", "matched", "notified"] },
+      expiresAt: { $gt: new Date() },
+    })
+      .select("_id status notificationChannels matchedSlot")
+      .lean();
+
+    if (existing) {
+      return NextResponse.json({
+        id: String(existing._id),
+        status: existing.status,
+        notificationChannels: existing.notificationChannels,
+        matchedSlot: existing.matchedSlot ?? null,
+        deduped: true,
+      });
+    }
+
     const entry = await AvailabilityWatch.create({
       tenantId: clean(body.tenantId),
       salonId,
@@ -152,6 +242,7 @@ export async function POST(req: Request) {
       status: "active",
       notificationChannels: channels,
       pushSubscription,
+      dedupeKey,
       expiresAt: addDays(new Date(), 14),
     });
 

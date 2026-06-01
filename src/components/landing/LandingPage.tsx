@@ -226,15 +226,20 @@ function ResumeWatchOpener() {
     let cancelled = false;
     async function openMatchedSlot() {
       const res = await fetch(
-        `/api/waitlist?id=${encodeURIComponent(activeWatchId)}`,
+        `/api/waitlist/resume?id=${encodeURIComponent(activeWatchId)}`,
       );
       if (!res.ok) return;
       const data = (await res.json()) as {
-        matchedSlot?: Partial<SearchResult> | null;
+        status?: string;
+        bookingPayload?: Partial<SearchResult> | null;
+        alternatives?: SearchResult[];
       };
-      if (!cancelled && data.matchedSlot) {
-        openModal(data.matchedSlot);
+      if (cancelled) return;
+      // Only open modal when slot is confirmed still available.
+      if (data.status === "available" && data.bookingPayload) {
+        openModal(data.bookingPayload);
       }
+      // alternative_found / no_longer_available: let the widget handle it.
     }
 
     void openMatchedSlot();

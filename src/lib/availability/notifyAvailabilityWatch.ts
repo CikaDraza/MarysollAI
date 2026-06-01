@@ -1,7 +1,7 @@
+import webpush from "web-push";
 import { InAppNotification } from "@/lib/models/InAppNotification";
 import type { IAvailabilityWatchDoc } from "@/lib/models/AvailabilityWatch";
 import type { SearchResult } from "@/types/slots";
-import crypto from "crypto";
 
 function buildResumeHref(watchId: string, slot: SearchResult): string {
   const params = new URLSearchParams({
@@ -52,70 +52,55 @@ async function sendResendEmail(params: {
   return { sent: true };
 }
 
-function base64UrlToBuffer(value: string): Buffer {
-  const padded = `${value}${"=".repeat((4 - (value.length % 4)) % 4)}`;
-  return Buffer.from(padded.replace(/-/g, "+").replace(/_/g, "/"), "base64");
+export interface PushPayload {
+  title: string;
+  body: string;
+  url: string;
+  watchId: string;
 }
 
-function base64Url(input: Buffer | string): string {
-  return Buffer.from(input)
-    .toString("base64")
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/g, "");
-}
-
-function vapidJwt(audience: string): string {
-  const subject = process.env.VAPID_SUBJECT ?? "mailto:hello@marysoll.com";
-  const publicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
-  const privateKey = process.env.VAPID_PRIVATE_KEY;
-  if (!publicKey || !privateKey) {
-    throw new Error("Missing VAPID keys for browser push");
-  }
-
-  const header = base64Url(JSON.stringify({ typ: "JWT", alg: "ES256" }));
-  const payload = base64Url(
-    JSON.stringify({
-      aud: audience,
-      exp: Math.floor(Date.now() / 1000) + 12 * 60 * 60,
-      sub: subject,
-    }),
-  );
-  const signer = crypto.createSign("SHA256");
-  signer.update(`${header}.${payload}`);
-  signer.end();
-  const key = crypto.createPrivateKey({
-    key: base64UrlToBuffer(privateKey),
-    format: "der",
-    type: "pkcs8",
-  });
-  const signature = signer.sign({ key, dsaEncoding: "ieee-p1363" });
-  return `${header}.${payload}.${base64Url(signature)}`;
+export function buildPushPayload(
+  watch: Pick<IAvailabilityWatchDoc, "serviceName" | "city">,
+  watchId: string,
+  bookingUrl: string,
+): PushPayload {
+  return {
+    title: "Marysoll",
+    body: `Pronašli smo termin za ${watch.serviceName} u ${watch.city}.`,
+    url: bookingUrl,
+    watchId,
+  };
 }
 
 async function sendBrowserPush(
   subscription: NonNullable<IAvailabilityWatchDoc["pushSubscription"]>,
+  payload: PushPayload,
 ) {
   const publicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
-  if (!publicKey) return { skipped: "missing_vapid_public_key" };
+  const privateKey = process.env.VAPID_PRIVATE_KEY;
+  const subject = process.env.VAPID_SUBJECT ?? "mailto:hello@marysoll.com";
 
-  const endpoint = new URL(subscription.endpoint);
-  const audience = `${endpoint.protocol}//${endpoint.host}`;
-  const res = await fetch(subscription.endpoint, {
-    method: "POST",
-    headers: {
-      TTL: "900",
-      Authorization: `vapid t=${vapidJwt(audience)}, k=${publicKey}`,
-      "Content-Length": "0",
-    },
-  });
+  if (!publicKey || !privateKey) return { skipped: "missing_vapid_keys" };
 
-  if (!res.ok && res.status !== 404 && res.status !== 410) {
-    const detail = await res.text().catch(() => "");
-    throw new Error(`Browser push failed: ${res.status} ${detail}`);
+  const p256dh = subscription.keys?.p256dh;
+  const auth = subscription.keys?.auth;
+  if (!p256dh || !auth) return { skipped: "missing_subscription_keys" };
+
+  webpush.setVapidDetails(subject, publicKey, privateKey);
+
+  try {
+    await webpush.sendNotification(
+      { endpoint: subscription.endpoint, keys: { p256dh, auth } },
+      JSON.stringify(payload),
+      { TTL: 900 },
+    );
+    return { sent: true };
+  } catch (err: unknown) {
+    // 404/410 = subscription expired/invalid — treat as non-fatal.
+    const status = (err as { statusCode?: number }).statusCode;
+    if (status === 404 || status === 410) return { sent: false, expired: true };
+    throw err;
   }
-
-  return { sent: res.ok };
 }
 
 export async function notifyAvailabilityWatch(
@@ -156,7 +141,8 @@ export async function notifyAvailabilityWatch(
   }
 
   if (watch.pushSubscription && watch.notificationChannels.includes("push")) {
-    await sendBrowserPush(watch.pushSubscription);
+    const pushPayload = buildPushPayload(watch, watchId, bookingUrl);
+    await sendBrowserPush(watch.pushSubscription, pushPayload);
   }
 
   if (watch.clientId && watch.notificationChannels.includes("in_app")) {
