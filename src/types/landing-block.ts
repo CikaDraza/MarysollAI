@@ -26,6 +26,7 @@ export type BlockTypes =
   | "CityListBlock"
   | "SalonListBlock"
   | "NotifyMeBlock"
+  | "AppointmentUpdateConfirmBlock"
   | "none";
 
 export type AuthMode = "login" | "register" | "forgot" | "reset" | "logout";
@@ -168,10 +169,30 @@ export interface AppointmentCalendarBlockType extends BaseBlock {
     clientPhone?: string;
     instagram?: string;
     contact?: unknown;
+    /** Reschedule mode: set when block is opened to change an existing appointment. */
+    rescheduleMode?: boolean;
+    currentAppointmentId?: string;
+    currentAppointment?: IAppointment;
   };
   query?: string;
   selectedServiceId?: string;
   selectedServiceName?: string;
+}
+
+export interface AppointmentUpdateConfirmBlockType extends BaseBlock {
+  type: "AppointmentUpdateConfirmBlock";
+  metadata: BaseBlock["metadata"] & {
+    appointmentId: string;
+    currentAppointment: IAppointment;
+    newDate: string;
+    newTime: string;
+    newStartTime?: string;
+    newEndTime?: string;
+    newSalonId?: string;
+    newServiceId?: string;
+    newSalonName?: string;
+    newServiceName?: string;
+  };
 }
 
 export interface CityItem {

@@ -61,6 +61,7 @@ export const ClaudiaNextActionTypeSchema = z.enum([
   "SHOW_AUTH",
   "SHOW_RECOVERY_ALTERNATIVES",
   "SHOW_CANCEL_CONFIRMATION",
+  "SHOW_UPDATE_CONFIRMATION",
   "OFFER_NOTIFY_ME",
   "NONE",
 ]);
@@ -75,6 +76,7 @@ const LayoutBlockTypeSchema = z.enum([
   "CalendarBlock",
   "AppointmentCalendarBlock",
   "AppointmentCancelConfirmBlock",
+  "AppointmentUpdateConfirmBlock",
   "ServicePriceBlock",
   "TestimonialBlock",
   "NewsletterFormBlock",

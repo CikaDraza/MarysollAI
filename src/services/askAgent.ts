@@ -1901,7 +1901,21 @@ export async function askAgent(
   }
 
   if (handoffPayload?.intent === "update_appointment") {
-    const activeAppointments = readActiveAppointments(handoffPayload);
+    // When a specific appointmentId is provided (from reschedule button click),
+    // use that appointment directly instead of falling back to the full list.
+    const specificAppointmentId = typeof handoffPayload?.appointmentId === "string"
+      ? handoffPayload.appointmentId
+      : null;
+    const specificAppointment =
+      specificAppointmentId &&
+      typeof handoffPayload?.appointment === "object" &&
+      handoffPayload.appointment
+        ? (handoffPayload.appointment as Record<string, unknown>)
+        : null;
+
+    const activeAppointments = specificAppointment
+      ? [specificAppointment]
+      : readActiveAppointments(handoffPayload);
     if (!isAuthenticated) {
       return streamClaudiaContract(
         makeAuthContract({

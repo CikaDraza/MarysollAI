@@ -2,6 +2,7 @@
 import {
   AppointmentCalendarBlockType,
   AppointmentCancelConfirmBlockType,
+  AppointmentUpdateConfirmBlockType,
   AuthBlockType,
   BaseBlock,
   CalendarBlockType,
@@ -19,6 +20,7 @@ import SalonListBlockView from "../blocks/SalonListBlockView";
 import LandingSearchBlock from "../blocks/LandingSearchBlock";
 import LandingConfirmBlock from "../blocks/LandingConfirmBlock";
 import AppointmentCancelConfirmBlockView from "../blocks/AppointmentCancelConfirmBlockView";
+import AppointmentUpdateConfirmBlockView from "../blocks/AppointmentUpdateConfirmBlockView";
 import ArticleSectionBlockView from "../blocks/ArticleSectionBlockView";
 import FeatureGridBlockView from "../blocks/FeatureGridBlockView";
 import HeroPrimaryBlockView from "../blocks/HeroPrimaryBlockView";
@@ -109,12 +111,23 @@ export function aiWorkflowBlockFactory(
       return (
         <PricingBlockView key={block.id} block={block as PricingBlockType} />
       );
-    case "AppointmentCalendarBlock":
-      if (isLanding && block.metadata.selectedSlot) {
+    case "AppointmentCalendarBlock": {
+      const calBlock = block as AppointmentCalendarBlockType;
+      // Reschedule mode always uses AppointmentCalendarBlockView regardless of surface.
+      if (calBlock.metadata.rescheduleMode) {
+        return (
+          <AppointmentCalendarBlockView
+            key={block.id}
+            block={calBlock}
+            onActionComplete={safeOnAction}
+          />
+        );
+      }
+      if (isLanding && (block.metadata as BaseBlock["metadata"]).selectedSlot) {
         return (
           <LandingConfirmBlock
             key={block.id}
-            block={block as AppointmentCalendarBlockType}
+            block={calBlock}
           />
         );
       }
@@ -130,15 +143,23 @@ export function aiWorkflowBlockFactory(
       return (
         <AppointmentCalendarBlockView
           key={block.id}
-          block={block as AppointmentCalendarBlockType}
+          block={calBlock}
           onActionComplete={safeOnAction}
         />
       );
+    }
     case "AppointmentCancelConfirmBlock":
       return (
         <AppointmentCancelConfirmBlockView
           key={block.id}
           block={block as AppointmentCancelConfirmBlockType}
+        />
+      );
+    case "AppointmentUpdateConfirmBlock":
+      return (
+        <AppointmentUpdateConfirmBlockView
+          key={block.id}
+          block={block as AppointmentUpdateConfirmBlockType}
         />
       );
     case "CalendarBlock":

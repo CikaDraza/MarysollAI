@@ -23,6 +23,7 @@ import {
   legacyActionTextToSystemAction,
 } from "@/lib/ai/events/systemActionDispatcher";
 import { bookingFlow } from "@/lib/ai/booking-flow-state";
+import { useRescheduleFlowStore } from "@/lib/ai/reschedule-flow-state";
 import {
   acknowledgementReply,
   routeUserMessageToAgent,
@@ -91,6 +92,9 @@ interface AIContextValue {
   ) => Promise<void>;
   /** Routes directly to Claudia — use for block interaction callbacks. */
   sendToOrchestrator: (q: string, handoffPayload?: Record<string, unknown>) => void;
+  /** Injects a scripted assistant message directly into the Claudia thread
+   *  without an LLM round-trip. Use only for system-driven context messages. */
+  appendAssistantMessage: (content: string) => void;
   clearChat: () => void;
   streamingText: string | undefined;
   isStreaming: boolean;
@@ -179,6 +183,8 @@ export function AIProvider({ children }: { children: ReactNode }) {
     return null;
   }, [unifiedThread]);
 
+  const reschedule = useRescheduleFlowStore();
+
   const sendMessage = useCallback(
     (q: string) => {
       if (
@@ -190,6 +196,27 @@ export function AIProvider({ children }: { children: ReactNode }) {
         blockOrchestrator.clear();
         resetAgentState();
         activeAgentRef.current = "maria";
+      }
+
+      // When a reschedule is in progress, route the chat message directly to
+      // the appointments agent with the update_appointment intent so Claudia
+      // searches for new slots in the same salon — bypassing the normal booking
+      // flow and avoiding bookingFlow state pollution.
+      if (reschedule.active && reschedule.appointmentId && reschedule.appointment) {
+        setActiveAgentInStore("claudia", "appointments");
+        activeAgentRef.current = "claudia-appointments";
+        void claudia.askAI(q, {
+          preserveHistory: true,
+          suppressUserMessage: false,
+          handoffPayload: {
+            intent: "update_appointment",
+            appointmentId: reschedule.appointmentId,
+            appointment: reschedule.appointment,
+            rescheduleMode: true,
+            lockedFields: ["salonId", "city"],
+          },
+        });
+        return;
       }
 
       const routingDecision = routeUserMessageToAgent({
@@ -284,6 +311,7 @@ export function AIProvider({ children }: { children: ReactNode }) {
         sendMessage,
         invokeClaudia: claudia.askAI,
         sendToOrchestrator,
+        appendAssistantMessage: claudia.appendAssistantMessage,
         clearChat,
         // Phase B SSE — Maria now streams tokens too. Claudia wins when both
         // are technically streaming (handoff window) since her output is the

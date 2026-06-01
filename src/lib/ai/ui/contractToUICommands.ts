@@ -131,6 +131,14 @@ export function claudiaContractToUICommands(contract: ClaudiaContract): UIComman
         ),
       );
       break;
+    case "SHOW_UPDATE_CONFIRMATION":
+      commands.push(
+        renderBlockCommand(
+          firstBlock(contract) ?? blockFromEntities("AppointmentUpdateConfirmBlock", contract),
+          reason,
+        ),
+      );
+      break;
     case "OFFER_NOTIFY_ME":
       commands.push(
         renderBlockCommand(firstBlock(contract) ?? blockFromEntities("NotifyMeBlock", contract), reason),

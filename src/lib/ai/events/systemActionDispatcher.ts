@@ -23,6 +23,9 @@ import {
 } from "@/lib/ai/events/chat-event-types";
 import type { ClaudiaSubAgent } from "@/store/ai/agent-state";
 import type { SearchResult } from "@/types/slots";
+import type { IAppointment } from "@/types/appointments-type";
+import type { BaseBlock } from "@/types/landing-block";
+import { rescheduleFlow } from "@/lib/ai/reschedule-flow-state";
 
 export type SystemActionInput = Omit<
   SystemActionEvent,
@@ -220,6 +223,8 @@ function severityForRecovery(reason: RecoveryReason): RecoverySeverity {
 }
 
 function collectSelectedSlot(slot: SearchResult): void {
+  // Do not pollute bookingFlow while an appointment reschedule is in progress.
+  if (rescheduleFlow.get().active) return;
   bookingFlow.get().bumpFlowVersion("slot_selected");
   bookingFlow.get().collect({
     category: slot.category,
@@ -237,6 +242,7 @@ function collectSelectedSlot(slot: SearchResult): void {
 
 function collectServiceSelectedForSalon(payload?: Record<string, unknown>): void {
   if (!payload) return;
+  if (rescheduleFlow.get().active) return;
   bookingFlow.get().bumpFlowVersion("service_selected_for_salon");
   bookingFlow.get().collect({
     city: asString(payload.city),
@@ -292,7 +298,95 @@ function applyLocalWorkflowEffects(event: SystemActionEvent): void {
   if (event.action === "BOOKING_SUBMIT_SUCCESS") {
     bookingFlow.get().bumpFlowVersion("booking_submit_success");
     bookingFlow.get().setState("completed");
+    return;
   }
+
+  if (event.action === "APPOINTMENT_UPDATE_REQUESTED") {
+    handleAppointmentUpdateRequested(event);
+    return;
+  }
+
+  if (event.action === "APPOINTMENT_UPDATE_SLOT_SELECTED") {
+    handleAppointmentUpdateSlotSelected(event);
+    return;
+  }
+
+  if (
+    event.action === "APPOINTMENT_UPDATE_SUCCESS" ||
+    event.action === "APPOINTMENT_UPDATE_FAILED"
+  ) {
+    rescheduleFlow.clear();
+  }
+}
+
+function handleAppointmentUpdateRequested(event: SystemActionEvent): void {
+  const appointment = event.payload?.appointment as IAppointment | undefined;
+  const appointmentId = asString(event.payload?.appointmentId);
+  if (!appointmentId || !appointment) return;
+
+  // Activate reschedule context so bookingFlow is not polluted during this flow.
+  rescheduleFlow.start(appointmentId, appointment);
+
+  // Open drawer so Claudia's response is visible.
+  executeUICommand({ type: "OPEN_DRAWER", reason: "appointment_update_requested" });
+
+  // Render the reschedule calendar directly in workspace so the user
+  // doesn't have to wait for the LLM round-trip before seeing the UI.
+  executeUICommand({
+    type: "RENDER_BLOCK",
+    block: {
+      id: `reschedule-${appointmentId}-${Date.now()}`,
+      type: "AppointmentCalendarBlock",
+      priority: 1,
+      metadata: {
+        serviceId: appointment.services?.[0]?.serviceId ?? "",
+        serviceName: appointment.serviceName ?? "",
+        variantName: "",
+        city: appointment.salonCity ?? "",
+        salonId: appointment.salonId ?? appointment.tenantId,
+        salonName: appointment.salonName,
+        rescheduleMode: true,
+        currentAppointmentId: appointmentId,
+        currentAppointment: appointment,
+      },
+    } as unknown as BaseBlock,
+    surface: "workspace",
+    reason: "appointment_update_requested",
+  });
+}
+
+function handleAppointmentUpdateSlotSelected(event: SystemActionEvent): void {
+  const appointment = event.payload?.currentAppointment as IAppointment | undefined;
+  const appointmentId = asString(event.payload?.appointmentId);
+  const newDate = asString(event.payload?.newDate);
+  const newTime = asString(event.payload?.newTime);
+  if (!appointmentId || !appointment || !newDate || !newTime) return;
+
+  executeUICommand({
+    type: "RENDER_BLOCK",
+    block: {
+      id: `update-confirm-${appointmentId}-${Date.now()}`,
+      type: "AppointmentUpdateConfirmBlock",
+      priority: 1,
+      metadata: {
+        serviceId: appointment.services?.[0]?.serviceId ?? "",
+        serviceName: appointment.serviceName ?? "",
+        variantName: "",
+        appointmentId,
+        currentAppointment: appointment,
+        newDate,
+        newTime,
+        newStartTime: asString(event.payload?.newStartTime),
+        newEndTime: asString(event.payload?.newEndTime),
+        newSalonId: asString(event.payload?.salonId),
+        newServiceId: asString(event.payload?.serviceId),
+        newSalonName: asString(event.payload?.salonName),
+        newServiceName: asString(event.payload?.serviceName),
+      },
+    } as unknown as BaseBlock,
+    surface: "workspace",
+    reason: "appointment_update_slot_selected",
+  });
 }
 
 /** Task 6 — the booking workflow state machine cares about a fixed subset
@@ -557,6 +651,26 @@ export function systemActionToAgentRequest(
         timeWindowStart: payload.timeWindowStart,
         timeWindowEnd: payload.timeWindowEnd,
         flowVersion: payload.flowVersion,
+      },
+    };
+  }
+
+  if (event.action === "APPOINTMENT_UPDATE_REQUESTED") {
+    const appt = payload.appointment as IAppointment | undefined;
+    return {
+      agentType: "appointments",
+      input: "system_action:APPOINTMENT_UPDATE_REQUESTED",
+      handoffPayload: {
+        intent: "update_appointment",
+        appointmentId: payload.appointmentId,
+        appointment: payload.appointment,
+        salonName: appt?.salonName,
+        serviceName: appt?.serviceName,
+        displayMessage: appt?.serviceName
+          ? `Možete izmeniti termin za ${appt.serviceName}${appt.salonName ? ` u ${appt.salonName}` : ""}. Izaberite novi datum i vreme. Salon i grad ne mogu se menjati.`
+          : "Možete izmeniti datum i vreme termina. Salon i grad ne mogu se menjati.",
+        rescheduleMode: true,
+        lockedFields: ["salonId", "city"],
       },
     };
   }

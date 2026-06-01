@@ -70,6 +70,42 @@ export default function AppointmentCalendarBlockView({
     clientPhone,
   } = displayValues;
 
+  const isRescheduleMode = Boolean(block.metadata.rescheduleMode);
+  const currentAppointment = block.metadata.currentAppointment;
+  const currentAppointmentId = block.metadata.currentAppointmentId;
+
+  function handleRescheduleConfirm() {
+    if (!selectedTime || !selectedDate || !currentAppointmentId || !currentAppointment) return;
+    const dateStr = typeof selectedDate === "string"
+      ? selectedDate
+      : (selectedDate as Date).toISOString().slice(0, 10);
+    markBlockConsumed(block.id, "reschedule_slot_selected", undefined, block.type);
+    sendSystemAction({
+      action: "APPOINTMENT_UPDATE_SLOT_SELECTED",
+      source: "CalendarBlock",
+      payload: {
+        appointmentId: currentAppointmentId,
+        currentAppointment,
+        newDate: dateStr,
+        newTime: selectedTime,
+        salonId: block.metadata.salonId,
+        serviceId: block.metadata.serviceId ?? selectedService?.["_id"],
+        salonName: block.metadata.salonName,
+        serviceName: block.metadata.serviceName ?? selectedService?.name,
+      },
+      notifyAgent: false,
+      visibleInThread: false,
+    });
+  }
+
+  function handleConfirm() {
+    if (isRescheduleMode) {
+      handleRescheduleConfirm();
+    } else {
+      void handleAIConfirm();
+    }
+  }
+
   const workingHoursForDay = useMemo(() => {
     const dayNames = [
       "Nedelja",
@@ -219,38 +255,35 @@ export default function AppointmentCalendarBlockView({
             <Row label="Vreme" value={displayValues.selectedTime} />
             {locationLabel && <Row label="Salon" value={locationLabel} />}
           </div>
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "1fr 1fr",
-              gap: 8,
-              marginBottom: 14,
-            }}
-          >
-            <input
-              type="text"
-              placeholder="Ime i prezime"
-              value={displayValues.clientName}
-              onChange={(e) => setters.setClientName(e.target.value)}
-              style={inputStyle}
-            />
-            <input
-              type="tel"
-              placeholder="Telefon"
-              value={displayValues.clientPhone}
-              onChange={(e) => setters.setClientPhone(e.target.value)}
-              style={inputStyle}
-            />
-          </div>
+          {!isRescheduleMode && (
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 1fr",
+                gap: 8,
+                marginBottom: 14,
+              }}
+            >
+              <input
+                type="text"
+                placeholder="Ime i prezime"
+                value={displayValues.clientName}
+                onChange={(e) => setters.setClientName(e.target.value)}
+                style={inputStyle}
+              />
+              <input
+                type="tel"
+                placeholder="Telefon"
+                value={displayValues.clientPhone}
+                onChange={(e) => setters.setClientPhone(e.target.value)}
+                style={inputStyle}
+              />
+            </div>
+          )}
           <button
             onClick={() => {
-              markBlockConsumed(
-                block.id,
-                "booking_confirm",
-                undefined,
-                block.type,
-              );
-              void handleAIConfirm();
+              if (!isRescheduleMode) markBlockConsumed(block.id, "booking_confirm", undefined, block.type);
+              handleConfirm();
             }}
             disabled={isPending || consumed}
             style={{
@@ -274,8 +307,8 @@ export default function AppointmentCalendarBlockView({
             {consumed
               ? "Izabrano"
               : isPending
-                ? "Zakazujem…"
-                : "Potvrdi termin"}
+                ? "Proveravam…"
+                : isRescheduleMode ? "Izaberi termin" : "Potvrdi termin"}
           </button>
           {consumed && <p style={consumedNoteStyle}>Izabrano</p>}
         </div>
@@ -289,6 +322,19 @@ export default function AppointmentCalendarBlockView({
         <div className="bg-white rounded-3xl p-6 shadow-xl max-w-md mx-auto my-6">
           <Toaster position="top-center" />
 
+          {/* Reschedule mode banner */}
+          {isRescheduleMode && currentAppointment && (
+            <div className="mb-4 rounded-xl bg-blue-50 border border-blue-100 px-4 py-3">
+              <p className="text-xs font-semibold text-blue-800 mb-0.5">Izmena termina</p>
+              <p className="text-xs text-blue-700">
+                Trenutno: {currentAppointment.serviceName}
+                {currentAppointment.date && currentAppointment.time
+                  ? ` · ${currentAppointment.date} u ${currentAppointment.time}`
+                  : ""}
+              </p>
+            </div>
+          )}
+
           {/* Header */}
           <div className="flex justify-between items-center mb-5">
             <h3
@@ -300,7 +346,7 @@ export default function AppointmentCalendarBlockView({
                 margin: 0,
               }}
             >
-              Zakaži termin
+              {isRescheduleMode ? "Izaberi novi termin" : "Zakaži termin"}
             </h3>
             {locationLabel && (
               <span
@@ -326,13 +372,8 @@ export default function AppointmentCalendarBlockView({
               </p>
               <button
                 onClick={() => {
-                  markBlockConsumed(
-                    block.id,
-                    "booking_confirm",
-                    undefined,
-                    block.type,
-                  );
-                  void handleAIConfirm();
+                  if (!isRescheduleMode) markBlockConsumed(block.id, "booking_confirm", undefined, block.type);
+                  handleConfirm();
                 }}
                 disabled={consumed}
                 className="cursor-pointer bg-(--secondary-color)/80 hover:bg-(--secondary-color) text-white px-3 py-1 rounded-lg text-xs font-bold"
@@ -341,6 +382,8 @@ export default function AppointmentCalendarBlockView({
                   "Izabrano"
                 ) : isPending ? (
                   <LoaderButton />
+                ) : isRescheduleMode ? (
+                  "Izaberi"
                 ) : (
                   "Potvrdi"
                 )}
@@ -349,23 +392,25 @@ export default function AppointmentCalendarBlockView({
           )}
 
           <div className="space-y-3">
-            {/* Row 1 — Ime + Telefon (2 cols desktop, 1 mobile) */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <input
-                type="text"
-                placeholder="Ime i prezime"
-                value={clientName}
-                onChange={(e) => setters.setClientName(e.target.value)}
-                className="w-full p-3 bg-gray-50 hover:bg-gray-100 rounded-xl border-none text-sm outline-none"
-              />
-              <input
-                type="tel"
-                placeholder="Telefon"
-                value={clientPhone}
-                onChange={(e) => setters.setClientPhone(e.target.value)}
-                className="w-full p-3 bg-gray-50 hover:bg-gray-100 rounded-xl border-none text-sm outline-none"
-              />
-            </div>
+            {/* Row 1 — Ime + Telefon — hidden in reschedule mode (contact already on file) */}
+            {!isRescheduleMode && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <input
+                  type="text"
+                  placeholder="Ime i prezime"
+                  value={clientName}
+                  onChange={(e) => setters.setClientName(e.target.value)}
+                  className="w-full p-3 bg-gray-50 hover:bg-gray-100 rounded-xl border-none text-sm outline-none"
+                />
+                <input
+                  type="tel"
+                  placeholder="Telefon"
+                  value={clientPhone}
+                  onChange={(e) => setters.setClientPhone(e.target.value)}
+                  className="w-full p-3 bg-gray-50 hover:bg-gray-100 rounded-xl border-none text-sm outline-none"
+                />
+              </div>
+            )}
 
             {/* Row 2 — Usluga + Datum (2 cols desktop, 1 mobile) */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -445,13 +490,8 @@ export default function AppointmentCalendarBlockView({
               </div>
               <button
                 onClick={() => {
-                  markBlockConsumed(
-                    block.id,
-                    "booking_confirm",
-                    undefined,
-                    block.type,
-                  );
-                  void handleAIConfirm();
+                  if (!isRescheduleMode) markBlockConsumed(block.id, "booking_confirm", undefined, block.type);
+                  handleConfirm();
                 }}
                 disabled={isPending || !selectedTime || consumed}
                 className="cursor-pointer px-6 py-3 bg-gray-900 hover:bg-gray-800 text-white rounded-2xl font-bold disabled:opacity-30"
@@ -460,6 +500,8 @@ export default function AppointmentCalendarBlockView({
                   "Izabrano"
                 ) : isPending ? (
                   <LoaderButton />
+                ) : isRescheduleMode ? (
+                  "Izaberi novi termin"
                 ) : (
                   "Zakaži termin"
                 )}

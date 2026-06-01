@@ -13,8 +13,9 @@ import { useCancelAppointment } from "@/hooks/useAppointmentActions";
 import {
   AppointmentListMode,
   filterAppointmentsByMode,
-  isCancellableAppointment,
 } from "@/lib/appointments/appointmentFilters";
+import { getClientActionWindowState } from "@/lib/appointments/clientAppointmentWindow";
+import { sendSystemAction } from "@/lib/ai/events/systemActionDispatcher";
 import { createGoogleMapsLink, createGoogleMapsLinkFromAddress } from "@/lib/geo/maps";
 import { hasGeoCoordinates } from "@/lib/geo/distance";
 import { formatDistance } from "@/lib/utils/distance";
@@ -294,7 +295,8 @@ function ClientAppointmentListItem({
   salonDirectory,
 }: ClientAppointmentListItemProps) {
   const currentAppointment = appointment;
-  const canCancel = isCancellableAppointment(currentAppointment);
+  const actionWindow = getClientActionWindowState(currentAppointment);
+  const { canCancel, canUpdate } = actionWindow;
   const salonName = appointmentSalonName(currentAppointment, salonDirectory);
   const salonSlug = appointmentSalonSlug(currentAppointment, salonDirectory);
   const salonAddress = appointmentSalonAddress(currentAppointment, salonDirectory);
@@ -304,9 +306,7 @@ function ClientAppointmentListItem({
   const travelLabel = currentAppointment.travelMinutesEstimate
     ? `oko ${currentAppointment.travelMinutesEstimate} min`
     : "";
-  const cancelExpired =
-    currentAppointment.status !== "appointment_cancelled" &&
-    currentAppointment.cancellationStatus === "late_cancel";
+  const windowExpired = actionWindow.reason === "expired";
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -440,28 +440,32 @@ function ClientAppointmentListItem({
             </time>
           </p>
         </div>
-        {canCancel && (
+        {(canUpdate || canCancel) && (
           <div className="mt-3 flex flex-wrap justify-end gap-2">
-            <button
-              type="button"
-              onClick={() => onChange(currentAppointment)}
-              className="rounded-lg border border-gray-200 px-3 py-2 text-xs font-semibold text-gray-700 hover:border-gray-300 hover:bg-gray-50"
-            >
-              Promeni termin
-            </button>
-            <button
-              type="button"
-              onClick={() => onCancel(currentAppointment)}
-              disabled={isCancelling}
-              className="rounded-lg border border-red-200 px-3 py-2 text-xs font-semibold text-red-700 hover:border-red-300 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {isCancelling ? "Otkazujem..." : "Otkaži termin"}
-            </button>
+            {canUpdate && (
+              <button
+                type="button"
+                onClick={() => onChange(currentAppointment)}
+                className="rounded-lg border border-gray-200 px-3 py-2 text-xs font-semibold text-gray-700 hover:border-gray-300 hover:bg-gray-50"
+              >
+                Izmeni termin
+              </button>
+            )}
+            {canCancel && (
+              <button
+                type="button"
+                onClick={() => onCancel(currentAppointment)}
+                disabled={isCancelling}
+                className="rounded-lg border border-red-200 px-3 py-2 text-xs font-semibold text-red-700 hover:border-red-300 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isCancelling ? "Otkazujem..." : "Otkaži termin"}
+              </button>
+            )}
           </div>
         )}
-        {!canCancel && cancelExpired && (
+        {windowExpired && (
           <p className="mt-2 max-w-56 text-right text-xs font-medium text-amber-700">
-            Vreme za otkazivanje termina je isteklo.
+            Vreme za izmenu i otkazivanje termina je isteklo.
           </p>
         )}
       </div>
@@ -590,10 +594,19 @@ export default function ClientBlockAppointments({
 
   const handleChangeAppointment = (appointment: IAppointment) => {
     if (!appointment._id) return;
-    onAction?.(`Želim da promenim termin ${appointment._id}`, {
-      intent: "update_appointment",
-      appointmentId: appointment._id,
-      appointment,
+    // appendAssistantMessage is intentionally NOT called here — it modifies
+    // claudia.thread synchronously which causes unifiedThread to rebuild,
+    // potentially clearing commandBlock before it renders (race condition).
+    // The reschedule block banner provides sufficient context to the user.
+    sendSystemAction({
+      action: "APPOINTMENT_UPDATE_REQUESTED",
+      source: "ClientAppointmentsBlock",
+      payload: {
+        appointmentId: appointment._id,
+        appointment,
+      },
+      notifyAgent: false,
+      visibleInThread: false,
     });
   };
 

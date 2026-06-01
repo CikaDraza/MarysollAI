@@ -62,12 +62,28 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     });
   }, [lastBlock?.id]);
 
+  // When the AI thread adds a NEW block, let it take over and clear any
+  // command block that was showing a different block. We intentionally omit
+  // commandBlock from the deps — the effect must fire only when lastBlock
+  // changes, not when commandBlock is freshly set (that would clear it
+  // immediately if lastBlock already existed with a different id).
+  const commandBlockRef = useRef(commandBlock);
   useEffect(() => {
-    if (lastBlock && commandBlock && lastBlock.id !== commandBlock.id) {
+    commandBlockRef.current = commandBlock;
+  }, [commandBlock]);
+
+  useEffect(() => {
+    const cb = commandBlockRef.current;
+    if (!cb || !lastBlock) return;
+    // A reschedule block is sticky — keep it visible until the user explicitly
+    // dismisses it or finishes the reschedule. Do not let unrelated agent
+    // responses (e.g. appointments list) push it off the workspace.
+    if ((cb.metadata as Record<string, unknown>)?.rescheduleMode) return;
+    if (lastBlock.id !== cb.id) {
       setCommandBlock(null);
       setDismissedId(null);
     }
-  }, [commandBlock, lastBlock]);
+  }, [lastBlock]);
 
   const activeBlock =
     commandBlock ?? (lastBlock && lastBlock.id !== dismissedId ? lastBlock : null);

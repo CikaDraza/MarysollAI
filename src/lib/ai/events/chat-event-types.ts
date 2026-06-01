@@ -15,6 +15,7 @@ export const SystemActionSourceSchema = z.enum([
   "AuthBlock",
   "CalendarBlock",
   "NotifyMeBlock",
+  "ClientAppointmentsBlock",
   "LayoutEngine",
   "AgentBridge",
   "Unknown",
@@ -38,6 +39,11 @@ export const SystemActionNameSchema = z.enum([
   "NOTIFY_ME_CREATED",
   "APPOINTMENT_CANCELLED",
   "APPOINTMENT_UPDATED",
+  "APPOINTMENT_UPDATE_REQUESTED",
+  "APPOINTMENT_UPDATE_SLOT_SELECTED",
+  "APPOINTMENT_UPDATE_CONFIRMED",
+  "APPOINTMENT_UPDATE_SUCCESS",
+  "APPOINTMENT_UPDATE_FAILED",
 ]);
 
 export const SystemActionEventSchema = z.object({

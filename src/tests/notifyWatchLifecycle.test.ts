@@ -148,6 +148,6 @@ describe("vercel.json cron config", () => {
       (c) => c.path === "/api/cron/check-availability-watches",
     );
     expect(cron).toBeDefined();
-    expect(cron?.schedule).toBe("*/15 * * * *");
+    expect(cron?.schedule).toBe("*/5 * * * *");
   });
 });
