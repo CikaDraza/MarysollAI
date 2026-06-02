@@ -1,11 +1,16 @@
 "use client";
 
-import { createContext, useContext, type ReactNode } from "react";
+import { createContext, useContext, useEffect, type ReactNode } from "react";
 import {
   useCitySelector,
   type GpsLocationRequestResult,
 } from "@/hooks/useCitySelector";
-import { SERBIAN_CITIES, type SerbianCity } from "@/lib/cities";
+import {
+  SERBIAN_CITIES,
+  setCityCatalog,
+  type DynamicCity,
+  type SerbianCity,
+} from "@/lib/cities";
 import type {
   GeoSource,
   GeoSignals,
@@ -58,6 +63,23 @@ export function CityProvider({
     resolved,
   } =
     useCitySelector(initialCity || undefined);
+
+  // Hydrate the live city catalog from the platform marketplace once on mount.
+  // Read-only consumers of SERBIAN_CITIES pick up the new list via live binding.
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/cities")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: DynamicCity[] | null) => {
+        if (!cancelled && Array.isArray(data) && data.length > 0) {
+          setCityCatalog(data);
+        }
+      })
+      .catch(() => {/* soft-fail — static catalog stays in place */});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const setCityByName = (name: string) => {
     const found = SERBIAN_CITIES.find(

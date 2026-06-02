@@ -2,6 +2,7 @@
 import { rateLimit } from "@/helpers/rate-limit";
 import { getRequestIP } from "@/helpers/request-ip";
 import { askAgent } from "@/services/askAgent";
+import { ensureCityCatalog } from "@/lib/cities-runtime";
 import { ThreadItem } from "@/types/ai/chat-thread";
 import type { CollectedBookingFields } from "@/lib/ai/booking-flow-state";
 import { NextResponse } from "next/server";
@@ -67,6 +68,9 @@ export async function POST(req: Request) {
   }
 
   try {
+    // Hydrate the dynamic city catalog so the agent sees every marketplace city.
+    await ensureCityCatalog();
+
     const body = await req.json();
     const {
       message,

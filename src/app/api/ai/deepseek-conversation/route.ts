@@ -14,6 +14,7 @@
 // Nema 15 regex detektora. LLM dobija podatke i odlučuje.
 
 import { fetchPlatformKnowledge } from "@/lib/ai/platform-knowledge";
+import { ensureCityCatalog } from "@/lib/cities-runtime";
 
 import {
   parseMariaContract,
@@ -580,6 +581,8 @@ export function resolveNearestSalonForCategory(
 
 export async function POST(req: Request) {
   try {
+    await ensureCityCatalog();
+
     const body = await req.json();
     const {
       messages = [],

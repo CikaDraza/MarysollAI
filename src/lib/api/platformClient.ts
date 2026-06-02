@@ -184,10 +184,24 @@ export function convertWorkingHours(raw: PlatformWorkingHours): Record<string, s
 
 // ─── Client ──────────────────────────────────────────────────────────────────
 
+export interface PlatformMarketplaceCity {
+  name: string;
+  lat: number | null;
+  lng: number | null;
+  popularityScore: number;
+  salonCount: number;
+}
+
 export const platformClient = {
   getCategories() {
     return request<PlatformCategory[]>("/marketplace/categories", {
       next: { revalidate: 3600 },
+    } as RequestInit);
+  },
+
+  getMarketplaceCities() {
+    return request<PlatformMarketplaceCity[]>("/marketplace/cities", {
+      next: { revalidate: 120 },
     } as RequestInit);
   },
 

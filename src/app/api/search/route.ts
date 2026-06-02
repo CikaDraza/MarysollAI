@@ -21,6 +21,7 @@ import {
   normalizeSearch,
 } from "@/lib/search/normalizeSearch";
 import { fetchCategories } from "@/lib/search/fetchCategories";
+import { ensureCityCatalog } from "@/lib/cities-runtime";
 import { findBestSlots, pickDiverseSlots } from "@/lib/search/findBestSlots";
 import { SERBIAN_CITIES, haversineKm, CITY_POPULARITY, findCity } from "@/lib/cities";
 import { canonicalCity } from "@/lib/geo/canonicalCity";
@@ -251,6 +252,9 @@ function partitionRecoverySlots(params: {
 
 export async function GET(req: Request): Promise<NextResponse> {
   const { searchParams } = new URL(req.url);
+
+  // Hydrate the dynamic city catalog before any city normalization/ranking.
+  await ensureCityCatalog();
 
   const categories = await fetchCategories();
   const savedCityParam = searchParams.get("savedCity") ?? undefined;

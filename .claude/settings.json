@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(~/.nvm/versions/node/v24.13.1/bin/node ./node_modules/jest/bin/jest.js src/tests/dynamicCityCatalog.test.ts)",
+      "Bash(~/.nvm/versions/node/v24.13.1/bin/node ./node_modules/jest/bin/jest.js)",
+      "Bash(~/.nvm/versions/node/v24.13.1/bin/node ./node_modules/typescript/bin/tsc --noEmit -p tsconfig.json)",
+      "Bash(grep -v \"^$\")"
+    ]
+  }
+}

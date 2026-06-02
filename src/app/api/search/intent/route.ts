@@ -7,6 +7,7 @@
 
 import { NextResponse } from "next/server";
 import { SERBIAN_CITIES } from "@/lib/cities";
+import { ensureCityCatalog } from "@/lib/cities-runtime";
 import { VALID_CATEGORY_SLUGS } from "@/lib/intent/categoryMap";
 import { stripDiacritics } from "@/lib/intent/parseIntent";
 import { todayInBelgrade, tomorrowInBelgrade } from "@/lib/search/normalizeSearch";
@@ -173,6 +174,10 @@ export async function GET(req: Request): Promise<NextResponse> {
   if (!q) {
     return NextResponse.json({ error: "Missing query parameter: q" }, { status: 400 });
   }
+
+  // Hydrate the dynamic city catalog so the DeepSeek prompt + validation see
+  // every marketplace city, not just the static fallback list.
+  await ensureCityCatalog();
 
   const apiKey = process.env.DEEPSEEK_API_KEY;
   if (!apiKey) {
