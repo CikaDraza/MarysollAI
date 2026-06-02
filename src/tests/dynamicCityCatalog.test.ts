@@ -74,8 +74,10 @@ describe("setCityCatalog — dynamic city hydration", () => {
 describe("static fallback integrity", () => {
   afterEach(resetCatalog);
 
-  it("STATIC_SERBIAN_CITIES still has the 9 seed cities", () => {
-    expect(STATIC_SERBIAN_CITIES).toHaveLength(9);
-    expect(STATIC_SERBIAN_CITIES.map((c) => c.name)).toContain("Beograd");
+  it("STATIC_SERBIAN_CITIES covers the major Serbian cities", () => {
+    const names = STATIC_SERBIAN_CITIES.map((c) => c.name);
+    expect(names).toContain("Beograd");
+    expect(names).toContain("Kruševac");
+    expect(STATIC_SERBIAN_CITIES.length).toBeGreaterThanOrEqual(20);
   });
 });

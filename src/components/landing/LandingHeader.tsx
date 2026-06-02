@@ -11,7 +11,7 @@ import {
   SparklesIcon,
 } from "@heroicons/react/24/outline";
 import { useAuthActions } from "@/hooks/useAuthActions";
-import { SERBIAN_CITIES } from "@/lib/cities";
+import type { SerbianCity } from "@/lib/cities";
 import { useLandingUI } from "@/context/landing/LandingUIContext";
 import { useCityContext } from "@/context/landing/CityContext";
 import { useBookingModal } from "@/context/landing/BookingModalContext";
@@ -19,7 +19,7 @@ import { useAIContext } from "@/context/landing/AIContext";
 
 export default function LandingHeader() {
   const { theme, toggleTheme, setDrawerOpen } = useLandingUI();
-  const { cityName, setCityByName } = useCityContext();
+  const { cityName, setCityByName, cities } = useCityContext();
   const { closeModal } = useBookingModal();
   const { sendMessage } = useAIContext();
   const { user, logout } = useAuthActions();
@@ -60,10 +60,10 @@ export default function LandingHeader() {
         <Pill>
           SR <ChevronDownIcon className="w-3 h-3" />
         </Pill>
-        <CityPill city={city} onChange={onCityChange} />
+        <CityPill city={city} cities={cities} onChange={onCityChange} />
       </div>
       <div className="block sm:hidden">
-        <CityPill city={city} onChange={onCityChange} />
+        <CityPill city={city} cities={cities} onChange={onCityChange} />
       </div>
       {user ? (
         <UserButton user={user} onLogout={logout} />
@@ -95,9 +95,11 @@ export default function LandingHeader() {
 
 function CityPill({
   city,
+  cities,
   onChange,
 }: {
   city: string;
+  cities: SerbianCity[];
   onChange: (name: string) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -137,7 +139,7 @@ function CityPill({
           role="listbox"
           className="absolute top-[calc(100%+8px)] right-0 sm:left-0 bg-[var(--surface)] rounded-[16px] shadow-[var(--shadow-lg)] min-w-[190px] overflow-hidden z-[100] border border-[var(--border-1)]"
         >
-          {SERBIAN_CITIES.map((c) => {
+          {cities.map((c) => {
             const isSelected = c.name === city;
             return (
               <button

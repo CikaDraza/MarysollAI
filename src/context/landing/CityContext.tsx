@@ -1,6 +1,12 @@
 "use client";
 
-import { createContext, useContext, useEffect, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   useCitySelector,
   type GpsLocationRequestResult,
@@ -20,6 +26,9 @@ import type {
 interface CityContextValue {
   city: SerbianCity;
   cityName: string;
+  /** Live, marketplace-driven city list for UI (Header, Hero, QuickAccess).
+   * Updates reactively once /api/cities resolves. */
+  cities: SerbianCity[];
   setCity: (city: SerbianCity) => void;
   setCityByName: (name: string) => void;
   geoLoading: boolean;
@@ -64,8 +73,13 @@ export function CityProvider({
   } =
     useCitySelector(initialCity || undefined);
 
+  // Reactive city list for the UI. Seeded from the current (static) catalog so
+  // SSR/first paint has cities, then replaced by the live marketplace list.
+  const [cities, setCities] = useState<SerbianCity[]>(SERBIAN_CITIES);
+
   // Hydrate the live city catalog from the platform marketplace once on mount.
-  // Read-only consumers of SERBIAN_CITIES pick up the new list via live binding.
+  // - setCityCatalog updates the module live binding (pure fns, geo, validation)
+  // - setCities updates React state so the Header/Hero/QuickAccess re-render
   useEffect(() => {
     let cancelled = false;
     fetch("/api/cities")
@@ -73,6 +87,7 @@ export function CityProvider({
       .then((data: DynamicCity[] | null) => {
         if (!cancelled && Array.isArray(data) && data.length > 0) {
           setCityCatalog(data);
+          setCities([...SERBIAN_CITIES]);
         }
       })
       .catch(() => {/* soft-fail — static catalog stays in place */});
@@ -94,6 +109,7 @@ export function CityProvider({
       value={{
         city,
         cityName: city.name,
+        cities,
         setCity,
         setCityByName,
         geoLoading,
