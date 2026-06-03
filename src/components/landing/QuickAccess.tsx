@@ -47,6 +47,7 @@ import {
 import { resolveSearchFallback } from "@/lib/search/searchFallback";
 import { trackSearchEvent } from "@/lib/search/searchAnalytics";
 import { SERBIAN_CITIES } from "@/lib/cities";
+import { cityLocative } from "@/lib/geo/cityLocative";
 import { sendSystemAction } from "@/lib/ai/events/systemActionDispatcher";
 import { useLandingUI } from "@/context/landing/LandingUIContext";
 
@@ -1240,14 +1241,7 @@ function RecoveryCTA({
   noSalons?: boolean;
 }) {
   const { setDrawerOpen } = useLandingUI();
-  const cityIn =
-    city === "Sremska Mitrovica"
-      ? "Sremskoj Mitrovici"
-      : city === "Novi Sad"
-        ? "Novom Sadu"
-        : city === "Beograd"
-          ? "Beogradu"
-          : city;
+  const cityIn = cityLocative(city);
   return (
     <div style={{ marginBottom: 40 }}>
       <p
@@ -1274,7 +1268,9 @@ function RecoveryCTA({
       >
         {noSalons
           ? `Nema salona${city ? ` u ${cityIn}` : ""}.`
-          : `Nema slobodnih termina trenutno${city ? ` - ${city}` : ""}.`}
+          : city
+            ? `U ${cityIn} imamo salon, ali trenutno nema slobodnih termina za ovu uslugu.`
+            : "Nema slobodnih termina trenutno."}
       </p>
       <div className="flex flex-col lg:flex-row items-center justify-between gap-6 mt-6">
         {/* CTA 1 — Primary: Marija finds a slot */}

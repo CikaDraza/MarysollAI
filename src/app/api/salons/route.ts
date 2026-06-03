@@ -11,7 +11,9 @@ export async function GET(req: Request) {
   const lng = searchParams.get("lng") ? Number(searchParams.get("lng")) : undefined;
 
   try {
-    const rawProfiles = await platformClient.getSalonProfiles({ city, lat, lng });
+    // Full salon directory (no 5-salon showcase cap) — powers QuickAccess,
+    // BookingWidget, Header city list, and the "Moji termini" salon lookup.
+    const rawProfiles = await platformClient.getSalonProfiles({ city, lat, lng, limit: 200 });
 
     // Fetch working hours + full service data (with type/variants) per salon in parallel
     const raw = await Promise.all(

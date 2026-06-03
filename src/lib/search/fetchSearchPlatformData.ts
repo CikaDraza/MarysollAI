@@ -10,6 +10,7 @@ type SalonProfileParams = {
   city?: string;
   lat?: number;
   lng?: number;
+  limit?: number;
 };
 
 function readCacheSeconds(name: string, fallback: number): number {

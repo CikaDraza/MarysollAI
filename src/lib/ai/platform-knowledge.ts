@@ -59,6 +59,10 @@ function formatCategories(categories: PlatformCategory[]): string {
     .join("\n");
 }
 
+/**
+ * Fallback city derivation from the salon list. Used only when the
+ * authoritative /marketplace/cities endpoint is unavailable.
+ */
 function deriveCities(salons: PlatformSalon[]): string {
   const cities = [
     ...new Set(salons.map((s) => s.city).filter(Boolean) as string[]),
@@ -71,11 +75,20 @@ async function _fetchPlatformKnowledge(): Promise<PlatformKnowledge> {
   let categories: PlatformCategory[] = [];
   let services: PlatformService[] = [];
 
+  // Authoritative city list (all marketplace-enabled salons' cities, no limit).
+  let citiesText = "";
+
   try {
-    [salons, categories] = await Promise.all([
-      platformClient.getSalonProfiles().catch(() => []),
+    const [salonResult, categoryResult, cityResult] = await Promise.all([
+      // limit=100 so AI knowledge sees every salon/city, not just the
+      // homepage-showcase top 5 sorted by availability.
+      platformClient.getSalonProfiles({ limit: 100 }).catch(() => []),
       platformClient.getCategories().catch(() => []),
+      platformClient.getMarketplaceCities().catch(() => []),
     ]);
+    salons = salonResult;
+    categories = categoryResult;
+    citiesText = cityResult.map((c) => c.name).join(", ");
 
     const salonIds = salons
       .map((s) => (s._id || s.id) as string)
@@ -107,7 +120,9 @@ async function _fetchPlatformKnowledge(): Promise<PlatformKnowledge> {
   return {
     salonsText: formatSalons(salons),
     servicesText: formatServices(services),
-    citiesText: deriveCities(salons),
+    // Prefer the authoritative /marketplace/cities list; fall back to deriving
+    // from the salon list only if that endpoint returned nothing.
+    citiesText: citiesText || deriveCities(salons),
     categoriesText: formatCategories(categories),
     raw: {
       salons,

@@ -641,7 +641,8 @@ function buildAppointmentsListBlock(input: {
 
 async function fetchBookingSalons() {
   try {
-    return await platformClient.getSalonProfiles();
+    // No 5-salon cap for AI booking flows — Claudia must see every salon/city.
+    return await platformClient.getSalonProfiles({ limit: 200 });
   } catch (error) {
     console.warn("[CLAUDIA_BOOKING_BLOCK_DATA]", {
       error: error instanceof Error ? error.message : String(error),

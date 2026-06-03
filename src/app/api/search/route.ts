@@ -332,10 +332,20 @@ export async function GET(req: Request): Promise<NextResponse> {
   // ─────────────────────────────────────────────────────────────────
   let salons: PlatformSalon[] = [];
   try {
-    salons = await fetchSearchSalonProfiles({
-      lat: params.lat,
-      lng: params.lng,
-    });
+    // No 5-salon limit on search — that cap is only for the homepage showcase.
+    // Search/AI must see every marketplace salon (e.g. the only salon in a city).
+    //
+    // Deliberately NOT passing lat/lng here. The platform's /marketplace/salons
+    // endpoint does NOT geo-filter: it returns the same marketplace list
+    // regardless of coordinates and only uses lat/lng to attach a display
+    // `distance` that we recompute locally anyway. Passing them only fragments
+    // our cache — every distinct search coordinate becomes its own unstable_cache
+    // + fetch entry, so a rarely-hit city's snapshot can stay stale (e.g. miss a
+    // newly approved salon) while the canonical no-param listing stays fresh.
+    // Fetching without lat/lng collapses all searches onto one cache key that
+    // revalidateTag() reliably busts, and we rank by distance locally below
+    // (haversine sort + enrichGeoSignals + groupAndSortByCityPriority).
+    salons = await fetchSearchSalonProfiles({ limit: 200 });
   } catch (err) {
     console.error("[/api/search] getSalonProfiles error:", err);
     return NextResponse.json(
@@ -367,6 +377,25 @@ export async function GET(req: Request): Promise<NextResponse> {
   }
   console.log(`[/api/search] ══ end SalonProfile dump ══\n`);
 
+  // The platform list is no longer geo-sorted (we dropped lat/lng from the
+  // fetch above). When a location anchor is available, sort by distance locally
+  // so the 30-salon safety cap keeps the *nearest* salons instead of an
+  // arbitrary slice. Salons without coordinates sort last but are never dropped
+  // unless the marketplace exceeds the cap.
+  const sortAnchor: { lat: number; lng: number } | undefined =
+    params.lat != null && params.lng != null
+      ? { lat: params.lat, lng: params.lng }
+      : params.cityRef
+        ? { lat: params.cityRef.lat, lng: params.cityRef.lng }
+        : undefined;
+  if (sortAnchor && salons.length > 1) {
+    const distanceOf = (s: PlatformSalon) =>
+      s.lat != null && s.lng != null
+        ? haversineKm(sortAnchor.lat, sortAnchor.lng, s.lat, s.lng)
+        : Number.POSITIVE_INFINITY;
+    salons = [...salons].sort((a, b) => distanceOf(a) - distanceOf(b));
+  }
+
   if (salons.length > 30) salons = salons.slice(0, 30);
 
   // Fetch working hours + full service data per salon in parallel.
@@ -396,6 +425,54 @@ export async function GET(req: Request): Promise<NextResponse> {
   );
 
   const { results, fallbackLevel, fallbackLabel } = findBestSlots(salons, params);
+
+  // ── Dev debug: per-salon trace for explicit-city searches ─────────────────
+  // Helps diagnose "Nema salona u <grad>" when the salon/services exist but no
+  // slot surfaces. Only logs in development.
+  if (process.env.NODE_ENV !== "production" && effectiveCity) {
+    const cityNorm = stripDiacritics(effectiveCity);
+    const resultsBySalon = new Map<string, number>();
+    for (const r of results) {
+      const sid = String(r.salonId ?? "");
+      if (sid) resultsBySalon.set(sid, (resultsBySalon.get(sid) ?? 0) + 1);
+    }
+    const trace = salons.map((s) => {
+      const sid = String(s.id ?? s._id ?? "");
+      const cityMatches = stripDiacritics(s.city ?? "") === cityNorm;
+      const servicesCount = (s.services ?? []).length;
+      const workingHoursPresent = Boolean(
+        s.workingHours && Object.keys(s.workingHours).length > 0,
+      );
+      const nextSlotsCount = (s.nextSlots ?? []).length;
+      const matchedCount = resultsBySalon.get(sid) ?? 0;
+      let filteredOutReason: string | null = null;
+      if (matchedCount === 0) {
+        if (!cityMatches) filteredOutReason = "city_mismatch";
+        else if (servicesCount === 0) filteredOutReason = "no_services";
+        else if (!workingHoursPresent && nextSlotsCount === 0)
+          filteredOutReason = "no_working_hours_no_slots";
+        else filteredOutReason = "no_free_slots_in_window";
+      }
+      return {
+        salonName: s.name,
+        city: s.city ?? "",
+        cityMatches,
+        marketplaceEnabled: true, // platform only returns enabled salons
+        servicesCount,
+        workingHoursPresent,
+        nextSlotsCount,
+        generatedSyntheticCount: matchedCount,
+        filteredOutReason,
+      };
+    });
+    console.debug("[SEARCH_CITY_TRACE]", {
+      requestedCity: effectiveCity,
+      totalSalons: salons.length,
+      totalResults: results.length,
+      salons: trace,
+    });
+  }
+
   const selectedCity = params.cityDisplay;
   const sameSelectedCity = (city?: string) =>
     Boolean(selectedCity) &&

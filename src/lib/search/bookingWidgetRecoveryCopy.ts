@@ -1,12 +1,8 @@
 import type { SearchRecoveryState } from "@/types/searchRecovery";
+import { cityLocative } from "@/lib/geo/cityLocative";
 
 function inCity(city?: string): string {
-  if (!city) return "izabranom gradu";
-  if (city === "Sremska Mitrovica") return "Sremskoj Mitrovici";
-  if (city === "Novi Sad") return "Novom Sadu";
-  if (city === "Beograd") return "Beogradu";
-  if (city === "Bor") return "Boru";
-  return city;
+  return cityLocative(city);
 }
 
 export function bookingWidgetRecoveryCopy(input: {
@@ -22,10 +18,21 @@ export function bookingWidgetRecoveryCopy(input: {
       return {
         title: `Nema salona u ${inCity(city)}. Prikazujemo najbliže slobodne termine.`,
       };
-    case "no_city_slots":
+    case "no_city_slots": {
+      // Salon EXISTS in the city — never say "Nema salona". Distinguish whether
+      // a specific service was requested.
+      const service = input.serviceLabel ?? input.categoryLabel;
+      if (service) {
+        return {
+          title: `U ${inCity(city)} postoji usluga ${service}, ali trenutno nema slobodnih termina.`,
+          body: "Prikazujemo najbliže dostupne termine.",
+        };
+      }
       return {
-        title: `Nema slobodnih termina u ${inCity(city)}. Prikazujemo najbliže dostupne termine.`,
+        title: `U ${inCity(city)} imamo salon, ali trenutno nema slobodnih termina za ovu uslugu.`,
+        body: "Prikazujemo najbliže dostupne termine.",
       };
+    }
     case "expanded_to_nearby_cities":
       return {
         title: "Najbliži slobodni termini",

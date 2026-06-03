@@ -205,11 +205,17 @@ export const platformClient = {
     } as RequestInit);
   },
 
-  getSalonProfiles(params?: { city?: string; lat?: number; lng?: number }) {
+  getSalonProfiles(params?: {
+    city?: string;
+    lat?: number;
+    lng?: number;
+    limit?: number;
+  }) {
     const qs = new URLSearchParams();
     if (params?.city) qs.set("city", params.city);
     if (params?.lat != null) qs.set("lat", String(params.lat));
     if (params?.lng != null) qs.set("lng", String(params.lng));
+    if (params?.limit != null) qs.set("limit", String(params.limit));
     const q = qs.toString();
     return request<PlatformSalon[]>(`/marketplace/salons${q ? `?${q}` : ""}`, {
       next: { revalidate: 60 },

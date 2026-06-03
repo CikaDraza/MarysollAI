@@ -5,6 +5,13 @@
       "Bash(~/.nvm/versions/node/v24.13.1/bin/node ./node_modules/jest/bin/jest.js)",
       "Bash(~/.nvm/versions/node/v24.13.1/bin/node ./node_modules/typescript/bin/tsc --noEmit -p tsconfig.json)",
       "Bash(grep -v \"^$\")"
+    ],
+    "additionalDirectories": [
+      "/home/dmdevelo/Desktop/dmdevelon_projects/marysoll-saas-project/marysoll-platform/src/app/api/services/create",
+      "/home/dmdevelo/Desktop/dmdevelon_projects/marysoll-saas-project/marysoll-platform/src/app/api/services/[id]/update",
+      "/home/dmdevelo/Desktop/dmdevelon_projects/marysoll-saas-project/marysoll-platform/src/app/api/services/[id]/delete",
+      "/home/dmdevelo/Desktop/dmdevelon_projects/marysoll-saas-project/marysoll-platform/src/app/api/salon-profile/update",
+      "/home/dmdevelo/Desktop/dmdevelon_projects/marysoll-saas-project/marysoll-platform/src/app/api/superadmin/tenants/[tenantId]/geo-location"
     ]
   }
 }

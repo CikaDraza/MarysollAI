@@ -10,7 +10,8 @@ export async function GET(_req: Request, context: Context) {
   const { slug } = await context.params;
 
   try {
-    const rawProfiles = await platformClient.getSalonProfiles();
+    // Need the full list to resolve any salon by slug, not just the top 5.
+    const rawProfiles = await platformClient.getSalonProfiles({ limit: 200 });
     const rawSalon = findSalonBySlug(rawProfiles, slug);
 
     if (!rawSalon) {

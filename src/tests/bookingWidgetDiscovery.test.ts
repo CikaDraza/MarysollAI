@@ -39,7 +39,7 @@ describe("BookingWidget discovery recovery", () => {
     expect(copy?.title).not.toContain("Nismo prepoznali");
   });
 
-  it("selected city with salons but no slots uses nearest alternatives copy", () => {
+  it("selected city with salons but no slots does NOT say 'no salon'", () => {
     const copy = bookingWidgetRecoveryCopy({
       city: "Sremska Mitrovica",
       recoveryState: {
@@ -48,9 +48,24 @@ describe("BookingWidget discovery recovery", () => {
       },
     });
 
-    expect(copy?.title).toBe(
-      "Nema slobodnih termina u Sremskoj Mitrovici. Prikazujemo najbliže dostupne termine.",
-    );
+    // Salon exists — never claim there is no salon, just no free terms.
+    expect(copy?.title).not.toContain("Nema salona");
+    expect(copy?.title).toContain("imamo salon");
+    expect(copy?.title).toContain("nema slobodnih termina");
+  });
+
+  it("selected city with salons but no slots names the service when provided", () => {
+    const copy = bookingWidgetRecoveryCopy({
+      city: "Sremska Mitrovica",
+      serviceLabel: "Šminkanje",
+      recoveryState: {
+        requestedCity: "Sremska Mitrovica",
+        reason: "no_city_slots",
+      },
+    });
+
+    expect(copy?.title).not.toContain("Nema salona");
+    expect(copy?.title).toContain("Šminkanje");
   });
 
   it("unknown service is the only reason that uses service-not-recognized copy", () => {
