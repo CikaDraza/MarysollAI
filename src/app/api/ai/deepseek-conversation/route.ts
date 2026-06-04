@@ -828,7 +828,9 @@ export async function POST(req: Request) {
           model: "deepseek-chat",
           messages: [
             { role: "system", content: systemPrompt },
-            ...conversationMessages,
+            // Bound the window sent to the model; the first-message/recovery
+            // signals above are computed from the full conversation.
+            ...conversationMessages.slice(-20),
           ],
           temperature: 0.2,
           max_tokens: 220,

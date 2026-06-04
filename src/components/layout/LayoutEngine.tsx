@@ -29,6 +29,8 @@ interface Props {
   renderBeforeBlock?: (type: BlockTypes) => React.ReactNode;
   onMessageAction?: (type: string) => void;
   onBlockAction?: (type: string, payload?: Record<string, unknown>) => void;
+  /** Optional — open the assistant drawer when the follow-up chip is clicked. */
+  onAskAssistant?: () => void;
   isLanding?: boolean;
   disableGlobalDedupe?: boolean;
 }
@@ -38,6 +40,7 @@ export function LayoutEngine({
   renderBeforeBlock,
   onMessageAction,
   onBlockAction,
+  onAskAssistant,
   isLanding,
   disableGlobalDedupe = false,
 }: Props) {
@@ -65,7 +68,11 @@ export function LayoutEngine({
         surface: "workspace",
         source: "ai",
       })),
-    [JSON.stringify(blocksArray.map((b) => `${b.type}:${b.id ?? ""}:${b.priority ?? ""}`))],
+    [
+      JSON.stringify(
+        blocksArray.map((b) => `${b.type}:${b.id ?? ""}:${b.priority ?? ""}`),
+      ),
+    ],
   );
   const resolvedLayout = useMemo(
     () => resolveLayout(layoutIntents, { surface: "workspace" }),
@@ -168,7 +175,11 @@ export function LayoutEngine({
               {renderBeforeBlock && renderBeforeBlock(block.type)}
 
               <div className="relative">
-                {blockFactory(block, onBlockAction ?? onMessageAction, isLanding)}
+                {blockFactory(
+                  block,
+                  onBlockAction ?? onMessageAction,
+                  isLanding,
+                )}
 
                 {onMessageAction && followUp && (
                   <div
@@ -181,6 +192,9 @@ export function LayoutEngine({
                   >
                     <button
                       onClick={() => {
+                        // Also open the assistant drawer so the conversation
+                        // continues in chat (no-op when already open).
+                        onAskAssistant?.();
                         // Task 10: AI follow-up chip dedupe — if the chip would
                         // re-open a block already on screen, focus instead.
                         if (blockOrchestrator.isBlockOpen(block.type)) {
@@ -194,28 +208,33 @@ export function LayoutEngine({
                         display: "inline-flex",
                         alignItems: "center",
                         gap: 6,
-                        background: "transparent",
-                        border: "1px solid var(--brand-100, #e9d5f9)",
+                        background: "#111",
+                        border: "none",
                         borderRadius: 999,
-                        padding: "5px 12px",
+                        padding: "6px 14px",
                         fontFamily: "var(--main-font)",
                         fontWeight: 600,
                         fontSize: 11,
-                        color: "var(--secondary-color)",
+                        color: "#ff45e9",
                         cursor: "pointer",
                         transition: "background 150ms, color 150ms",
                       }}
                       onMouseEnter={(e) => {
-                        (e.currentTarget as HTMLButtonElement).style.background =
-                          "var(--brand-100, #e9d5f9)";
+                        (
+                          e.currentTarget as HTMLButtonElement
+                        ).style.background = "#333";
                       }}
                       onMouseLeave={(e) => {
-                        (e.currentTarget as HTMLButtonElement).style.background =
-                          "transparent";
+                        (
+                          e.currentTarget as HTMLButtonElement
+                        ).style.background = "#111";
                       }}
                     >
-                      <SparklesIcon style={{ width: 12, height: 12 }} strokeWidth={1.5} />
-                      Pitaj AI
+                      <SparklesIcon
+                        style={{ width: 12, height: 12 }}
+                        strokeWidth={1.5}
+                      />
+                      Pitaj asistenta
                     </button>
                   </div>
                 )}

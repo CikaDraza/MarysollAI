@@ -4,7 +4,7 @@ import { ThreadItem } from "@/types/ai/chat-thread";
 import { useParams } from "next/navigation";
 
 const STORAGE_KEY = process.env.NEXT_PUBLIC_STORAGE_KEY || "marysoll_chat_v2";
-const MAX_ITEMS = Number(process.env.NEXT_PUBLIC_MAX_ITEMS) || 10;
+const MAX_ITEMS = Number(process.env.NEXT_PUBLIC_MAX_ITEMS) || 40;
 const INACTIVITY_TIMEOUT_MS = 60 * 60 * 1000;
 
 function latestThreadTimestamp(items: ThreadItem[]): number {

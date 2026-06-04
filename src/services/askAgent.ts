@@ -34,6 +34,8 @@ import {
 import type { AiBookingContact } from "@/types/aiBooking";
 import { runBookingSearch } from "@/lib/search/runBookingSearch";
 import { normalizeSemanticTerm } from "@/lib/search/serviceSemanticMap";
+import { buildConversationSummary } from "@/lib/ai/buildConversationSummary";
+import { repairClaudiaJson } from "@/lib/ai/anthropic-client";
 import type { StructuredBookingIntent } from "@/types/intent";
 import type { SearchApiResponse, SearchResult } from "@/types/slots";
 import {
@@ -337,6 +339,83 @@ function streamJson(body: unknown): ReadableStream {
       controller.enqueue(new TextEncoder().encode(JSON.stringify(body)));
       controller.close();
     },
+  });
+}
+
+/** Emit an already-serialized JSON string as a one-shot stream. */
+function streamRawString(raw: string): ReadableStream {
+  return new ReadableStream({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode(raw));
+      controller.close();
+    },
+  });
+}
+
+/**
+ * Phase D — server-side validity gate for the LLM fallback. Mirrors the client
+ * parser: a response is usable only if it parses into an object with at least
+ * one non-empty message or a block. Lets us repair/recover BEFORE the client
+ * ever sees a broken stream (which would trigger the "krenemo ponovo" reset).
+ */
+function isUsableClaudiaJson(raw: string): boolean {
+  if (!raw || !raw.trim()) return false;
+  let s = raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "");
+  const open = s.indexOf("{");
+  const close = s.lastIndexOf("}");
+  if (open >= 0 && close > open) s = s.slice(open, close + 1);
+  try {
+    const obj = JSON.parse(s) as Record<string, unknown>;
+    if (!obj || typeof obj !== "object") return false;
+    const messages = Array.isArray(obj.messages) ? obj.messages : [];
+    const hasMessage = messages.some(
+      (m) =>
+        m &&
+        typeof (m as Record<string, unknown>).content === "string" &&
+        String((m as Record<string, unknown>).content).trim().length > 0,
+    );
+    const layout = Array.isArray(obj.layout) ? obj.layout : [];
+    return hasMessage || layout.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Phase D — context-preserving recovery. When everything else fails we still
+ * NEVER tell the user to start over. Instead we echo what we already know
+ * (service/city) and ask only for the single next field. The known fields are
+ * also placed in `intent` so the client writes them back into memory.
+ */
+function buildContextPreservingClarification(
+  collected: CollectedBookingFields | undefined,
+): string {
+  const service = collected?.service ?? collected?.serviceName;
+  const city = collected?.city;
+  let message: string;
+  if (service && city) {
+    message = `Imam ${service} u ${inCity(city)}. Reci mi samo dan ili vreme koje ti odgovara i odmah tražim termine.`;
+  } else if (service) {
+    message = `Imam uslugu ${service}. U kom gradu želiš termin?`;
+  } else if (city) {
+    message = `Imam grad ${city}. Koju uslugu želiš?`;
+  } else {
+    message =
+      "Reci mi koju uslugu želiš i u kom gradu, pa tražim slobodne termine.";
+  }
+  const intent: Record<string, unknown> = {
+    type: "clarification",
+    ...(service ? { service } : {}),
+    ...(city ? { city } : {}),
+    ...(collected?.category ? { category: collected.category } : {}),
+    ...(collected?.date ? { date: collected.date } : {}),
+    ...(collected?.time ? { time: collected.time } : {}),
+    ...(collected?.salonName ? { salonName: collected.salonName } : {}),
+  };
+  return JSON.stringify({
+    messages: [{ role: "assistant", content: message }],
+    layout: [],
+    intent,
   });
 }
 
@@ -880,6 +959,7 @@ function detectDirectTime(
   "time" | "timeWindowStart" | "timeWindowEnd"
 > {
   const normalized = normalizeDirectText(text);
+  // Exact time: "u 11", "u 11:30", "u 11h"
   const exact = normalized.match(
     /\bu\s*(\d{1,2})(?::(\d{2}))?\s*(?:h|sati|casova)?\b/,
   );
@@ -888,9 +968,35 @@ function detectDirectTime(
       time: `${exact[1].padStart(2, "0")}:${(exact[2] ?? "00").padStart(2, "0")}`,
     };
   }
+  // Lower bound: "posle 11", "nakon 11", "od 11"
   const after = normalized.match(/\b(posle|nakon|od)\s*(\d{1,2})/);
   if (after) return { timeWindowStart: Number(after[2]), timeWindowEnd: null };
+  // Upper bound: "pre 14", "do 14"
+  const before = normalized.match(/\b(pre|do)\s*(\d{1,2})/);
+  if (before) return { timeWindowStart: null, timeWindowEnd: Number(before[2]) };
+  // Part-of-day windows — mirror the mappings documented in the Claudia prompt.
+  if (/\b(ujutru|ujutro|pre podne|prepodne|jutarnj\w*)\b/.test(normalized))
+    return { timeWindowStart: 8, timeWindowEnd: 12 };
+  if (/\b(popodne|poslepodne|posle podne|popodnev\w*)\b/.test(normalized))
+    return { timeWindowStart: 12, timeWindowEnd: 17 };
+  if (/\b(uvece|uvecer|predvece|vecernj\w*)\b/.test(normalized))
+    return { timeWindowStart: 17, timeWindowEnd: 21 };
+  if (/\b(oko podne|u podne|podne)\b/.test(normalized))
+    return { timeWindowStart: 11, timeWindowEnd: 13 };
   return {};
+}
+
+/**
+ * Free-text refinement of an in-progress booking ("kasnije", "ima li nešto
+ * drugo", "može popodne", "drugi salon"). These carry no service/city/salon of
+ * their own, so without an explicit signal they would collapse to "unknown" and
+ * trigger an LLM round-trip. We only treat them as a refinement when there is
+ * already collected booking context.
+ */
+function hasRefineSignal(normalizedText: string): boolean {
+  return /\b(kasnij\w*|ranij\w*|drug[iaou]|umesto|ne taj|taj prvi|moze|moglo|popodne|poslepodne|prepodne|ujutru|ujutro|uvece|predvece|jeftin\w*|povoljn\w*|skuplj\w*|blize|dalje|nesto drugo|jos termina|drugi termin)\b/.test(
+    normalizedText,
+  );
 }
 
 export function parseClaudiaDirectIntent(input: {
@@ -941,21 +1047,26 @@ export function parseClaudiaDirectIntent(input: {
       text,
     ) &&
     !date.dateMode &&
-    !time.time
+    !time.time &&
+    time.timeWindowStart == null &&
+    time.timeWindowEnd == null &&
+    // Mid-booking refinements like "a ima li nešto kasnije" contain "ima li" but
+    // are NOT salon-existence questions — keep them on the follow-up path.
+    !(hasContext && hasRefineSignal(text))
   ) {
     return {
-      type: service.service ? "salon_info" : "salon_info",
+      type: "salon_info",
       confidence: city || service.service ? 0.88 : 0.62,
       entities: { city, salonName, ...service },
     };
   }
   if (
     hasContext &&
-    (/^(nedelja|nedelju|u \d{1,2}(?::\d{2})?|drugi salon|taj prvi|moze|može|ne taj)$/i.test(
-      input.text.trim(),
-    ) ||
+    (hasRefineSignal(text) ||
       date.dateMode ||
-      time.time)
+      time.time ||
+      time.timeWindowStart != null ||
+      time.timeWindowEnd != null)
   ) {
     return {
       type: "follow_up",
@@ -967,7 +1078,11 @@ export function parseClaudiaDirectIntent(input: {
     service.service ||
     salonName ||
     city ||
-    (hasContext && (date.dateMode || time.time || time.timeWindowStart != null))
+    (hasContext &&
+      (date.dateMode ||
+        time.time ||
+        time.timeWindowStart != null ||
+        time.timeWindowEnd != null))
   ) {
     return {
       type: "booking",
@@ -1274,12 +1389,16 @@ function bookingSearchMessage(input: {
         slots: input.slots,
       });
     }
-    return `Pozdrav, imamo slobodne termine za ${service || "ovu uslugu"}${place}${after}.`;
+    // No specific service yet (e.g. "najbliži salon") → don't claim "za ovu
+    // uslugu"; just announce availability in the place.
+    const forService = service ? ` za ${service}` : "";
+    return `Pozdrav, imamo slobodne termine${forService}${place}${after}.`;
   }
   if (input.intent.timeWindowStart != null && input.originalCount > 0) {
     return `Nema slobodnih termina${place} posle ${input.intent.timeWindowStart}h; mogu da proverim drugi dan ili širi vremenski okvir.`;
   }
-  return `Trenutno nema slobodnih termina za ${service || "ovu uslugu"}${place}; mogu da proverim drugi dan ili drugu uslugu.`;
+  const forServiceNone = service ? ` za ${service}` : "";
+  return `Trenutno nema slobodnih termina${forServiceNone}${place}; mogu da proverim drugi dan ili drugu uslugu.`;
 }
 
 function readAppointmentsFromPayload(
@@ -1330,6 +1449,9 @@ export async function askAgent(
   isBlockInteraction = false,
   collectedBookingFields?: CollectedBookingFields,
   handoffPayload?: Record<string, unknown>,
+  /** The user's known city (header/profile/GPS). Used as a soft default for
+   * "nearest salon" so Claudia answers directly instead of re-asking. */
+  userCity?: string,
 ) {
   // Guard: if Maria sent an intent, it must be a known ClaudiaIntent.
   // Unknown intent = Maria-side bug (typo, model drift) — refuse LLM fallback.
@@ -1686,8 +1808,12 @@ export async function askAgent(
     }
 
     if (direct.type === "salon_info") {
+      // "Najbliži salon" with no city in the message → fall back to the user's
+      // known city (header/profile/GPS) and answer directly instead of asking.
+      const usedKnownCity = !direct.entities.city && Boolean(userCity);
+      const effectiveCity = direct.entities.city ?? userCity;
       const availability = resolveCityServiceAvailability({
-        city: direct.entities.city,
+        city: effectiveCity,
         service: direct.entities.service,
         category: direct.entities.category,
         platformKnowledge: directPlatform,
@@ -1696,15 +1822,18 @@ export async function askAgent(
         .map((item) => item.city)
         .filter((city): city is string => Boolean(city))
         .slice(0, 2);
+      const salonNames = availability.matchingSalons
+        .map((salon) => salon.name)
+        .filter(Boolean)
+        .join(", ");
       const message = availability.hasSalonInCity
-        ? `Da, imamo salon u ${direct.entities.city}: ${availability.matchingSalons
-            .map((salon) => salon.name)
-            .filter(Boolean)
-            .join(", ")}.`
-        : direct.entities.city
+        ? usedKnownCity
+          ? `Najbliže tebi, u ${inCity(effectiveCity!)}: ${salonNames}. Koja usluga te zanima?`
+          : `Da, imamo salon u ${effectiveCity}: ${salonNames}.`
+        : effectiveCity
           ? alternatives.length > 0
-            ? `Trenutno nemamo salon u ${inCity(direct.entities.city)}. Najbliže opcije su ${alternatives.join(" i ")}. Koja usluga vas zanima?`
-            : formatNearestSalonAnswer({ requestedCity: direct.entities.city })
+            ? `Trenutno nemamo salon u ${inCity(effectiveCity)}. Najbliže opcije su ${alternatives.join(" i ")}. Koja usluga vas zanima?`
+            : formatNearestSalonAnswer({ requestedCity: effectiveCity })
           : "Za koji grad da proverim salone?";
       return streamClaudiaContract(
         makeClaudiaContract({
@@ -1714,7 +1843,7 @@ export async function askAgent(
           step: "direct_salon_info",
           nextAction: "NONE",
           intentType: "salon_info",
-          entities: direct.entities,
+          entities: { ...direct.entities, city: effectiveCity },
           status: "ready",
           reason: "direct_salon_info",
         }),
@@ -3152,48 +3281,65 @@ export async function askAgent(
       "\n\n# BLOCK INTERACTION MODE\nKorisnik je kliknuo na blok. Odgovori SAMO kratkom instruktivnom porukom (1 rečenica). Postavi layout na prazan niz: []. Ne vraćaj nove blokove.";
   }
 
+  // Phase B — recent verbatim window + rolling summary of older turns so long
+  // conversations keep continuity instead of silently dropping early context.
+  const RECENT_WINDOW = 20;
+  const summary = buildConversationSummary(history, RECENT_WINDOW);
+  if (summary) systemPrompt += summary;
+
   const deepseekHistory = history
     .filter((item) => item.type === "message")
-    .slice(-10)
+    .slice(-RECENT_WINDOW)
     .map((item) => ({
       role:
         item.data.role === "user" ? ("user" as const) : ("assistant" as const),
       content: item.data.content,
     }));
 
+  // Phase D — buffer + validate + repair + recover. We no longer stream raw
+  // DeepSeek tokens straight to the client; instead we validate the JSON first
+  // so a malformed/empty response never reaches parseClaudiaResponse as a reset.
   try {
-    const stream = await getDeepseekClient().chat.completions.create({
-      model: "deepseek-chat",
-      messages: [
-        { role: "system", content: systemPrompt },
-        ...deepseekHistory,
-        { role: "user", content: userInput },
-      ],
-      stream: true,
-      temperature: 0.2,
-      response_format: { type: "json_object" as const },
-    });
-
-    const readableStream = new ReadableStream({
-      async start(controller) {
-        try {
-          for await (const chunk of stream) {
-            const content = chunk.choices[0]?.delta?.content || "";
-            if (content) {
-              controller.enqueue(new TextEncoder().encode(content));
-            }
-          }
-          controller.close();
-        } catch (error) {
-          console.error("[askAgent] Stream error:", error);
-          controller.error(error);
-        }
+    const completion = await getDeepseekClient().chat.completions.create(
+      {
+        model: "deepseek-chat",
+        messages: [
+          { role: "system", content: systemPrompt },
+          ...deepseekHistory,
+          { role: "user", content: userInput },
+        ],
+        temperature: 0.2,
+        response_format: { type: "json_object" as const },
       },
-    });
+      { timeout: 18_000 },
+    );
 
-    return readableStream;
+    let raw = completion.choices[0]?.message?.content ?? "";
+
+    if (!isUsableClaudiaJson(raw)) {
+      // Recovery step 1 — Claude repairs the broken JSON (no-op without a key).
+      const repaired = await repairClaudiaJson({
+        systemPrompt,
+        brokenRaw: raw,
+        userInput,
+      });
+      if (repaired && isUsableClaudiaJson(repaired)) {
+        console.debug("[askAgent] recovered via Claude repair");
+        raw = repaired;
+      } else {
+        // Recovery step 2 — deterministic, context-preserving clarification.
+        // Never a "start over" reset; keeps service/city the user already gave.
+        console.debug("[askAgent] recovered via context-preserving clarification");
+        raw = buildContextPreservingClarification(collectedBookingFields);
+      }
+    }
+
+    return streamRawString(raw);
   } catch (error) {
+    // Network/timeout/API failure — still never reset; recover with context.
     console.error("[askAgent] DeepSeek API error:", error);
-    throw error;
+    return streamRawString(
+      buildContextPreservingClarification(collectedBookingFields),
+    );
   }
 }

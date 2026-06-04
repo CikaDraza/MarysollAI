@@ -80,6 +80,7 @@ export async function POST(req: Request) {
       isBlockInteraction,
       bookingMemory,
       handoffPayload,
+      userCity,
     } = body as {
       message: string;
       isAuthenticated: boolean;
@@ -88,6 +89,7 @@ export async function POST(req: Request) {
       isBlockInteraction?: boolean;
       bookingMemory?: CollectedBookingFields;
       handoffPayload?: Record<string, unknown>;
+      userCity?: string;
     };
     const requestToken =
       readBearerToken(req) ?? (await cookies()).get("token")?.value ?? null;
@@ -116,6 +118,7 @@ export async function POST(req: Request) {
       isBlockInteraction ?? false,
       bookingMemory,
       effectiveHandoffPayload,
+      typeof userCity === "string" ? userCity : undefined,
     );
 
     // Vraćamo stream sa specijalnim headerima

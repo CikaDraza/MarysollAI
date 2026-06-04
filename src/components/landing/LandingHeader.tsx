@@ -84,7 +84,7 @@ export default function LandingHeader() {
       >
         <SparklesIcon className="w-4 h-4" />
         <span className="inline [@media(max-width:520px)]:hidden">
-          Pitaj Mariju
+          Pitaj asistenta
         </span>
       </button>
     </header>

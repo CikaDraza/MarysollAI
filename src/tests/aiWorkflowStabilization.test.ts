@@ -727,12 +727,17 @@ describe("AI workflow stabilization", () => {
     });
   });
 
-  it("fallback asks the user to restart the booking request with full details", () => {
+  it("empty-stream fallback preserves context and asks for a simple retry (no reset)", () => {
     const parsed = parseClaudiaResponse("");
 
-    expect(parsed.messages[0].content).toContain(
+    // New behavior (Phase D): never tell the user to start over. The server now
+    // validates/repairs/recovers, so this client fallback only fires on a
+    // dropped connection — it must reassure that memory is kept.
+    expect(parsed.messages[0].content).not.toContain("krenemo ponovo");
+    expect(parsed.messages[0].content).not.toContain(
       "napiši koju uslugu želiš, u kom gradu i u koje vreme",
     );
+    expect(parsed.messages[0].content.toLowerCase()).toContain("pamtim");
     expect(parsed.layout).toEqual([]);
   });
 

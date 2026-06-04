@@ -5,6 +5,7 @@ import { XMarkIcon, SparklesIcon } from "@heroicons/react/24/outline";
 import { LayoutEngine } from "@/components/layout/LayoutEngine";
 import { useWorkspace } from "@/context/landing/WorkspaceContext";
 import { useAIContext } from "@/context/landing/AIContext";
+import { useLandingUI } from "@/context/landing/LandingUIContext";
 import { getBlockLabel } from "@/lib/ai/block-registry";
 import { useEffect, useRef } from "react";
 
@@ -16,6 +17,7 @@ const enterTransition = {
 export default function AIWorkspace() {
   const { activeBlock, dismissWorkspace } = useWorkspace();
   const { sendMessage, sendToOrchestrator } = useAIContext();
+  const { setDrawerOpen } = useLandingUI();
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Scroll workspace into view whenever a new block appears
@@ -140,6 +142,7 @@ export default function AIWorkspace() {
                 blocks={activeBlock}
                 onMessageAction={sendMessage}
                 onBlockAction={sendToOrchestrator}
+                onAskAssistant={() => setDrawerOpen(true)}
                 isLanding
                 disableGlobalDedupe
               />

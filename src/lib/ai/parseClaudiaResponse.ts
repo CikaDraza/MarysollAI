@@ -16,6 +16,7 @@ import partialParse from "partial-json-parser";
 import { TextMessage } from "@/types/ai/ai.text-engine";
 import { BaseBlock, BlockTypes } from "@/types/landing-block";
 import { aiLog } from "@/lib/ai/debug-log";
+import type { CollectedBookingFields } from "@/lib/ai/booking-flow-state";
 
 const log = aiLog("AI_ORCHESTRATOR");
 
@@ -24,11 +25,16 @@ export interface ClaudiaResponse {
   layout: BaseBlock[];
 }
 
+// Last-resort only. The server now validates + repairs + recovers before the
+// stream reaches here, so this fires only on a genuinely empty stream (e.g. a
+// dropped connection). It must NOT imply the conversation is lost — booking
+// memory is preserved in bookingFlow, so we ask for a simple retry instead of
+// "let's start over".
 const SAFE_FALLBACK: ClaudiaResponse = {
   messages: [
     {
       content:
-        "Izvini, dogodila se greška. Hajde da krenemo ponovo: napiši koju uslugu želiš, u kom gradu i u koje vreme.",
+        "Izvini, na trenutak je prekinuta veza. Pošalji poruku još jednom — pamtim našu prethodnu konverzaciju.",
       role: "assistant",
     } as TextMessage,
   ],
@@ -139,6 +145,70 @@ export function parseClaudiaResponse(rawStream: string): ClaudiaResponse {
   }
 
   return { messages, layout };
+}
+
+function asStr(v: unknown): string | undefined {
+  return typeof v === "string" && v.trim() !== "" ? v : undefined;
+}
+
+function asNumOrNull(v: unknown): number | null | undefined {
+  if (v === null) return null;
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  return undefined;
+}
+
+/**
+ * Phase A — unified memory. Pulls the booking entities that Claudia resolved
+ * this turn out of the response so the client can write them back into the
+ * single source of truth (`bookingFlow.collected`). Without this, anything
+ * Claudia inferred from free text (city/service/time) is lost after the turn
+ * and the next message loses `hasContext`, collapsing into "unknown" → reset.
+ *
+ * Reads from the legacy `intent` object (`{ type, ...entities }`) first, then
+ * fills gaps from the first rendered block's metadata. Never throws.
+ */
+export function extractBookingMemory(
+  rawStream: string,
+): Partial<CollectedBookingFields> {
+  if (!rawStream || rawStream.trim().length === 0) return {};
+  const parsed = tryParse(stripCodeFences(rawStream));
+  if (!parsed || typeof parsed !== "object") return {};
+  const obj = parsed as Record<string, unknown>;
+
+  const intent =
+    obj.intent && typeof obj.intent === "object"
+      ? (obj.intent as Record<string, unknown>)
+      : {};
+  const layout = Array.isArray(obj.layout) ? obj.layout : [];
+  const firstMeta =
+    layout[0] && typeof layout[0] === "object"
+      ? (((layout[0] as Record<string, unknown>).metadata as
+          | Record<string, unknown>
+          | undefined) ?? {})
+      : {};
+
+  const pick = (key: string): unknown => intent[key] ?? firstMeta[key];
+
+  const fields: Partial<CollectedBookingFields> = {
+    category: asStr(pick("category")),
+    subcategory: asStr(pick("subcategory")),
+    service: asStr(pick("service")) ?? asStr(pick("serviceName")),
+    serviceId: asStr(pick("serviceId")),
+    serviceName: asStr(pick("serviceName")) ?? asStr(pick("service")),
+    city: asStr(intent.requestedCity) ?? asStr(pick("city")),
+    date: asStr(pick("date")),
+    time: asStr(pick("time")),
+    timeWindowStart: asNumOrNull(pick("timeWindowStart")),
+    timeWindowEnd: asNumOrNull(pick("timeWindowEnd")),
+    salonId: asStr(pick("salonId")),
+    salonName: asStr(pick("salonName")),
+  };
+
+  // Drop undefined keys so the caller's merge never clobbers existing memory.
+  for (const k of Object.keys(fields) as Array<keyof CollectedBookingFields>) {
+    if (fields[k] === undefined) delete fields[k];
+  }
+  return fields;
 }
 
 /**

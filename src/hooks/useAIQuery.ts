@@ -13,6 +13,7 @@ import { bookingFlow } from "@/lib/ai/booking-flow-state";
 import {
   parseClaudiaResponse,
   extractStreamingText,
+  extractBookingMemory,
 } from "@/lib/ai/parseClaudiaResponse";
 
 interface AIResponseData {
@@ -67,6 +68,9 @@ interface AskAIOptions {
   isBlockInteraction?: boolean;
   handoffPayload?: Record<string, unknown>;
   suppressUserMessage?: boolean;
+  /** User's known city (header/profile/GPS) — lets Claudia answer "nearest
+   * salon" directly instead of re-asking for the city. */
+  userCity?: string;
 }
 
 export function useAIQuery(user?: AuthUser | null) {
@@ -216,6 +220,7 @@ export function useAIQuery(user?: AuthUser | null) {
             isBlockInteraction: options?.isBlockInteraction ?? false,
             bookingMemory,
             handoffPayload: options?.handoffPayload,
+            userCity: options?.userCity,
           }),
         });
 
@@ -241,6 +246,15 @@ export function useAIQuery(user?: AuthUser | null) {
         // Hardened parse: always returns a valid ClaudiaResponse, even on
         // malformed JSON or empty stream. Caller doesn't need a try/catch.
         const finalData = parseClaudiaResponse(fullRaw);
+
+        // Phase A — unified memory: persist whatever Claudia resolved this turn
+        // (city/service/time/salon) into the single source of truth so the next
+        // message keeps `hasContext` and doesn't collapse into a reset fallback.
+        const resolvedMemory = extractBookingMemory(fullRaw);
+        if (Object.keys(resolvedMemory).length > 0) {
+          bookingFlow.get().collect(resolvedMemory);
+        }
+
         setPendingResponse({
           query,
           data: finalData,

@@ -24,6 +24,7 @@ import {
 } from "@/lib/ai/events/systemActionDispatcher";
 import { bookingFlow } from "@/lib/ai/booking-flow-state";
 import { useRescheduleFlowStore } from "@/lib/ai/reschedule-flow-state";
+import { useCityContext } from "@/context/landing/CityContext";
 import {
   acknowledgementReply,
   routeUserMessageToAgent,
@@ -109,6 +110,15 @@ const INACTIVITY_TIMEOUT_MS = 60 * 60 * 1000;
 export function AIProvider({ children }: { children: ReactNode }) {
   const maria = useChatSeek();
   const claudia = useAIQuery(null);
+
+  // User's known city (header/profile/GPS) — forwarded to Claudia so "nearest
+  // salon" is answered directly instead of re-asking. Kept in a ref so the
+  // send callbacks don't need to be recreated on every city change.
+  const { cityName } = useCityContext();
+  const cityNameRef = useRef(cityName);
+  useEffect(() => {
+    cityNameRef.current = cityName;
+  }, [cityName]);
 
   // Read agent state from the Zustand store — single source of truth.
   // Owner of writes: lib/ai/orchestrator (via AgentBridge handoff path).
@@ -250,7 +260,7 @@ export function AIProvider({ children }: { children: ReactNode }) {
           blockOrchestrator.focusBlock("AuthBlock");
           return;
         }
-        void claudia.askAI(q);
+        void claudia.askAI(q, { userCity: cityNameRef.current });
         return;
       }
 

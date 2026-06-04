@@ -60,13 +60,17 @@ export const SERVICE_SEMANTIC_MAP: Record<CategorySlug, SemanticServiceBucket> =
   },
   makeup: {
     canonicalCategory: "Šminka",
+    // NOTE: "obrve"/"trepavice" intentionally excluded — they belong to the
+    // `eyebrows` category. Keeping them here made an explicit "šminkanje" search
+    // semantically expand into brow/lash services (matchesSubcategory matched
+    // them), and made findSemanticCategory("obrve") resolve to makeup instead of
+    // eyebrows. Cross-discovery between makeup↔eyebrows still works via the
+    // RELATED map at the category level (L3), without polluting exact-service search.
     terms: [
       "šminka",
       "sminka",
       "šminkanje",
       "makeup",
-      "obrve",
-      "trepavice",
     ],
   },
   body: {
