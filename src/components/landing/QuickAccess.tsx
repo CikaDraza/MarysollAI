@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
+import { SalonRatingInline } from "@/components/salons/SalonRatingInline";
 import {
   ArrowsRightLeftIcon,
   ClockIcon,
@@ -85,6 +86,8 @@ export interface QuickSlot {
   serviceDuration?: number;
   servicePrice?: number;
   hasVariants?: boolean;
+  rating?: number;
+  reviewCount?: number;
   isSynthetic?: boolean;
   /** Phase 2.5D Task 7 — display distance. Raw km; rendered via formatDistance. */
   distanceKm?: number;
@@ -332,6 +335,8 @@ export default function QuickAccess() {
         serviceDuration: r.serviceDuration,
         servicePrice: r.price,
         hasVariants: r.hasVariants ?? false,
+        rating: r.rating,
+        reviewCount: r.reviewCount,
         isSynthetic: r.isSynthetic ?? false,
         availabilityConfidence: r.availabilityConfidence,
         availabilityConfidenceScore: r.availabilityConfidenceScore,
@@ -977,6 +982,10 @@ function SlotCard({
           slot.salonName
         )}
       </p>
+
+      <div style={{ marginBottom: 6 }}>
+        <SalonRatingInline rating={slot.rating} reviewCount={slot.reviewCount} />
+      </div>
 
       {/* Price */}
       {priceStr ? (

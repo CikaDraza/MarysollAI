@@ -240,6 +240,19 @@ export const platformClient = {
     );
   },
 
+  /** Public tenant social-proof counts + rating. Endpoint added platform-side. */
+  getSalonStats(tenantId: string) {
+    return request<{
+      clientCount: number;
+      appointmentCount: number;
+      completedAppointmentCount: number;
+      averageRating: number | null;
+      reviewCount: number;
+    }>(`/marketplace/salon-stats?tenantId=${encodeURIComponent(tenantId)}`, {
+      next: { revalidate: 3600 },
+    } as RequestInit);
+  },
+
   getAvailableSlots(params: {
     salonId: string;
     serviceId?: string;

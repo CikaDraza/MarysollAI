@@ -17,6 +17,7 @@ import {
   fetchSearchSalonServices,
   fetchSearchSalonWorkingHours,
 } from "@/lib/search/fetchSearchPlatformData";
+import { fetchSalonStats } from "@/lib/seo/salonStats";
 import {
   normalizeSearch,
 } from "@/lib/search/normalizeSearch";
@@ -408,9 +409,11 @@ export async function GET(req: Request): Promise<NextResponse> {
     salons.map(async (s) => {
       const id = s.id ?? s._id ?? "";
       if (!id) return s;
-      const [wh, fullServices] = await Promise.allSettled([
+      const tenantId = typeof s.tenantId === "string" ? s.tenantId : undefined;
+      const [wh, fullServices, stats] = await Promise.allSettled([
         withTimeout(fetchSearchSalonWorkingHours(id)),
         withTimeout(fetchSearchSalonServices(id)),
+        tenantId ? withTimeout(fetchSalonStats(tenantId)) : Promise.resolve(null),
       ]);
       return {
         ...s,
@@ -419,6 +422,12 @@ export async function GET(req: Request): Promise<NextResponse> {
           : {}),
         ...(fullServices.status === "fulfilled" && fullServices.value.length > 0
           ? { services: fullServices.value }
+          : {}),
+        ...(stats.status === "fulfilled" && stats.value
+          ? {
+              rating: stats.value.averageRating ?? undefined,
+              reviewCount: stats.value.reviewCount,
+            }
           : {}),
       };
     }),

@@ -28,6 +28,7 @@ export interface SearchResult extends FlatSlot {
   salonLng?: number;
   verified?: boolean;
   rating?: number;
+  reviewCount?: number;
   website?: string;
   googleBusinessUrl?: string;
   serviceDuration?: number;

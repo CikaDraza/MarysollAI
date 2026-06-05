@@ -24,6 +24,7 @@ import { canonicalCity } from "@/lib/geo/canonicalCity";
 import { todayInBelgrade, tomorrowInBelgrade } from "@/lib/search/normalizeSearch";
 import { cityToSlug } from "@/lib/seo/citySlug";
 import { categoryToUrlSlug } from "@/lib/seo/categoryUrlSlug";
+import { fetchSalonStats } from "@/lib/seo/salonStats";
 import { getOverride, type IndexDirective } from "@/lib/seo/seoOverrides";
 
 /** Category slugs that get programmatic SEO pages ("other" is intentionally excluded). */
@@ -84,6 +85,9 @@ export interface SalonCardData {
   minPrice: number | null;
   hasVariants: boolean;
   nextSlotCount: number;
+  /** Rating fields — present only after stats enrichment; undefined = not fetched. */
+  rating?: number | null;
+  reviewCount?: number;
 }
 
 function toSalonCard(salon: MappedSalon, slug?: CategorySlug): SalonCardData {
@@ -108,6 +112,38 @@ function bySlotsThenPrice(a: SalonCardData, b: SalonCardData): number {
     (a.minPrice ?? Infinity) - (b.minPrice ?? Infinity)
   );
 }
+
+/** Attaches rating/reviewCount (cached salon-stats) to the given cards by tenantId. */
+async function attachRatings(
+  cards: SalonCardData[],
+  tenantBySlug: Map<string, string>,
+): Promise<SalonCardData[]> {
+  return Promise.all(
+    cards.map(async (card) => {
+      const tenantId = tenantBySlug.get(card.slug);
+      if (!tenantId) return card;
+      const stats = await fetchSalonStats(tenantId);
+      if (!stats) return card;
+      return {
+        ...card,
+        rating: stats.averageRating,
+        reviewCount: stats.reviewCount,
+      };
+    }),
+  );
+}
+
+/** Map of card slug → tenantId, for stats enrichment. */
+function tenantBySlugMap(salons: MappedSalon[]): Map<string, string> {
+  const m = new Map<string, string>();
+  for (const s of salons) {
+    if (s.slug && s.tenantId) m.set(s.slug, s.tenantId);
+  }
+  return m;
+}
+
+/** How many cards to enrich with ratings (matches the display cap). */
+const RATING_ENRICH_LIMIT = 12;
 
 export interface CityCategoryLink {
   slug: CategorySlug;
@@ -212,12 +248,18 @@ export async function getCategoryPageData(
     .sort(bySlotsThenPrice)
     .slice(0, 5);
 
+  const tenantBySlug = tenantBySlugMap(salons);
+  const enrichedSalons = await attachRatings(
+    cards.slice(0, RATING_ENRICH_LIMIT),
+    tenantBySlug,
+  );
+
   return {
     indexable: cards.length > 0,
     salonCount: cards.length,
     minPrice: prices.length > 0 ? Math.min(...prices) : null,
     slotCount: passing.reduce((acc, s) => acc + s.nextSlots.length, 0),
-    salons: cards,
+    salons: enrichedSalons,
     relatedCategories: availableCategories(salons).filter((c) => c.slug !== slug),
     moreSalons,
     laterSlots: buildLaterSlots(passing),
@@ -245,10 +287,15 @@ export async function getCityPageData(
     .filter((c) => c.slug)
     .sort(bySlotsThenPrice);
 
+  const enrichedSalons = await attachRatings(
+    cards.slice(0, RATING_ENRICH_LIMIT),
+    tenantBySlugMap(salons),
+  );
+
   return {
     indexable: cards.length > 0,
     salonCount: cards.length,
-    salons: cards,
+    salons: enrichedSalons,
     categories: availableCategories(salons),
   };
 }

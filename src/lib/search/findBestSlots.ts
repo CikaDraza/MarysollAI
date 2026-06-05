@@ -613,6 +613,7 @@ function toSearchResult(
     salonLng: salonCoords.lng,
     verified: c.salon.verified as boolean | undefined,
     rating: c.salon.rating as number | undefined,
+    reviewCount: c.salon.reviewCount as number | undefined,
     website: c.salon.website as string | undefined,
     googleBusinessUrl: c.salon.googleBusinessUrl as string | undefined,
     serviceDuration: c.service?.duration ?? 60,

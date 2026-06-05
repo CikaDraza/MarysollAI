@@ -8,9 +8,11 @@ import {
   GlobeAltIcon,
   MapPinIcon,
   PhoneIcon,
-  StarIcon,
+  SparklesIcon,
 } from "@heroicons/react/24/outline";
+import { StarIcon } from "@heroicons/react/24/solid";
 import type { SalonPreview } from "@/types/salon-preview";
+import { utisakWord } from "@/lib/seo/serbianText";
 
 interface Props {
   salon: SalonPreview;
@@ -44,16 +46,7 @@ export default function SalonHero({
             />
           )}
           <div className="min-w-0">
-            <div className="mb-3 flex flex-wrap items-center gap-2">
-              {averageRating != null && (
-                <span className="inline-flex items-center gap-1 rounded-full bg-white px-3 py-1.5 text-sm font-black text-[var(--fg-1)] shadow-[var(--shadow-xs)]">
-                  <StarIcon className="h-4 w-4 fill-yellow-400 text-yellow-400" />
-                  {averageRating.toFixed(1)}
-                  <span className="font-semibold text-[var(--fg-3)]">
-                    ({testimonialsTotal})
-                  </span>
-                </span>
-              )}
+            <div className="mb-3 flex items-center gap-2">
               {salon.websiteUrl && (
                 <Link
                   href={salon.websiteUrl}
@@ -70,6 +63,32 @@ export default function SalonHero({
             <h1 className="m-0 text-[38px] font-black leading-[1.05] text-[var(--fg-1)] sm:text-[52px] lg:text-[64px]">
               {salon.name}
             </h1>
+
+            {/* Rating sits directly below the H1, above the description. */}
+            {averageRating != null && testimonialsTotal >= 1 ? (
+              <Link
+                href="#utisci"
+                className="mt-4 inline-flex flex-wrap items-baseline gap-x-2.5 gap-y-1 no-underline"
+              >
+                <span className="inline-flex items-center gap-1.5 text-[22px] font-black text-[var(--fg-1)]">
+                  <StarIcon className="h-5 w-5 text-yellow-400" />
+                  {averageRating.toFixed(1)}
+                  <span className="text-[16px] font-bold text-[var(--fg-3)]">
+                    / 5
+                  </span>
+                </span>
+                <span className="text-sm font-semibold text-[var(--fg-3)] underline-offset-2 hover:underline">
+                  Na osnovu {testimonialsTotal} {utisakWord(testimonialsTotal)}{" "}
+                  klijenata
+                </span>
+              </Link>
+            ) : (
+              <span className="mt-4 inline-flex items-center gap-1.5 rounded-full bg-[var(--surface-2)] px-3 py-1.5 text-sm font-bold text-[var(--secondary-color)]">
+                <SparklesIcon className="h-4 w-4" />
+                Novo na Marysoll
+              </span>
+            )}
+
             {salon.description && (
               <p className="mt-5 max-w-3xl text-[17px] leading-8 text-[var(--fg-2)]">
                 {salon.description}

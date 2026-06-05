@@ -7,6 +7,7 @@ import {
 import { LandingUIProvider } from "@/context/landing/LandingUIContext";
 import { useSalonPreview } from "@/hooks/salons/useSalonPreview";
 import { useSalonTestimonials } from "@/hooks/salons/useSalonTestimonials";
+import { useSalonStats } from "@/hooks/salons/useSalonStats";
 import SalonAppointmentsBlock from "./SalonAppointmentsBlock";
 import SalonBookingPanel from "./SalonBookingPanel";
 import SalonClientFeedbackSection from "./SalonClientFeedbackSection";
@@ -14,6 +15,8 @@ import SalonGallerySwiper from "./SalonGallerySwiper";
 import SalonHero from "./SalonHero";
 import SalonInfoGrid from "./SalonInfoGrid";
 import SalonTestimonialsSection from "./SalonTestimonialsSection";
+import SalonSocialProof from "./SalonSocialProof";
+import { SalonJsonLd } from "./SalonJsonLd";
 
 interface Props {
   slug: string;
@@ -40,6 +43,19 @@ function SalonPreviewContent({ slug }: Props) {
     data: testimonials,
     isLoading: testimonialsLoading,
   } = useSalonTestimonials(slug, Boolean(salon));
+  const { data: stats } = useSalonStats(salon?.tenantId, Boolean(salon));
+
+  // Rating source: prefer the stats endpoint (authoritative, approved-only), but
+  // fall back to the testimonials shown on the page when stats has no rating —
+  // so a salon with visible reviews never reads as "Novo".
+  const statsHasRating =
+    (stats?.reviewCount ?? 0) >= 1 && stats?.averageRating != null;
+  const ratingValue = statsHasRating
+    ? stats!.averageRating
+    : (testimonials?.averageRating ?? null);
+  const ratingCount = statsHasRating
+    ? stats!.reviewCount
+    : (testimonials?.total ?? 0);
 
   if (salonLoading) {
     return (
@@ -67,11 +83,20 @@ function SalonPreviewContent({ slug }: Props) {
   return (
     <main className="min-h-screen bg-[var(--background)]">
       <div className="mx-auto max-w-7xl px-4 pb-12 sm:px-6">
+        {/* Rating: stats endpoint when available, else the visible testimonials. */}
+        <SalonJsonLd
+          name={salon.name}
+          slug={salon.slug ?? slug}
+          city={salon.city}
+          averageRating={ratingValue}
+          reviewCount={ratingCount}
+        />
         <SalonHero
           salon={salon}
-          averageRating={testimonials?.averageRating ?? null}
-          testimonialsTotal={testimonials?.total ?? 0}
+          averageRating={ratingValue}
+          testimonialsTotal={ratingCount}
         />
+        <SalonSocialProof stats={stats} serviceCount={salon.services.length} />
         <SalonGallerySwiper
           images={salon.galleryImages}
           salonName={salon.name}
@@ -92,10 +117,12 @@ function SalonPreviewContent({ slug }: Props) {
           </div>
         </section>
       ) : (
-        <SalonTestimonialsSection
-          testimonials={testimonials?.testimonials ?? []}
-          averageRating={testimonials?.averageRating ?? null}
-        />
+        <div id="utisci" className="scroll-mt-20">
+          <SalonTestimonialsSection
+            testimonials={testimonials?.testimonials ?? []}
+            averageRating={testimonials?.averageRating ?? null}
+          />
+        </div>
       )}
     </main>
   );

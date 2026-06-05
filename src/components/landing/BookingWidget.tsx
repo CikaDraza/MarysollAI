@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { SalonRatingInline } from "@/components/salons/SalonRatingInline";
 import {
   ArrowsRightLeftIcon,
   CheckBadgeIcon,
@@ -595,6 +596,10 @@ function SlotCard({
           slot.salonName
         )}
       </p>
+
+      <div style={{ marginBottom: 6 }}>
+        <SalonRatingInline rating={slot.rating} reviewCount={slot.reviewCount} />
+      </div>
 
       {/* Meta row: price */}
       <div
