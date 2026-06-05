@@ -40,7 +40,7 @@ export default function SalonHero({
             <img
               src={salon.logo}
               alt={`${salon.name} logo`}
-              className="h-24 w-24 rounded-[8px] border border-[var(--border-1)] bg-white object-cover shadow-[var(--shadow-sm)]"
+              className="h-24 w-24 object-cover"
             />
           )}
           <div className="min-w-0">

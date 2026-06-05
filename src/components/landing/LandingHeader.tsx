@@ -1,8 +1,10 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import Logo from "./Logo";
 import { useState, useRef, useEffect } from "react";
+import { cityToSlug } from "@/lib/seo/citySlug";
 import {
   SunIcon,
   MoonIcon,
@@ -23,6 +25,7 @@ export default function LandingHeader() {
   const { closeModal } = useBookingModal();
   const { sendMessage } = useAIContext();
   const { user, logout } = useAuthActions();
+  const router = useRouter();
 
   const handleLoginRequest = () => {
     closeModal();
@@ -34,7 +37,12 @@ export default function LandingHeader() {
   const onOpenAI = () => setDrawerOpen(true);
   const onLogin = handleLoginRequest;
   const city = cityName;
-  const onCityChange = setCityByName;
+  // Manual city pick = explicit choice → mark city + route to the city's SEO
+  // landing (/bor). The /[city] page seeds it as an explicit "route" city.
+  const onCityChange = (name: string) => {
+    setCityByName(name);
+    router.push(`/${cityToSlug(name)}`);
+  };
 
   return (
     <header className="flex items-center gap-2 bg-[var(--surface)] rounded-[22px] px-[14px] py-[10px] shadow-[var(--shadow-sm)]">

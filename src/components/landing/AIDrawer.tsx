@@ -245,6 +245,7 @@ export default function AIDrawer() {
   };
 
   const isSendEnabled = !!input.trim() && !isStreaming;
+  const hasNoConversation = displayItems.length === 0 && !isStreaming;
 
   return (
     <>
@@ -270,36 +271,72 @@ export default function AIDrawer() {
               "linear-gradient(180deg, var(--surface-2) 0%, var(--surface) 100%)",
           }}
         >
-          <div className="flex items-center gap-2.5 flex-1">
-            <div className="w-9 h-9 rounded-full overflow-hidden flex-shrink-0">
-              <Image
-                src={activeInfo.avatar}
-                alt={activeInfo.name}
-                width={36}
-                height={36}
-                className="object-cover"
-              />
-            </div>
-            <div>
-              <div className="font-bold text-sm text-[var(--fg-1)] transition-colors duration-200">
-                {activeInfo.name}
+          {hasNoConversation ? (
+            <div className="flex items-center gap-2.5 flex-1">
+              <div className="flex items-center flex-shrink-0">
+                <div className="w-9 h-9 rounded-full overflow-hidden ring-2 ring-[var(--surface)] relative z-10">
+                  <Image
+                    src={AGENT_INFO.maria.avatar}
+                    alt="Maria"
+                    width={36}
+                    height={36}
+                    className="object-cover"
+                  />
+                </div>
+                <div className="w-9 h-9 rounded-full overflow-hidden ring-2 ring-[var(--surface)] -ml-3">
+                  <Image
+                    src={AGENT_INFO.claudia.avatar}
+                    alt="Claudia"
+                    width={36}
+                    height={36}
+                    className="object-cover"
+                  />
+                </div>
               </div>
-              <div
-                className="font-medium text-xs transition-colors duration-200"
-                style={{
-                  color: isStreaming
-                    ? "var(--secondary-color)"
-                    : "var(--success)",
-                }}
-              >
-                {activeAgent === "claudia"
-                  ? "Specijalista za zakazivanje"
-                  : "AI asistent"}
-                {" · "}
-                {isStreaming ? "kuca..." : "online"}
+              <div>
+                <div className="font-bold text-sm text-[var(--fg-1)]">
+                  Maria i Claudia
+                </div>
+                <div
+                  className="font-medium text-xs"
+                  style={{ color: "var(--success)" }}
+                >
+                  AI asistenti · online
+                </div>
               </div>
             </div>
-          </div>
+          ) : (
+            <div className="flex items-center gap-2.5 flex-1">
+              <div className="w-9 h-9 rounded-full overflow-hidden flex-shrink-0">
+                <Image
+                  src={activeInfo.avatar}
+                  alt={activeInfo.name}
+                  width={36}
+                  height={36}
+                  className="object-cover"
+                />
+              </div>
+              <div>
+                <div className="font-bold text-sm text-[var(--fg-1)] transition-colors duration-200">
+                  {activeInfo.name}
+                </div>
+                <div
+                  className="font-medium text-xs transition-colors duration-200"
+                  style={{
+                    color: isStreaming
+                      ? "var(--secondary-color)"
+                      : "var(--success)",
+                  }}
+                >
+                  {activeAgent === "claudia"
+                    ? "Specijalista za zakazivanje"
+                    : "AI asistent"}
+                  {" · "}
+                  {isStreaming ? "kuca..." : "online"}
+                </div>
+              </div>
+            </div>
+          )}
 
           <div className="flex items-center gap-1">
             <HistoryDropdown

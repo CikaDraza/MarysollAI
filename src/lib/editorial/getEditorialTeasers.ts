@@ -1,6 +1,20 @@
-import type { BlogTeaserCard, BlogTeaserSection } from "@/types/editorial";
+import type {
+  BlogTeaserCard,
+  BlogTeaserCategory,
+  BlogTeaserSection,
+} from "@/types/editorial";
+import type { CategorySlug } from "@/lib/intent/categoryMap";
 
 const MAX_HOMEPAGE_TEASERS = 3;
+
+/** Category slug → editorial teaser category label. */
+const SLUG_TO_TEASER_CATEGORY: Partial<Record<CategorySlug, BlogTeaserCategory>> =
+  {
+    hair: "Hair",
+    nails: "Nails",
+    makeup: "Makeup",
+    massage: "Massage",
+  };
 
 const editorialTeasers: BlogTeaserCard[] = [
   {
@@ -168,6 +182,37 @@ export function getHomepageEditorialTeaserSection(): BlogTeaserSection {
     title: "Beauty trendovi",
     subtitle:
       "Malo inspiracije pre pretrage termina: trendovi, popularni tretmani i saveti salona.",
+    showMoreHref: "/blog",
+    showMoreLabel: "Pogledaj više",
+    items,
+  };
+}
+
+/**
+ * Category-filtered teasers for a /[city]/[categorySlug] page. Leads with the
+ * matching category, pads with general Marysoll posts up to 3. Returns null when
+ * nothing relevant exists (caller falls back to the homepage section).
+ */
+export function getCategoryEditorialTeaserSection(
+  slug: CategorySlug,
+): BlogTeaserSection | null {
+  const label = SLUG_TO_TEASER_CATEGORY[slug];
+  const clientTeasers = editorialTeasers.filter(
+    (item) => item.audience === "client",
+  );
+
+  const matched = label
+    ? clientTeasers.filter((item) => item.category === label)
+    : [];
+  const general = clientTeasers.filter(
+    (item) => item.category === "Marysoll" && !matched.includes(item),
+  );
+  const items = [...matched, ...general].slice(0, MAX_HOMEPAGE_TEASERS);
+  if (items.length === 0) return null;
+
+  return {
+    title: "Beauty saveti i trendovi",
+    subtitle: "Inspiracija pre rezervacije termina.",
     showMoreHref: "/blog",
     showMoreLabel: "Pogledaj više",
     items,

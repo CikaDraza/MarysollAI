@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import { useRouter, usePathname } from "next/navigation";
 import toast from "react-hot-toast";
 import {
   MagnifyingGlassIcon,
@@ -15,6 +16,8 @@ import { useSearchContext } from "@/context/landing/SearchContext";
 import { useWorkspace } from "@/context/landing/WorkspaceContext";
 import { SERBIAN_CITIES } from "@/lib/cities";
 import { normalizeSearchIntent } from "@/lib/search/normalizeSearchIntent";
+import { buildSearchRoute, composeRoute } from "@/lib/search/buildSearchRoute";
+import { cityLocative } from "@/lib/seo/cityGrammar";
 import TrustRow from "./TrustRow";
 
 export interface SearchParams {
@@ -96,9 +99,24 @@ function todayStr(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-export default function Hero() {
+function tomorrowStr(): string {
+  const d = new Date();
+  d.setDate(d.getDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
+
+export interface HeroCopy {
+  eyebrow?: string;
+  title?: string;
+  subtitle?: string;
+}
+
+export default function Hero({ eyebrow, title, subtitle }: HeroCopy = {}) {
   const { setDrawerOpen } = useLandingUI();
-  const { cityName, setCity, geoLoading, requestGpsLocation } = useCityContext();
+  const { cityName, setCity, geoLoading, requestGpsLocation, geoSource } =
+    useCityContext();
+  const router = useRouter();
+  const pathname = usePathname();
   const {
     setCategory,
     setDateFilter,
@@ -115,6 +133,9 @@ export default function Hero() {
   const { dismissWorkspace } = useWorkspace();
 
   const defaultCity = cityName;
+  // Show the city in the hero H1 only for an explicitly-chosen city
+  // (manual / route / search). Auto-GPS/saved stays the neutral hero.
+  const showCityInHero = geoSource === "explicit" && Boolean(cityName);
   const onOpenAI = () => setDrawerOpen(true);
   const onSearch = useCallback(
     (params: SearchParams) => {
@@ -179,6 +200,23 @@ export default function Hero() {
     setInterp(null);
     setIntentBadge(null);
 
+    // Intent routing: a query that names (or contextually implies) a city
+    // navigates to its SEO-canonical route. Only an explicitly-chosen city
+    // (manual/route/search) acts as context — auto/GPS never drives routing.
+    // The route is the single source of truth: a new city/category must change
+    // the URL, never just client state.
+    const contextCity = geoSource === "explicit" ? cityName : undefined;
+    const currentSearch =
+      typeof window !== "undefined" ? window.location.search : "";
+    const currentTarget = `${pathname}${currentSearch}`;
+
+    const localRoute = buildSearchRoute(q, contextCity);
+    if (localRoute && localRoute.path !== currentTarget) {
+      router.push(localRoute.path);
+      setLoading(false);
+      return;
+    }
+
     try {
       const res = await fetch(`/api/search/intent?q=${encodeURIComponent(q)}`);
       if (!res.ok) throw new Error(`intent ${res.status}`);
@@ -199,6 +237,27 @@ export default function Hero() {
         if (intent.timeRange.to) {
           timeWindowEnd = parseInt(intent.timeRange.to.split(":")[0], 10);
         }
+      }
+
+      // The AI may resolve a city the local parser missed. If that yields a
+      // different canonical route, navigate instead of mutating client state —
+      // so URL/metadata/canonical/H1 never drift from the visible results.
+      const apiRoute = composeRoute(
+        {
+          city: intent.city,
+          category: intent.categoryKey,
+          date: intent.date === tomorrowStr() ? "tomorrow" : null,
+          afterHour:
+            intent.timeRange.from && !intent.timeRange.to
+              ? parseInt(intent.timeRange.from.split(":")[0], 10)
+              : null,
+        },
+        contextCity,
+      );
+      if (apiRoute && apiRoute.path !== currentTarget) {
+        router.push(apiRoute.path);
+        setLoading(false);
+        return;
       }
 
       onSearch({
@@ -234,7 +293,18 @@ export default function Hero() {
     } finally {
       setLoading(false);
     }
-  }, [value, loading, defaultCity, onSearch, resetSearchFilters, setSearchQuery]);
+  }, [
+    value,
+    loading,
+    defaultCity,
+    onSearch,
+    resetSearchFilters,
+    setSearchQuery,
+    geoSource,
+    cityName,
+    pathname,
+    router,
+  ]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") void submit();
@@ -347,7 +417,7 @@ export default function Hero() {
               margin: "0 0 14px",
             }}
           >
-            Marysoll · Novi Sad · Beograd · Niš · Bor
+            {eyebrow ?? "Marysoll · Novi Sad · Beograd · Niš · Bor"}
           </p>
 
           <h1
@@ -361,18 +431,24 @@ export default function Hero() {
               color: "var(--fg-1)",
             }}
           >
-            Slobodni termini
-            <br />u salonima{" "}
-            <span
-              style={{
-                fontFamily: "var(--heading-font)",
-                fontWeight: 400,
-                color: "var(--secondary-color)",
-                paddingLeft: 8,
-              }}
-            >
-              danas
-            </span>
+            {title ? (
+              title
+            ) : (
+              <>
+                Slobodni termini
+                <br />u {showCityInHero ? cityLocative(cityName) : "salonima"}{" "}
+                <span
+                  style={{
+                    fontFamily: "var(--heading-font)",
+                    fontWeight: 400,
+                    color: "var(--secondary-color)",
+                    paddingLeft: 8,
+                  }}
+                >
+                  danas
+                </span>
+              </>
+            )}
           </h1>
 
           <p
@@ -386,8 +462,8 @@ export default function Hero() {
               maxWidth: 580,
             }}
           >
-            Pronađi masažu, tretman ili šišanje u svom gradu i rezerviši odmah —
-            bez poziva, bez čekanja.
+            {subtitle ??
+              "Pronađi masažu, tretman ili šišanje u svom gradu i rezerviši odmah — bez poziva, bez čekanja."}
           </p>
           <div className="mb-16">
             <TrustRow />

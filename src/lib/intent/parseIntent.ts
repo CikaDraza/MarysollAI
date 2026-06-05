@@ -5,6 +5,7 @@
  * Pipeline: strip diacritics → detect city → detect category → detect datetime
  */
 import { SERBIAN_CITIES } from "@/lib/cities";
+import { cityLocative } from "@/lib/seo/cityGrammar";
 import { CATEGORY_MAP, type CategorySlug } from "./categoryMap";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -39,12 +40,21 @@ export function stripDiacritics(s: string): string {
 // ── City ──────────────────────────────────────────────────────────────────────
 
 function detectCity(norm: string): string | null {
-  // Sort by name length descending — "Sremska Mitrovica" before "Sremska"
-  const sorted = [...SERBIAN_CITIES].sort((a, b) => b.name.length - a.name.length);
-  for (const city of sorted) {
-    if (norm.includes(stripDiacritics(city.name))) {
-      return city.name.toLowerCase();
+  // Match nominative AND locative forms ("Kruševac" + "u Kruševcu", "Novi Sad"
+  // + "u Novom Sadu"), because users type the declined form after "u". Longest
+  // form first so "Sremska Mitrovica" beats "Sremska", and a multi-word locative
+  // beats a shorter city's nominative.
+  const forms: { form: string; name: string }[] = [];
+  for (const city of SERBIAN_CITIES) {
+    forms.push({ form: stripDiacritics(city.name), name: city.name });
+    const loc = cityLocative(city.name);
+    if (loc !== city.name) {
+      forms.push({ form: stripDiacritics(loc), name: city.name });
     }
+  }
+  forms.sort((a, b) => b.form.length - a.form.length);
+  for (const { form, name } of forms) {
+    if (form && norm.includes(form)) return name.toLowerCase();
   }
   return null;
 }

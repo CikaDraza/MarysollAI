@@ -15,9 +15,26 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+const SITE_URL =
+  process.env.NEXT_PUBLIC_SITE_URL ?? "https://booking.marysoll.com";
+
 export const metadata: Metadata = {
-  title: "Marysoll Assistant AI",
-  description: "AI Generation web app",
+  metadataBase: new URL(SITE_URL),
+  title: {
+    default: "Marysoll Booking — slobodni termini u salonima lepote",
+    template: "%s | Marysoll Booking",
+  },
+  description:
+    "Pronađi i rezerviši slobodne termine u salonima lepote i velnesa širom Srbije — frizeri, manikir, masaža, šminkanje i drugi beauty tretmani. Online, bez poziva i čekanja.",
+  openGraph: {
+    siteName: "Marysoll Booking",
+    type: "website",
+    locale: "sr_RS",
+    url: SITE_URL,
+  },
+  twitter: {
+    card: "summary_large_image",
+  },
 };
 
 export default function RootLayout({
@@ -26,12 +43,15 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" data-scroll-behavior="smooth">
+    <html lang="sr" data-scroll-behavior="smooth">
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
         <QueryProvider>
-          <Toaster position="top-center" containerStyle={{ zIndex: 9999, top: 72 }} />
+          <Toaster
+            position="top-center"
+            containerStyle={{ zIndex: 9999, top: 72 }}
+          />
           <LayoutWithSidebar>{children}</LayoutWithSidebar>
         </QueryProvider>
       </body>

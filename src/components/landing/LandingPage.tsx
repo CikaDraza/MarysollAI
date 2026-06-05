@@ -5,9 +5,9 @@ import { CheckIcon, XMarkIcon } from "@heroicons/react/24/outline";
 import { AnimatePresence, motion } from "framer-motion";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState, type ReactNode } from "react";
 import LandingHeader from "./LandingHeader";
-import Hero from "./Hero";
+import Hero, { type HeroCopy } from "./Hero";
 import QuickAccess from "./QuickAccess";
 import BookingWidget from "./BookingWidget";
 import BookingModal from "./BookingModal";
@@ -19,12 +19,13 @@ import HomepagePreloader from "./HomepagePreloader";
 import SearchDebugPanel from "./SearchDebugPanel";
 import EditorialTeaserSection from "@/components/editorial/EditorialTeaserSection";
 import { getHomepageEditorialTeaserSection } from "@/lib/editorial/getEditorialTeasers";
+import type { BlogTeaserSection } from "@/types/editorial";
 import {
   LandingUIProvider,
   useLandingUI,
 } from "@/context/landing/LandingUIContext";
 import { CityProvider } from "@/context/landing/CityContext";
-import { FiltersProvider } from "@/context/landing/FiltersContext";
+import { FiltersProvider, useFilters } from "@/context/landing/FiltersContext";
 import { BookingModalProvider } from "@/context/landing/BookingModalContext";
 import { useBookingModal } from "@/context/landing/BookingModalContext";
 import {
@@ -46,11 +47,19 @@ const homepageEditorialTeasers = getHomepageEditorialTeaserSection();
 interface Props {
   initialCity?: string;
   initialCategory?: string;
+  heroCopy?: HeroCopy;
+  /** Server-rendered SEO content (salon cards, intro, empty-state) for route pages. */
+  seoSlot?: ReactNode;
+  /** Overrides the homepage editorial teasers (e.g. category-filtered on route pages). */
+  editorialTeasers?: BlogTeaserSection;
 }
 
 export default function LandingPage({
   initialCity = "",
   initialCategory = "",
+  heroCopy,
+  seoSlot,
+  editorialTeasers,
 }: Props) {
   return (
     <LandingUIProvider>
@@ -61,7 +70,11 @@ export default function LandingPage({
               <AIProvider>
                 <LandingAgentBridge>
                   <WorkspaceProvider>
-                    <LandingPageContent />
+                    <LandingPageContent
+                      heroCopy={heroCopy}
+                      seoSlot={seoSlot}
+                      editorialTeasers={editorialTeasers}
+                    />
                   </WorkspaceProvider>
                 </LandingAgentBridge>
               </AIProvider>
@@ -78,7 +91,15 @@ function LandingAgentBridge({ children }: { children: React.ReactNode }) {
   return <AgentBridge claudiaAskAI={invokeClaudia}>{children}</AgentBridge>;
 }
 
-function LandingPageContent() {
+function LandingPageContent({
+  heroCopy,
+  seoSlot,
+  editorialTeasers,
+}: {
+  heroCopy?: HeroCopy;
+  seoSlot?: ReactNode;
+  editorialTeasers?: BlogTeaserSection;
+}) {
   const { drawerOpen, setDrawerOpen } = useLandingUI();
   const { activeBlock } = useWorkspace();
   const lastAutoClosedBlockId = useRef<string | null>(null);
@@ -123,6 +144,7 @@ function LandingPageContent() {
       <HomepagePreloader />
       <Suspense fallback={null}>
         <ResumeWatchOpener />
+        <SearchParamFilterSync />
       </Suspense>
 
       {/* Phase 2.5D — dev-only ranking observability. Renders nothing in
@@ -150,7 +172,7 @@ function LandingPageContent() {
 
       <div className="h-[72px]" aria-hidden="true" />
 
-      <Hero />
+      <Hero {...heroCopy} />
       <main
         style={{
           maxWidth: 1240,
@@ -162,8 +184,11 @@ function LandingPageContent() {
         <WorkspaceSection />
 
         <BookingWidget />
+        {seoSlot}
         <NotifyMeWidget />
-        <EditorialTeaserSection {...homepageEditorialTeasers} />
+        <EditorialTeaserSection
+          {...(editorialTeasers ?? homepageEditorialTeasers)}
+        />
       </main>
       <div className="max-w-7xl mx-auto">
         <LandingFooter />
@@ -210,6 +235,43 @@ function LandingFooter() {
       </div>
     </footer>
   );
+}
+
+/**
+ * Applies SEO route filters (?date=tomorrow&after=14) to the in-page filters so
+ * a routed search actually narrows the results. These URLs are noindex +
+ * canonical to the base path (handled in generateMetadata).
+ */
+function SearchParamFilterSync() {
+  const searchParams = useSearchParams();
+  const { setDateFilter, setTimeWindowStart, setTimeWindowEnd } = useFilters();
+  const appliedRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const date = searchParams.get("date");
+    const after = searchParams.get("after");
+    const key = `${date ?? ""}|${after ?? ""}`;
+    if (appliedRef.current === key) return;
+    appliedRef.current = key;
+
+    if (date === "tomorrow") {
+      const d = new Date();
+      d.setDate(d.getDate() + 1);
+      setDateFilter(d.toISOString().slice(0, 10));
+    } else if (date === "today") {
+      setDateFilter(new Date().toISOString().slice(0, 10));
+    }
+
+    if (after != null) {
+      const hour = Number(after);
+      if (Number.isFinite(hour) && hour >= 0 && hour <= 23) {
+        setTimeWindowStart(hour);
+        setTimeWindowEnd(undefined);
+      }
+    }
+  }, [searchParams, setDateFilter, setTimeWindowStart, setTimeWindowEnd]);
+
+  return null;
 }
 
 function ResumeWatchOpener() {
