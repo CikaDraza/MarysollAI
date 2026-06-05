@@ -1,10 +1,10 @@
 "use client";
 
-// Compact salon rating for dense slot cards / search results. Shows
-// "⭐ 4.9 · 23 ocene" only when a real rating exists; renders nothing otherwise
-// (no "Novo" badge here — that lives on the prominent SEO/profile cards, so
-// dense slot lists stay clean and never look mislabeled).
+// Trust row for dense slot cards / search results. Every card shows the
+// "✓ Marysoll verifikovan" badge; when a real rating exists it sits in front,
+// with the two ends justified apart.
 import { StarIcon } from "@heroicons/react/24/solid";
+import { CheckIcon } from "@heroicons/react/16/solid";
 import { oceneWord } from "@/lib/seo/serbianText";
 
 export function SalonRatingInline({
@@ -16,16 +16,24 @@ export function SalonRatingInline({
   reviewCount?: number;
   className?: string;
 }) {
-  if (rating == null || (reviewCount ?? 0) < 1) return null;
+  const hasRating = rating != null && (reviewCount ?? 0) >= 1;
 
   return (
     <span
-      className={`inline-flex items-center gap-1 text-[11px] font-bold ${className}`}
+      className={`flex w-full items-center justify-between gap-2 ${className}`}
     >
-      <StarIcon className="h-3 w-3 text-yellow-400" />
-      <span style={{ color: "var(--fg-2)" }}>{rating.toFixed(1)}</span>
-      <span className="font-semibold" style={{ color: "var(--fg-3)" }}>
-        · {reviewCount} {oceneWord(reviewCount!)}
+      {hasRating && (
+        <span className="inline-flex items-center gap-1 text-[11px] font-bold">
+          <StarIcon className="h-3 w-3 text-yellow-400" />
+          <span style={{ color: "var(--fg-2)" }}>{rating!.toFixed(1)}</span>
+          <span className="font-semibold" style={{ color: "var(--fg-3)" }}>
+            · {reviewCount} {oceneWord(reviewCount!)}
+          </span>
+        </span>
+      )}
+      <span className="inline-flex items-center gap-0.5 whitespace-nowrap text-[10px] font-bold text-[var(--secondary-color)]">
+        <CheckIcon className="h-3 w-3" />
+        Marysoll verifikovan
       </span>
     </span>
   );

@@ -36,6 +36,8 @@ const CITY_LOCATIVE: Record<string, string> = {
   Jagodina: "Jagodini",
   Prokuplje: "Prokuplju",
   Vrbas: "Vrbasu",
+  // Nationwide pseudo-city for the /svi-gradovi pages.
+  Srbija: "Srbiji",
 };
 
 /** Returns the locative form of a city ("Bor" → "Boru"), or the input when unknown. */

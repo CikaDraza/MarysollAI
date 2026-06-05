@@ -2,7 +2,6 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { SalonRatingInline } from "@/components/salons/SalonRatingInline";
 import {
   ArrowsRightLeftIcon,
   ClockIcon,
@@ -15,6 +14,8 @@ import {
   type CategorySlug,
 } from "@/lib/intent/categoryMap";
 import { stripDiacritics } from "@/lib/intent/parseIntent";
+import { cityToSlug, ALL_CITIES_SLUG } from "@/lib/seo/citySlug";
+import { categoryToUrlSlug } from "@/lib/seo/categoryUrlSlug";
 import { useSalons } from "@/hooks/useSalons";
 import { useCityContext } from "@/context/landing/CityContext";
 import { useFilters } from "@/context/landing/FiltersContext";
@@ -205,7 +206,6 @@ export default function QuickAccess() {
     dateFilter: date,
     timeWindowStart,
     timeWindowEnd,
-    handleCategoryPick,
   } = useFilters();
   const {
     results,
@@ -283,8 +283,6 @@ export default function QuickAccess() {
     [fallbackLevel],
   );
 
-  const onCategoryPick = (slug: string) =>
-    handleCategoryPick(slug, cityName ?? "");
   const [activeServiceId, setActiveServiceId] = useState<string | null>(null);
 
   // Salons for the user's city only (if city is known)
@@ -506,6 +504,19 @@ export default function QuickAccess() {
     isQuickAccessSettled &&
     (citySalons.length > 0 || (slotsByCity?.length ?? 0) > 0);
 
+  // Category links → /{city}/{category}?date=… . Only an explicitly chosen city
+  // drives the URL (auto/GPS → "svi-gradovi"). Date follows the slot engine:
+  // "today" normally, "tomorrow" once today's slots are gone (after hours).
+  const quickAccessCitySlug =
+    geoResolved.source === "explicit" && cityName
+      ? cityToSlug(cityName)
+      : ALL_CITIES_SLUG;
+  const hasTodaySlots = displayedSlots.some(
+    (s) => s.startTime.slice(0, 10) === belgradeTodayStr(),
+  );
+  const quickAccessDate: "today" | "tomorrow" =
+    displayedSlots.length > 0 && !hasTodaySlots ? "tomorrow" : "today";
+
   return (
     <section id="quick-access" style={{ marginTop: 64 }}>
       {/* Section header */}
@@ -534,8 +545,11 @@ export default function QuickAccess() {
             color: "var(--fg-1)",
           }}
         >
-          Šta ti treba danas?
+          Pronađi uslugu i slobodan termin
         </h2>
+        <p className="text-sm text-gray-500 text-muted-foreground">
+          Rezervišite u nekoliko klikova.
+        </p>
       </div>
 
       {/* ── Slots ──────────────────────────────────────────────────────────── */}
@@ -714,12 +728,11 @@ export default function QuickAccess() {
                 <CategoryCard
                   key={grp.slug}
                   group={grp}
+                  href={`/${quickAccessCitySlug}/${categoryToUrlSlug(
+                    grp.slug as CategorySlug,
+                  )}?date=${quickAccessDate}`}
                   active={category === grp.slug}
                   activeServiceId={activeServiceId}
-                  onCategoryClick={() => {
-                    setActiveServiceId(null);
-                    onCategoryPick(category === grp.slug ? "" : grp.slug);
-                  }}
                   onServiceClick={(id) =>
                     setActiveServiceId((prev) => (prev === id ? null : id))
                   }
@@ -983,18 +996,15 @@ function SlotCard({
         )}
       </p>
 
-      <div style={{ marginBottom: 6 }}>
-        <SalonRatingInline rating={slot.rating} reviewCount={slot.reviewCount} />
-      </div>
-
-      {/* Price */}
+      {/* Price — dark, right-aligned */}
       {priceStr ? (
         <p
           style={{
             fontFamily: "var(--main-font)",
-            fontWeight: 600,
-            fontSize: 12,
-            color: "var(--secondary-color)",
+            fontWeight: 700,
+            fontSize: 13,
+            color: "var(--fg-1)",
+            textAlign: "right",
             margin: "0 0 14px",
           }}
         >
@@ -1004,9 +1014,10 @@ function SlotCard({
         <p
           style={{
             fontFamily: "var(--main-font)",
-            fontWeight: 600,
-            fontSize: 12,
-            color: "var(--secondary-color)",
+            fontWeight: 700,
+            fontSize: 13,
+            color: "var(--fg-1)",
+            textAlign: "right",
             margin: "0 0 14px",
             visibility: "hidden",
           }}
@@ -1046,15 +1057,15 @@ function SlotCard({
 
 function CategoryCard({
   group,
+  href,
   active,
   activeServiceId,
-  onCategoryClick,
   onServiceClick,
 }: {
   group: CategoryGroup;
+  href: string;
   active: boolean;
   activeServiceId: string | null;
-  onCategoryClick: () => void;
   onServiceClick: (id: string) => void;
 }) {
   return (
@@ -1067,11 +1078,12 @@ function CategoryCard({
         width: "100%",
       }}
     >
-      {/* Category badge */}
-      <button
-        onClick={onCategoryClick}
+      {/* Category badge → category page (/{city}/{category}?date=…) */}
+      <Link
+        href={href}
         style={{
           flexShrink: 0,
+          display: "inline-block",
           border: active
             ? "2px solid var(--secondary-color)"
             : "2px solid var(--border)",
@@ -1083,12 +1095,13 @@ function CategoryCard({
           fontSize: 13,
           background: active ? "var(--secondary-color)" : "var(--surface)",
           color: active ? "#fff" : "var(--fg-1)",
+          textDecoration: "none",
           transition: "all var(--dur-fast) var(--ease-out)",
           whiteSpace: "nowrap",
         }}
       >
         {group.label}
-      </button>
+      </Link>
 
       {/* Service badges */}
       {group.services.map((svc) => {

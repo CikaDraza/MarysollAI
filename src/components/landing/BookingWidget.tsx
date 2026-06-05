@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { SalonRatingInline } from "@/components/salons/SalonRatingInline";
 import {
   ArrowsRightLeftIcon,
   CheckBadgeIcon,
@@ -15,7 +14,10 @@ import { useSearchContext } from "@/context/landing/SearchContext";
 import { useFilters } from "@/context/landing/FiltersContext";
 import { useBookingModal } from "@/context/landing/BookingModalContext";
 import { formatDistance } from "@/lib/utils/distance";
-import { calculateDistanceKm, calculateTravelMinutesEstimate } from "@/lib/geo/distance";
+import {
+  calculateDistanceKm,
+  calculateTravelMinutesEstimate,
+} from "@/lib/geo/distance";
 import {
   createGoogleMapsLink,
   createGoogleMapsLinkFromAddress,
@@ -41,7 +43,8 @@ function cityGroupLabel(
 ): string {
   if (group.title) return group.title;
 
-  const isUserCity = userCity && group.city?.toLowerCase() === userCity.toLowerCase();
+  const isUserCity =
+    userCity && group.city?.toLowerCase() === userCity.toLowerCase();
   if (isUserCity) return `Slobodni termini — ${group.city}`;
   return group.city ? `Termini u blizini — ${group.city}` : "Slobodni termini";
 }
@@ -70,7 +73,12 @@ export default function BookingWidget() {
 
   const discoveryBuild = useMemo(() => {
     const hasSearchIntent = Boolean(
-      searchQuery || category || subcategoryFilter || dateFilter || timeWindowStart != null || timeWindowEnd != null,
+      searchQuery ||
+      category ||
+      subcategoryFilter ||
+      dateFilter ||
+      timeWindowStart != null ||
+      timeWindowEnd != null,
     );
     const hasGeo = distanceOrigin != null;
     const mode: BookingDiscoveryMode =
@@ -102,33 +110,36 @@ export default function BookingWidget() {
       mode,
       recoveryState,
     });
-    },
-    [
-      rankedDiscovery,
-      quickAccessPreviewIds,
-      discoveryFallback.label,
-      distanceOrigin?.lat,
-      distanceOrigin?.lng,
-      userCity,
-      geoSignals.saved?.city,
-      searchQuery,
-      category,
-      subcategoryFilter,
-      dateFilter,
-      timeWindowStart,
-      timeWindowEnd,
-      fallbackLevel,
-      recoveryState,
-    ],
-  );
+  }, [
+    rankedDiscovery,
+    quickAccessPreviewIds,
+    discoveryFallback.label,
+    distanceOrigin?.lat,
+    distanceOrigin?.lng,
+    userCity,
+    geoSignals.saved?.city,
+    searchQuery,
+    category,
+    subcategoryFilter,
+    dateFilter,
+    timeWindowStart,
+    timeWindowEnd,
+    fallbackLevel,
+    recoveryState,
+  ]);
   const discoveryGroups = discoveryBuild.groups;
   const bookingWidgetDebug = discoveryBuild.debug;
   const hasAny = discoveryGroups.some((g) => g.slots.length > 0);
   const hasSearchIntent = Boolean(
-    searchQuery || category || subcategoryFilter || dateFilter || timeWindowStart != null || timeWindowEnd != null,
+    searchQuery ||
+    category ||
+    subcategoryFilter ||
+    dateFilter ||
+    timeWindowStart != null ||
+    timeWindowEnd != null,
   );
   const categoryLabel = category
-    ? SLUG_TO_CANONICAL[category as CategorySlug] ?? category
+    ? (SLUG_TO_CANONICAL[category as CategorySlug] ?? category)
     : undefined;
   const recognizedServiceLabel = categoryLabel
     ? subcategoryFilter || categoryLabel
@@ -176,7 +187,15 @@ export default function BookingWidget() {
     if (fallbackLevel >= 5) return "Prikazujemo termine iz popularnih gradova.";
     if (fallbackLevel >= 4) return "Prikazujemo termine iz gradova u blizini.";
     return null;
-  }, [hasAny, loading, discoveryGroups, userCity, fallbackLevel, recoveryCopy?.title, recoveryState?.reason]);
+  }, [
+    hasAny,
+    loading,
+    discoveryGroups,
+    userCity,
+    fallbackLevel,
+    recoveryCopy?.title,
+    recoveryState?.reason,
+  ]);
 
   return (
     <section id="booking-widget" style={{ marginTop: 56 }}>
@@ -205,7 +224,7 @@ export default function BookingWidget() {
             color: "var(--fg-1)",
           }}
         >
-          Zakaži odmah
+          Slobodni termini za rezervaciju
         </h2>
         {subtitle && (
           <p
@@ -359,7 +378,12 @@ function SlotCard({
   const isSynthetic = slot.isSynthetic;
   const gpsDistanceKm =
     userLocation && slot.salonLat != null && slot.salonLng != null
-      ? calculateDistanceKm(userLocation.lat, userLocation.lng, slot.salonLat, slot.salonLng)
+      ? calculateDistanceKm(
+          userLocation.lat,
+          userLocation.lng,
+          slot.salonLat,
+          slot.salonLng,
+        )
       : undefined;
   const displayDistanceKm =
     gpsDistanceKm != null && Number.isFinite(gpsDistanceKm)
@@ -596,10 +620,6 @@ function SlotCard({
           slot.salonName
         )}
       </p>
-
-      <div style={{ marginBottom: 6 }}>
-        <SalonRatingInline rating={slot.rating} reviewCount={slot.reviewCount} />
-      </div>
 
       {/* Meta row: price */}
       <div

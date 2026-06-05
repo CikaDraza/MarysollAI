@@ -13,6 +13,7 @@ import {
 import { StarIcon } from "@heroicons/react/24/solid";
 import type { SalonPreview } from "@/types/salon-preview";
 import { utisakWord } from "@/lib/seo/serbianText";
+import { CheckIcon } from "@heroicons/react/16/solid";
 
 interface Props {
   salon: SalonPreview;
@@ -84,8 +85,8 @@ export default function SalonHero({
               </Link>
             ) : (
               <span className="mt-4 inline-flex items-center gap-1.5 rounded-full bg-[var(--surface-2)] px-3 py-1.5 text-sm font-bold text-[var(--secondary-color)]">
-                <SparklesIcon className="h-4 w-4" />
-                Novo na Marysoll
+                <CheckIcon className="h-4 w-4" />
+                Marysoll verifikovan
               </span>
             )}
 

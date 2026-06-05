@@ -9,6 +9,15 @@
 import { SERBIAN_CITIES } from "@/lib/cities";
 import { stripDiacritics } from "@/lib/intent/parseIntent";
 
+/** Pseudo-city slug meaning "all cities" (nationwide), e.g. /svi-gradovi/frizura. */
+export const ALL_CITIES_SLUG = "svi-gradovi";
+/** Display label used for the all-cities pages ("u Srbiji"). */
+export const ALL_CITIES_LABEL = "Srbija";
+
+export function isAllCitiesSlug(slug: string): boolean {
+  return slug === ALL_CITIES_SLUG;
+}
+
 /** "Novi Sad" → "novi-sad", "Niš" → "nis", "Sremska Mitrovica" → "sremska-mitrovica". */
 export function cityToSlug(name: string): string {
   return stripDiacritics(name).replace(/\s+/g, "-");

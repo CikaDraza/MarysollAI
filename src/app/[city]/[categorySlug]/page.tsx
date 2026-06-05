@@ -10,7 +10,11 @@ import {
   getCategoryIndexability,
   getCategoryPageData,
 } from "@/lib/seo/indexability";
-import { citySlugToName } from "@/lib/seo/citySlug";
+import {
+  citySlugToName,
+  isAllCitiesSlug,
+  ALL_CITIES_LABEL,
+} from "@/lib/seo/citySlug";
 import { getCategoryEditorialTeaserSection } from "@/lib/editorial/getEditorialTeasers";
 import { ensureCityCatalog } from "@/lib/cities-runtime";
 import { SITE_URL } from "@/lib/seo/constants";
@@ -41,7 +45,8 @@ export async function generateMetadata({
   const sp = await searchParams;
 
   await ensureCityCatalog().catch(() => {});
-  const cityLabel = citySlugToName(city);
+  const allCities = isAllCitiesSlug(city);
+  const cityLabel = allCities ? ALL_CITIES_LABEL : citySlugToName(city);
   const slug = resolveCategoryUrlSlug(categorySlug);
 
   if (!cityLabel || !slug) {
@@ -57,7 +62,10 @@ export async function generateMetadata({
   if (isFiltered(sp)) {
     index = false;
   } else {
-    const { directive } = await getCategoryIndexability(cityLabel, slug);
+    const { directive } = await getCategoryIndexability(
+      allCities ? null : cityLabel,
+      slug,
+    );
     index = directive === "index";
   }
 
@@ -85,7 +93,8 @@ export default async function CategoryPage({
   const { city, categorySlug } = await params;
 
   await ensureCityCatalog().catch(() => {});
-  const cityLabel = citySlugToName(city);
+  const allCities = isAllCitiesSlug(city);
+  const cityLabel = allCities ? ALL_CITIES_LABEL : citySlugToName(city);
   const slug = resolveCategoryUrlSlug(categorySlug);
 
   if (!cityLabel || !slug) {
@@ -93,13 +102,14 @@ export default async function CategoryPage({
   }
 
   const heroCopy = getCategoryCopy(cityLabel, slug);
-  const data = await getCategoryPageData(cityLabel, slug);
+  const data = await getCategoryPageData(allCities ? null : cityLabel, slug);
   const editorialTeasers =
     getCategoryEditorialTeaserSection(slug) ?? undefined;
 
   return (
     <LandingPage
-      initialCity={cityLabel}
+      // All-cities page seeds no city so the slot engine searches nationwide.
+      initialCity={allCities ? "" : cityLabel}
       initialCategory={slug}
       heroCopy={heroCopy}
       editorialTeasers={editorialTeasers}

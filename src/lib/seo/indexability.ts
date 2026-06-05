@@ -22,7 +22,7 @@ import {
 } from "@/lib/intent/categoryMap";
 import { canonicalCity } from "@/lib/geo/canonicalCity";
 import { todayInBelgrade, tomorrowInBelgrade } from "@/lib/search/normalizeSearch";
-import { cityToSlug } from "@/lib/seo/citySlug";
+import { cityToSlug, ALL_CITIES_SLUG } from "@/lib/seo/citySlug";
 import { categoryToUrlSlug } from "@/lib/seo/categoryUrlSlug";
 import { fetchSalonStats } from "@/lib/seo/salonStats";
 import { getOverride, type IndexDirective } from "@/lib/seo/seoOverrides";
@@ -221,12 +221,12 @@ export interface CategoryPageData {
   laterSlots: LaterSlot[];
 }
 
-/** Server data for a /[city]/[categorySlug] page — salon cards + discovery modules. */
+/** Server data for a /[city]/[categorySlug] page — salon cards + discovery modules. `cityName` null = all cities. */
 export async function getCategoryPageData(
-  cityName: string,
+  cityName: string | null,
   slug: CategorySlug,
 ): Promise<CategoryPageData> {
-  const salons = await loadSalons({ city: cityName });
+  const salons = await loadSalons(cityName ? { city: cityName } : { limit: 200 });
   const passing = salons.filter((s) => passesContentThreshold(s, slug));
   const cards = passing
     .map((s) => toSalonCard(s, slug))
@@ -249,10 +249,10 @@ export async function getCategoryPageData(
     .slice(0, 5);
 
   const tenantBySlug = tenantBySlugMap(salons);
-  const enrichedSalons = await attachRatings(
-    cards.slice(0, RATING_ENRICH_LIMIT),
-    tenantBySlug,
-  );
+  const [enrichedSalons, enrichedMoreSalons] = await Promise.all([
+    attachRatings(cards.slice(0, RATING_ENRICH_LIMIT), tenantBySlug),
+    attachRatings(moreSalons, tenantBySlug),
+  ]);
 
   return {
     indexable: cards.length > 0,
@@ -261,7 +261,7 @@ export async function getCategoryPageData(
     slotCount: passing.reduce((acc, s) => acc + s.nextSlots.length, 0),
     salons: enrichedSalons,
     relatedCategories: availableCategories(salons).filter((c) => c.slug !== slug),
-    moreSalons,
+    moreSalons: enrichedMoreSalons,
     laterSlots: buildLaterSlots(passing),
   };
 }
@@ -311,15 +311,16 @@ export interface CategoryIndexability {
   hasSlot: boolean;
 }
 
-/** Single-page indexability — used by `generateMetadata`. `cityName` is the display name. */
+/** Single-page indexability — used by `generateMetadata`. `cityName` null = all cities. */
 export async function getCategoryIndexability(
-  cityName: string,
+  cityName: string | null,
   slug: CategorySlug,
 ): Promise<CategoryIndexability> {
-  const salons = await loadSalons({ city: cityName });
+  const salons = await loadSalons(cityName ? { city: cityName } : { limit: 200 });
   const passing = salons.filter((s) => passesContentThreshold(s, slug));
   const indexable = passing.length > 0;
-  const path = `/${cityToSlug(cityName)}/${categoryToUrlSlug(slug)}`;
+  const citySlug = cityName ? cityToSlug(cityName) : ALL_CITIES_SLUG;
+  const path = `/${citySlug}/${categoryToUrlSlug(slug)}`;
   const directive: IndexDirective =
     getOverride(path) ?? (indexable ? "index" : "noindex");
   return {
