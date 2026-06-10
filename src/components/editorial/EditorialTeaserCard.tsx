@@ -1,7 +1,7 @@
 import { ArrowUpRightIcon } from "@heroicons/react/24/outline";
 import type { BlogTeaserCard as BlogTeaserCardType } from "@/types/editorial";
 
-const categoryStyles: Record<BlogTeaserCardType["category"], string> = {
+const categoryStyles: Record<string, string> = {
   Makeup: "bg-rose-50 text-rose-700 ring-rose-100",
   Nails: "bg-fuchsia-50 text-fuchsia-700 ring-fuchsia-100",
   Hair: "bg-amber-50 text-amber-800 ring-amber-100",
@@ -13,6 +13,9 @@ const categoryStyles: Record<BlogTeaserCardType["category"], string> = {
   "AI marketing": "bg-violet-50 text-violet-700 ring-violet-100",
   "Online zakazivanje": "bg-cyan-50 text-cyan-700 ring-cyan-100",
 };
+
+// Fallback for free-form platform categories (e.g. "Beauty", "Growth").
+const DEFAULT_CATEGORY_STYLE = "bg-slate-50 text-slate-700 ring-slate-100";
 
 interface Props {
   item: BlogTeaserCardType;
@@ -43,7 +46,7 @@ export default function EditorialTeaserCard({ item }: Props) {
 
       <div className="flex flex-wrap items-center gap-2">
         <span
-          className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-bold uppercase ring-1 ${categoryStyles[item.category]}`}
+          className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-bold uppercase ring-1 ${categoryStyles[item.category] ?? DEFAULT_CATEGORY_STYLE}`}
         >
           {item.category}
         </span>

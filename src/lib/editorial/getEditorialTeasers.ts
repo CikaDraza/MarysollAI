@@ -18,38 +18,12 @@ const SLUG_TO_TEASER_CATEGORY: Partial<Record<CategorySlug, BlogTeaserCategory>>
   };
 
 /**
- * Curated, externally-hosted salon (tenant) posts. These link to real salon
- * blogs and are kept regardless of the database.
- *
- * Platform articles are intentionally NOT hardcoded here — they come from
- * published campaigns in the database (see getCampaignTeasers / getEditorialSections),
- * so anything published on the platform shows up automatically instead of as a
- * placeholder.
+ * Curated, hardcoded salon teasers. Now empty: every editorial post (platform
+ * and tenant) is sourced dynamically from published campaigns in the database
+ * (see getCampaignTeasers / getEditorialSections), so nothing needs to be
+ * hand-maintained here. Kept as a hook in case a curated card is ever needed.
  */
-const staticTenantTeasers: BlogTeaserCard[] = [
-  {
-    id: "trend-makeup-saveti-kikikiss",
-    audience: "client",
-    category: "Makeup",
-    title: "Ultimativni saveti za makeup koji traje celo veče",
-    excerpt:
-      "Kako pripremiti kožu, izabrati završnicu i rezervisati termin kada je dan već popunjen.",
-    sourceLabel: "Kiki Kiss Studio",
-    href: "https://kikikiss.beauty/blog/ultimativni-saveti-makeup",
-    hrefType: "tenant",
-  },
-  {
-    id: "salon-prep-nails",
-    audience: "client",
-    category: "Nails",
-    title: "Šta uraditi pre prvog gel manikira",
-    excerpt:
-      "Mali checklist pre dolaska u salon, bez kopiranja kompletnog vodiča sa salon sajta.",
-    sourceLabel: "Kiki Kiss Studio",
-    href: "https://kikikiss.beauty/blog/sta-uraditi-pre-gel-manikira",
-    hrefType: "tenant",
-  },
-];
+const staticTenantTeasers: BlogTeaserCard[] = [];
 
 export function getStaticTenantTeasers(): BlogTeaserCard[] {
   return staticTenantTeasers;

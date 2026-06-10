@@ -1,44 +1,35 @@
+import mongoose from "mongoose";
 import { cache } from "react";
 import { connectToDB } from "@/lib/db/mongodb";
 import { NewsletterCampaign } from "@/models/NewsletterCampaign";
-import type {
-  BlogTeaserAudience,
-  BlogTeaserCard,
-  BlogTeaserCategory,
-} from "@/types/editorial";
+import type { BlogTeaserAudience, BlogTeaserCard } from "@/types/editorial";
 
-// Canonical platform host. Booking is a read-only consumer: it only renders
-// teaser cards and links the full article to the platform's own landing page,
-// never re-rendering the post to avoid duplicate content. The platform owns the
-// full block schema and rendering.
+// Booking is a read-only consumer: it renders teaser cards only and links each
+// full article to wherever it is actually hosted, never re-rendering the post
+// (avoids duplicate content; the platform/tenant sites own the block rendering).
 //
-// Prefix separation (platform vs tenant):
-//   - PLATFORM blogs render at  marysoll.com/newsletter/<slug>
-//   - TENANT   blogs render at  <tenant-domain>/blog/<slug>   (e.g. kikikiss.beauty/blog/<slug>)
-// We only surface `scope: "platform"` campaigns here, so the prefix is always
-// `/newsletter/`. The platform's /newsletter/[slug] route matches `landingPage.slug`
-// exactly (audience-partner + legacy), so the link always resolves. Tenant content
-// is covered by the curated tenant teasers (full /blog/ URLs) in getEditorialTeasers.
+// Prefix separation (the rule that decides /newsletter vs /blog):
+//   - PLATFORM campaigns → marysoll.com/newsletter/<slug>
+//   - TENANT   campaigns → <tenant-domain>/blog/<slug>   (e.g. kikikiss.beauty/blog/<slug>)
+// The platform's custom-domain proxy rewrites <tenant-domain>/blog/* to its
+// internal /tenant/blogs/* route, so the tenant link resolves on the salon site.
 const PLATFORM_BASE = "https://marysoll.com";
 const PLATFORM_LANDING_PREFIX = "newsletter";
+const TENANT_BLOG_PREFIX = "blog";
+// Subdomain base for tenants without a verified custom domain (<slug>.marysoll.com).
+const BASE_DOMAIN = "marysoll.com";
 
-const KNOWN_CATEGORIES: readonly BlogTeaserCategory[] = [
-  "Makeup",
-  "Nails",
-  "Hair",
-  "Massage",
-  "Marysoll",
-  "Affiliate",
-  "Growth OS",
-  "Booking visibility",
-  "AI marketing",
-  "Online zakazivanje",
-];
+interface TenantInfo {
+  slug?: string;
+  customDomain?: string;
+  customDomainVerified?: boolean;
+  name?: string;
+}
 
 /**
- * Minimal shape we read off a lean campaign document. `.lean()` returns the raw
- * stored document including fields the platform writes but booking's slim schema
- * does not declare (audience, editorialCategory, seo, previewText), so we read
+ * Minimal shape we read off a lean campaign doc. `.lean()` returns the raw stored
+ * document including fields the platform writes but booking's slim schema does
+ * not declare (scope, audience, editorialCategory, seo, previewText), so we read
  * them defensively here rather than expanding the model.
  */
 interface CampaignLeanDoc {
@@ -46,6 +37,8 @@ interface CampaignLeanDoc {
   name?: string;
   subject?: string;
   previewText?: string;
+  scope?: string;
+  tenantId?: unknown;
   landingPage?: {
     slug?: string;
     audience?: string;
@@ -55,23 +48,14 @@ interface CampaignLeanDoc {
   };
 }
 
-function normalizeCategory(raw: string | undefined): BlogTeaserCategory {
-  if (raw && (KNOWN_CATEGORIES as readonly string[]).includes(raw)) {
-    return raw as BlogTeaserCategory;
-  }
-  return "Marysoll";
-}
-
 function normalizeAudience(raw: string | undefined): BlogTeaserAudience {
   return raw === "partner" ? "partner" : "client";
 }
 
 /**
  * Reduce a stored landing slug to a bare slug, stripping anything that would
- * collide with the platform prefix. Mirrors the platform's
- * `normalizeNewsletterLandingSlug` so booking links match the canonical route
- * whether the DB stored a bare slug, a `/blog/<slug>`, a `newsletter/<slug>`, or
- * a full URL. The platform's /newsletter/[slug] route matches the bare slug.
+ * collide with the prefix (host, leading slashes, a `blog/` or `newsletter/`
+ * segment, full URL). The render routes match the bare slug.
  */
 function normalizeLandingSlug(slug: string | undefined): string | null {
   if (!slug) return null;
@@ -82,6 +66,18 @@ function normalizeLandingSlug(slug: string | undefined): string | null {
     .replace(/^(?:blog|newsletter)\/+/i, "") // drop a leading blog/ or newsletter/ prefix
     .replace(/\/+$/, ""); // drop trailing slashes
   return cleaned || null;
+}
+
+/** Public base URL of a tenant site: verified custom domain, else <slug>.marysoll.com. */
+function tenantBaseUrl(tenant: TenantInfo | undefined): string | null {
+  if (!tenant) return null;
+  if (tenant.customDomain && tenant.customDomainVerified) {
+    return `https://${tenant.customDomain}`;
+  }
+  if (tenant.slug) {
+    return `https://${tenant.slug}.${BASE_DOMAIN}`;
+  }
+  return null;
 }
 
 /** First hero-like block (the platform leads layouts with a hero), else block 0. */
@@ -97,11 +93,32 @@ function firstHeroBlock(
   );
 }
 
-export function mapCampaignToTeaser(
+function mapCampaignToTeaser(
   doc: CampaignLeanDoc,
+  tenants: Map<string, TenantInfo>,
 ): BlogTeaserCard | null {
   const slug = normalizeLandingSlug(doc.landingPage?.slug);
   if (!slug) return null;
+
+  // Resolve the destination URL by scope. Skip tenant posts whose salon domain
+  // can't be resolved rather than emit a dead link.
+  let href: string;
+  let sourceLabel: string;
+  let hrefType: BlogTeaserCard["hrefType"];
+  if (doc.scope === "platform") {
+    href = `${PLATFORM_BASE}/${PLATFORM_LANDING_PREFIX}/${slug}`;
+    sourceLabel = "Marysoll";
+    hrefType = "platform";
+  } else {
+    const tenant = doc.tenantId
+      ? tenants.get(String(doc.tenantId))
+      : undefined;
+    const base = tenantBaseUrl(tenant);
+    if (!base) return null;
+    href = `${base}/${TENANT_BLOG_PREFIX}/${slug}`;
+    sourceLabel = tenant?.name?.trim() || "Salon";
+    hrefType = "tenant";
+  }
 
   const hero = firstHeroBlock(doc.landingPage?.layout);
   const heroTitle = typeof hero?.title === "string" ? hero.title : undefined;
@@ -122,27 +139,63 @@ export function mapCampaignToTeaser(
   return {
     id: String(doc._id),
     audience: normalizeAudience(doc.landingPage?.audience),
-    category: normalizeCategory(doc.landingPage?.editorialCategory),
+    category: doc.landingPage?.editorialCategory?.trim() || "Marysoll",
     title,
     excerpt,
     imageUrl: heroImage?.src ?? doc.landingPage?.seo?.ogImage,
     imageAlt: heroImage?.alt ?? title,
-    sourceLabel: "Marysoll",
-    href: `${PLATFORM_BASE}/${PLATFORM_LANDING_PREFIX}/${slug}`,
-    hrefType: "platform",
+    sourceLabel,
+    href,
+    hrefType,
   };
 }
 
+/** Batch-resolve salon domains for tenant campaigns (read-only on `tenants`). */
+async function loadTenants(ids: string[]): Promise<Map<string, TenantInfo>> {
+  const map = new Map<string, TenantInfo>();
+  if (ids.length === 0) return map;
+  try {
+    const db = mongoose.connection.db;
+    if (!db) return map;
+    const objectIds = ids.map((id) => new mongoose.Types.ObjectId(id));
+    const docs = await db
+      .collection("tenants")
+      .find(
+        { _id: { $in: objectIds } },
+        {
+          projection: {
+            slug: 1,
+            customDomain: 1,
+            customDomainVerified: 1,
+            name: 1,
+          },
+        },
+      )
+      .toArray();
+    for (const doc of docs) {
+      map.set(String(doc._id), {
+        slug: doc.slug,
+        customDomain: doc.customDomain,
+        customDomainVerified: doc.customDomainVerified,
+        name: doc.name,
+      });
+    }
+  } catch (error) {
+    console.error("[loadTenants] failed", error);
+  }
+  return map;
+}
+
 /**
- * Published platform landing pages, mapped to editorial teaser cards. Newest
- * first. Read-only: mirrors the same filter the campaigns API uses.
+ * Every published landing page (platform + tenant), mapped to editorial teaser
+ * cards, newest first. Platform posts link to marysoll.com/newsletter/<slug>,
+ * tenant posts to <salon-domain>/blog/<slug>.
  */
 export const getPublishedCampaignTeasers = cache(
   async (): Promise<BlogTeaserCard[]> => {
     try {
       await connectToDB();
       const campaigns = (await NewsletterCampaign.find({
-        scope: "platform",
         campaignType: "email-landing",
         "landingPage.enabled": true,
         "landingPage.status": "published",
@@ -150,8 +203,17 @@ export const getPublishedCampaignTeasers = cache(
         .sort({ updatedAt: -1 })
         .lean()) as unknown as CampaignLeanDoc[];
 
+      const tenantIds = Array.from(
+        new Set(
+          campaigns
+            .filter((c) => c.scope !== "platform" && c.tenantId)
+            .map((c) => String(c.tenantId)),
+        ),
+      );
+      const tenants = await loadTenants(tenantIds);
+
       return campaigns
-        .map(mapCampaignToTeaser)
+        .map((campaign) => mapCampaignToTeaser(campaign, tenants))
         .filter((card): card is BlogTeaserCard => card !== null);
     } catch (error) {
       console.error("[getPublishedCampaignTeasers] failed", error);

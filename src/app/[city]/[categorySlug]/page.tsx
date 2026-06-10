@@ -15,7 +15,10 @@ import {
   isAllCitiesSlug,
   ALL_CITIES_LABEL,
 } from "@/lib/seo/citySlug";
-import { getCategoryEditorialTeaserSection } from "@/lib/editorial/getEditorialSections";
+import {
+  getCategoryEditorialTeaserSection,
+  getHomepageEditorialTeaserSection,
+} from "@/lib/editorial/getEditorialSections";
 import { ensureCityCatalog } from "@/lib/cities-runtime";
 import { SITE_URL } from "@/lib/seo/constants";
 
@@ -103,8 +106,11 @@ export default async function CategoryPage({
 
   const heroCopy = getCategoryCopy(cityLabel, slug);
   const data = await getCategoryPageData(allCities ? null : cityLabel, slug);
+  // Category-specific teasers when available; otherwise fall back to the general
+  // (dynamic) homepage section so the page is never left without editorial.
   const editorialTeasers =
-    (await getCategoryEditorialTeaserSection(slug)) ?? undefined;
+    (await getCategoryEditorialTeaserSection(slug)) ??
+    (await getHomepageEditorialTeaserSection());
 
   return (
     <LandingPage
