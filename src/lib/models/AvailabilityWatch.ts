@@ -55,6 +55,9 @@ export interface IAvailabilityWatch {
   cancelledAt?: Date;
   expiresAt: Date;
   lastCheckedAt?: Date;
+  /** Earliest time this watch should be re-checked by the cron. Used to space
+   * out polling based on how far the preferredDate is. */
+  nextCheckAt?: Date;
   notifiedAt?: Date;
   createdAt?: Date;
   updatedAt?: Date;
@@ -107,10 +110,22 @@ const AvailabilityWatchSchema = new Schema<IAvailabilityWatchDoc>(
     cancelledAt: { type: Date },
     expiresAt: { type: Date, required: true, index: true },
     lastCheckedAt: { type: Date },
+    nextCheckAt: { type: Date },
     notifiedAt: { type: Date },
   },
   { timestamps: true },
 );
+
+// Compound index supporting the availability-watch cron candidate query:
+// active + not expired + due (nextCheckAt) + claimable (lock) + ordered.
+AvailabilityWatchSchema.index({
+  status: 1,
+  expiresAt: 1,
+  nextCheckAt: 1,
+  "notificationLock.lockedAt": 1,
+  lastCheckedAt: 1,
+  createdAt: 1,
+});
 
 export const AvailabilityWatch: Model<IAvailabilityWatchDoc> =
   mongoose.models.AvailabilityWatch ||
