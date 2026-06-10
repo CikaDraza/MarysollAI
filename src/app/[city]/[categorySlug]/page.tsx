@@ -15,7 +15,7 @@ import {
   isAllCitiesSlug,
   ALL_CITIES_LABEL,
 } from "@/lib/seo/citySlug";
-import { getCategoryEditorialTeaserSection } from "@/lib/editorial/getEditorialTeasers";
+import { getCategoryEditorialTeaserSection } from "@/lib/editorial/getEditorialSections";
 import { ensureCityCatalog } from "@/lib/cities-runtime";
 import { SITE_URL } from "@/lib/seo/constants";
 
@@ -104,7 +104,7 @@ export default async function CategoryPage({
   const heroCopy = getCategoryCopy(cityLabel, slug);
   const data = await getCategoryPageData(allCities ? null : cityLabel, slug);
   const editorialTeasers =
-    getCategoryEditorialTeaserSection(slug) ?? undefined;
+    (await getCategoryEditorialTeaserSection(slug)) ?? undefined;
 
   return (
     <LandingPage

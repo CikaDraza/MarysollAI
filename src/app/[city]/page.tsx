@@ -9,6 +9,7 @@ import { getCityIndexability, getCityPageData } from "@/lib/seo/indexability";
 import { citySlugToName } from "@/lib/seo/citySlug";
 import { ensureCityCatalog } from "@/lib/cities-runtime";
 import { SITE_URL } from "@/lib/seo/constants";
+import { getHomepageEditorialTeaserSection } from "@/lib/editorial/getEditorialSections";
 
 // SSR with cached salon data (unstable_cache); refresh hourly.
 export const revalidate = 3600;
@@ -73,11 +74,13 @@ export default async function CityPage({
 
   const heroCopy = getCityCopy(cityLabel);
   const data = await getCityPageData(cityLabel);
+  const editorialTeasers = await getHomepageEditorialTeaserSection();
 
   return (
     <LandingPage
       initialCity={cityLabel}
       heroCopy={heroCopy}
+      editorialTeasers={editorialTeasers}
       seoSlot={
         <CitySeoContent city={cityLabel} citySlug={city} data={data} />
       }

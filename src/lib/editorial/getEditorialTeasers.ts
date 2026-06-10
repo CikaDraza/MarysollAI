@@ -5,7 +5,8 @@ import type {
 } from "@/types/editorial";
 import type { CategorySlug } from "@/lib/intent/categoryMap";
 
-const MAX_HOMEPAGE_TEASERS = 3;
+export const MAX_HOMEPAGE_TEASERS = 6;
+export const MAX_CATEGORY_TEASERS = 3;
 
 /** Category slug → editorial teaser category label. */
 const SLUG_TO_TEASER_CATEGORY: Partial<Record<CategorySlug, BlogTeaserCategory>> =
@@ -16,7 +17,16 @@ const SLUG_TO_TEASER_CATEGORY: Partial<Record<CategorySlug, BlogTeaserCategory>>
     massage: "Massage",
   };
 
-const editorialTeasers: BlogTeaserCard[] = [
+/**
+ * Curated, externally-hosted salon (tenant) posts. These link to real salon
+ * blogs and are kept regardless of the database.
+ *
+ * Platform articles are intentionally NOT hardcoded here — they come from
+ * published campaigns in the database (see getCampaignTeasers / getEditorialSections),
+ * so anything published on the platform shows up automatically instead of as a
+ * placeholder.
+ */
+const staticTenantTeasers: BlogTeaserCard[] = [
   {
     id: "trend-makeup-saveti-kikikiss",
     audience: "client",
@@ -29,39 +39,6 @@ const editorialTeasers: BlogTeaserCard[] = [
     hrefType: "tenant",
   },
   {
-    id: "trend-nails-prolecni-oblici",
-    audience: "client",
-    category: "Nails",
-    title: "Nail oblici koji se najviše traže ove sezone",
-    excerpt:
-      "Kratak pregled stilova koje klijentkinje najčešće biraju pre rezervacije manikira.",
-    sourceLabel: "Marysoll",
-    href: "https://marysoll.com/blog/nail-trendovi-sezone",
-    hrefType: "platform",
-  },
-  {
-    id: "popular-hair-refresh",
-    audience: "client",
-    category: "Hair",
-    title: "Brzi hair refresh pre događaja",
-    excerpt:
-      "Kada je dovoljno feniranje, a kada vredi rezervisati šišanje ili tretman nege.",
-    sourceLabel: "Marysoll",
-    href: "https://marysoll.com/blog/brzi-hair-refresh-pre-dogadjaja",
-    hrefType: "platform",
-  },
-  {
-    id: "popular-massage-after-work",
-    audience: "client",
-    category: "Massage",
-    title: "Masaža posle posla: kako izabrati termin",
-    excerpt:
-      "Kratke smernice za izbor trajanja tretmana i perioda dana koji najviše prija telu.",
-    sourceLabel: "Marysoll",
-    href: "https://marysoll.com/blog/masaza-posle-posla",
-    hrefType: "platform",
-  },
-  {
     id: "salon-prep-nails",
     audience: "client",
     category: "Nails",
@@ -72,92 +49,43 @@ const editorialTeasers: BlogTeaserCard[] = [
     href: "https://kikikiss.beauty/blog/sta-uraditi-pre-gel-manikira",
     hrefType: "tenant",
   },
-  {
-    id: "marysoll-vodic-prvi-tretman",
-    audience: "client",
-    category: "Marysoll",
-    title: "Marysoll vodič za izbor prvog tretmana",
-    excerpt:
-      "Kako da uporedite tretmane, trajanje i dostupne termine pre nego što pošaljete zahtev za zakazivanje.",
-    sourceLabel: "Marysoll",
-    href: "https://marysoll.com/blog/vodic-za-prvi-tretman",
-    hrefType: "platform",
-  },
-  {
-    id: "partner-affiliate-program",
-    audience: "partner",
-    category: "Affiliate",
-    title: "Kako salon ulazi u Marysoll affiliate mrežu",
-    excerpt:
-      "Pregled partner modela za salone koji žele nove kanale preporuke i merljiv dolazak klijenata.",
-    sourceLabel: "Marysoll",
-    href: "https://marysoll.com/blog/affiliate-program-za-salone",
-    hrefType: "platform",
-  },
-  {
-    id: "growth-os-operativa-salona",
-    audience: "partner",
-    category: "Growth OS",
-    title: "Growth OS za salon: od rasporeda do ponovne posete",
-    excerpt:
-      "Kako se ponude, raspored, klijenti i kampanje spajaju u jedan operativni sistem rasta.",
-    sourceLabel: "Marysoll",
-    href: "https://marysoll.com/blog/sta-vam-treba-za-salon",
-    hrefType: "platform",
-  },
-  {
-    id: "partner-booking-visibility",
-    audience: "partner",
-    category: "Booking visibility",
-    title: "Kako salon postaje vidljiviji u Booking pretrazi",
-    excerpt:
-      "Kratak uvod u kategorije, slobodne termine i sadržaj koji pomaže salonima da dođu do novih klijenata.",
-    sourceLabel: "Marysoll",
-    href: "https://marysoll.com/blog/booking-visibility-za-salone",
-    hrefType: "platform",
-  },
-  {
-    id: "ai-marketing-za-salone",
-    audience: "partner",
-    category: "AI marketing",
-    title: "AI marketing koji radi uz realne termine salona",
-    excerpt:
-      "Kako sadržaj, preporuke i automatizovane poruke mogu da prate slobodne kapacitete, a ne samo kalendar objava.",
-    sourceLabel: "Marysoll",
-    href: "https://marysoll.com/blog/ai-marketing-za-salone",
-    hrefType: "platform",
-  },
-  {
-    id: "online-zakazivanje-salon",
-    audience: "partner",
-    category: "Online zakazivanje",
-    title: "Online zakazivanje bez haosa u rasporedu",
-    excerpt:
-      "Šta salon treba da pripremi da bi klijenti mogli brzo da pronađu uslugu, termin i potvrdu.",
-    sourceLabel: "Marysoll",
-    href: "https://marysoll.com/blog/online-zakazivanje-za-salone",
-    hrefType: "platform",
-  },
 ];
 
-function getBlogPath(href: string): string | null {
-  try {
-    const url = new URL(href);
-    return url.pathname.replace(/^\/+/, "").replace(/\/+$/, "");
-  } catch {
-    return null;
-  }
+export function getStaticTenantTeasers(): BlogTeaserCard[] {
+  return staticTenantTeasers;
 }
 
-export function getEditorialTeaserSections(): BlogTeaserSection[] {
-  return [
-    {
+/** Dedupe by canonical href (fallback id), preserving order. */
+export function dedupeTeasers(cards: BlogTeaserCard[]): BlogTeaserCard[] {
+  const seen = new Set<string>();
+  const out: BlogTeaserCard[] = [];
+  for (const card of cards) {
+    const key = (card.href || card.id).trim().toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(card);
+  }
+  return out;
+}
+
+/** /blog: two audience-segmented sections built from a merged card list. */
+export function buildEditorialSections(
+  cards: BlogTeaserCard[],
+): BlogTeaserSection[] {
+  const client = cards.filter((item) => item.audience === "client");
+  const partner = cards.filter((item) => item.audience === "partner");
+
+  const sections: BlogTeaserSection[] = [];
+  if (client.length > 0) {
+    sections.push({
       title: "Beauty trendovi",
       subtitle: "Trendovi, popularni tretmani i saveti salona.",
       categoryLabels: ["Makeup", "Nails", "Hair", "Massage", "Marysoll"],
-      items: editorialTeasers.filter((item) => item.audience === "client"),
-    },
-    {
+      items: client,
+    });
+  }
+  if (partner.length > 0) {
+    sections.push({
       title: "Postani partner za salone",
       subtitle:
         "Marysoll vodiči za salone koji žele više vidljivosti, online zakazivanje i bolji marketing.",
@@ -168,38 +96,42 @@ export function getEditorialTeaserSections(): BlogTeaserSection[] {
         "AI marketing",
         "Online zakazivanje",
       ],
-      items: editorialTeasers.filter((item) => item.audience === "partner"),
-    },
-  ];
+      items: partner,
+    });
+  }
+  return sections;
 }
 
-export function getHomepageEditorialTeaserSection(): BlogTeaserSection {
-  const items = editorialTeasers
-    .filter((item) => item.audience === "client")
-    .slice(0, MAX_HOMEPAGE_TEASERS);
-
+/**
+ * Homepage "Beauty trendovi": a single mixed-audience section. Real DB campaigns
+ * come first (caller orders them ahead of the static posts) so freshly published
+ * content surfaces on the landing page, then curated salon posts fill the grid.
+ */
+export function buildHomepageSection(
+  cards: BlogTeaserCard[],
+): BlogTeaserSection {
   return {
     title: "Beauty trendovi",
     subtitle:
       "Malo inspiracije pre pretrage termina: trendovi, popularni tretmani i saveti salona.",
     showMoreHref: "/blog",
     showMoreLabel: "Pogledaj više",
-    items,
+    items: cards.slice(0, MAX_HOMEPAGE_TEASERS),
   };
 }
 
 /**
  * Category-filtered teasers for a /[city]/[categorySlug] page. Leads with the
- * matching category, pads with general Marysoll posts up to 3. Returns null when
- * nothing relevant exists (caller falls back to the homepage section).
+ * matching category, pads with general Marysoll posts up to MAX_CATEGORY_TEASERS.
+ * Returns null when nothing relevant exists (caller falls back to the homepage
+ * section).
  */
-export function getCategoryEditorialTeaserSection(
+export function buildCategorySection(
   slug: CategorySlug,
+  cards: BlogTeaserCard[],
 ): BlogTeaserSection | null {
   const label = SLUG_TO_TEASER_CATEGORY[slug];
-  const clientTeasers = editorialTeasers.filter(
-    (item) => item.audience === "client",
-  );
+  const clientTeasers = cards.filter((item) => item.audience === "client");
 
   const matched = label
     ? clientTeasers.filter((item) => item.category === label)
@@ -207,7 +139,7 @@ export function getCategoryEditorialTeaserSection(
   const general = clientTeasers.filter(
     (item) => item.category === "Marysoll" && !matched.includes(item),
   );
-  const items = [...matched, ...general].slice(0, MAX_HOMEPAGE_TEASERS);
+  const items = [...matched, ...general].slice(0, MAX_CATEGORY_TEASERS);
   if (items.length === 0) return null;
 
   return {
@@ -219,12 +151,29 @@ export function getCategoryEditorialTeaserSection(
   };
 }
 
+/**
+ * Sync, DB-free homepage section. Used as the fallback in the client
+ * LandingPage when a server page does not pass the merged (DB + static) prop.
+ */
+export function getStaticHomepageEditorialTeaserSection(): BlogTeaserSection {
+  return buildHomepageSection(getStaticTenantTeasers());
+}
+
+function getBlogPath(href: string): string | null {
+  try {
+    const url = new URL(href);
+    return url.pathname.replace(/^\/+/, "").replace(/\/+$/, "");
+  } catch {
+    return null;
+  }
+}
+
 export function findEditorialTeaserByBlogPath(
   slugPath: string,
 ): BlogTeaserCard | undefined {
   const normalizedSlugPath = slugPath.replace(/^\/+/, "").replace(/\/+$/, "");
 
-  return editorialTeasers.find(
+  return staticTenantTeasers.find(
     (item) => getBlogPath(item.href) === normalizedSlugPath,
   );
 }

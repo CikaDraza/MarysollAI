@@ -1,6 +1,10 @@
 import type { Metadata } from "next";
 import Script from "next/script";
 import LandingPage from "@/components/landing/LandingPage";
+import { getHomepageEditorialTeaserSection } from "@/lib/editorial/getEditorialSections";
+
+// Editorial teasers are pulled from published platform campaigns; refresh hourly.
+export const revalidate = 3600;
 
 async function getSeoMeta() {
   return {
@@ -33,6 +37,7 @@ export async function generateMetadata(): Promise<Metadata> {
   };
 }
 
-export default function Home() {
-  return <LandingPage />;
+export default async function Home() {
+  const editorialTeasers = await getHomepageEditorialTeaserSection();
+  return <LandingPage editorialTeasers={editorialTeasers} />;
 }

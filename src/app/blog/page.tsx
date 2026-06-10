@@ -1,7 +1,10 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import EditorialTeaserSection from "@/components/editorial/EditorialTeaserSection";
-import { getEditorialTeaserSections } from "@/lib/editorial/getEditorialTeasers";
+import { getEditorialTeaserSections } from "@/lib/editorial/getEditorialSections";
+
+// Editorial teasers are pulled from published platform campaigns; refresh hourly.
+export const revalidate = 3600;
 
 export const metadata: Metadata = {
   title: "Beauty trendovi i partner vodiči | Marysoll Booking",
@@ -13,8 +16,8 @@ export const metadata: Metadata = {
   },
 };
 
-export default function BlogTeaserPage() {
-  const sections = getEditorialTeaserSections();
+export default async function BlogTeaserPage() {
+  const sections = await getEditorialTeaserSections();
 
   return (
     <main className="min-h-screen bg-[var(--background)] px-6 py-10 text-[var(--fg-1)]">

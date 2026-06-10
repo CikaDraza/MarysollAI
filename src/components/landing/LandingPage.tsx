@@ -18,7 +18,7 @@ import AIWorkspace from "./AIWorkspace";
 import HomepagePreloader from "./HomepagePreloader";
 import SearchDebugPanel from "./SearchDebugPanel";
 import EditorialTeaserSection from "@/components/editorial/EditorialTeaserSection";
-import { getHomepageEditorialTeaserSection } from "@/lib/editorial/getEditorialTeasers";
+import { getStaticHomepageEditorialTeaserSection } from "@/lib/editorial/getEditorialTeasers";
 import type { BlogTeaserSection } from "@/types/editorial";
 import {
   LandingUIProvider,
@@ -42,7 +42,7 @@ import type { SearchResult } from "@/types/slots";
 import { useAuthActions } from "@/hooks/useAuthActions";
 
 const SIDEBAR_W = 500;
-const homepageEditorialTeasers = getHomepageEditorialTeaserSection();
+const homepageEditorialTeasers = getStaticHomepageEditorialTeaserSection();
 
 interface Props {
   initialCity?: string;
