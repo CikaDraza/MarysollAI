@@ -8,7 +8,8 @@
     "dev": "next dev --port 3009",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "eval:agents": "npx --yes tsx scripts/eval/run-agent-eval.ts"
   },
   "dependencies": {
     "@ai-sdk/deepseek": "^2.0.20",

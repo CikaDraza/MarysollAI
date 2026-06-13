@@ -2,8 +2,10 @@ import { CheckIcon } from "@heroicons/react/24/outline";
 import { groupAndSortServices } from "@/helpers/groupeAndSortServices";
 import { formatPriceToString } from "@/helpers/formatPrice";
 import { useServices } from "@/hooks/useServices";
+import { useSalons } from "@/hooks/useSalons";
 import MiniLoader from "../MiniLoader";
 import { PricingBlockType } from "@/types/landing-block";
+import { IService } from "@/types/services-type";
 import { Reveal } from "../motion/Reveal";
 import { useEffect, useRef } from "react";
 
@@ -11,11 +13,37 @@ interface Props {
   block: PricingBlockType;
 }
 
+/**
+ * Trajanje za prikaz. Za "variant" usluge varijante imaju različito trajanje —
+ * uzimamo najduže i prikazujemo "do {max} minuta". "single"/"group" koriste
+ * sopstveno trajanje. Null kad nema upotrebljivog broja (linija se sakrije).
+ */
+function durationLabel(service: IService): string | null {
+  if (service.type === "variant" && service.variants?.length) {
+    const durations = service.variants
+      .map((v) => v.duration)
+      .filter((d): d is number => typeof d === "number" && d > 0);
+    if (durations.length > 0) return `do ${Math.max(...durations)} minuta`;
+  }
+  if (typeof service.duration === "number" && service.duration > 0) {
+    return `${service.duration} minuta`;
+  }
+  return null;
+}
+
 export default function PricingBlockView({ block }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const salonId = block.metadata?.salonId;
+  const metaSalonName = block.metadata?.salonName;
   const { data, isLoading } = useServices({ query: block.query, salonId });
   const services = data || [];
+
+  // Ime salona za header — iz metadata ako postoji, inače razreši iz salonId.
+  const { data: salonList } = useSalons(undefined, {
+    enabled: !metaSalonName && !!salonId,
+  });
+  const salonName =
+    metaSalonName || salonList?.find((s) => s.id === salonId)?.name || "";
 
   const groupedServices = groupAndSortServices(services);
 
@@ -50,7 +78,7 @@ export default function PricingBlockView({ block }: Props) {
   return (
     <div ref={containerRef} className="scroll-mt-20">
       <Reveal>
-        <div className="bg-gray-100 rounded-3xl px-2 md:px-0 p-6 border border-gray-100 shadow-xl">
+        <div className="bg-(--surface-2) rounded-3xl px-2 md:px-0 p-6 border border-(--border-1) shadow-xl">
           <div className="relative isolate overflow-hidden px-1 lg:px-8">
             <div
               aria-hidden="true"
@@ -65,6 +93,19 @@ export default function PricingBlockView({ block }: Props) {
               />
             </div>
           </div>
+
+          {/* Header — Cenovnik + salon za koji je */}
+          <div className="flex flex-wrap items-baseline gap-x-2 px-2 lg:px-8">
+            <span className="text-xs font-bold uppercase tracking-[.12em] text-(--secondary-color)">
+              Cenovnik
+            </span>
+            {salonName && (
+              <span className="text-sm font-bold text-(--fg-1)">
+                · {salonName}
+              </span>
+            )}
+          </div>
+
           <div className="flex flex-col gap-y-4">
             {groupedServices?.map((group) => (
               <div
@@ -72,93 +113,98 @@ export default function PricingBlockView({ block }: Props) {
                 className="w-full lg:py-24 px-2 lg:px-8"
               >
                 <div className="mx-auto">
-                  <h2 className="text-lg/6 font-semibold tracking-tight text-pretty text-gray-900 sm:text-5xl! lg:text-7xl!">
+                  <h2 className="text-lg/6 font-semibold tracking-tight text-pretty text-(--fg-1) sm:text-5xl! lg:text-7xl!">
                     {group.category || "Usluga"}
                   </h2>
                 </div>
-                <div className="mx-auto grid grid-cols-1 gap-x-8 gap-y-16 border-t border-gray-200 pt-8 mt-8 lg:mx-0 lg:max-w-none">
-                  {group.services.map((service, index) => (
-                    <article
-                      key={index}
-                      className="flex max-w-full flex-col items-start justify-between"
-                    >
-                      <div className="w-full flex justify-between items-center gap-x-4 text-xs">
-                        <time
-                          dateTime={service?.duration?.toString()}
-                          className="text-gray-500"
-                        >
-                          Trajanje: {service?.duration} minuta
-                        </time>
-                      </div>
-                      <div className="group w-full relative grow">
-                        <div className="mt-3 w-full flex justify-between items-center gap-x-3 text-pretty">
-                          <h3 className="flex-1 md:flex-0 md:min-w-[25%] w-full text-md font-semibold text-gray-900">
-                            {service.name}
-                            {service.subcategory && ` - ${service.subcategory}`}
-                          </h3>
-                          {service.basePrice && (
-                            <>
-                              <hr className="flex-1 border-dashed text-gray-700" />
-                              <span className="relative text-xs md:text-sm z-0 rounded-full bg-(--secondary-color) px-1 md:px-3 py-1.5 font-semibold text-white">
-                                {formatPriceToString(service.basePrice)} RSD
-                              </span>
-                            </>
-                          )}
-                        </div>
-                        <p className="mt-5 line-clamp-3 text-sm/6 text-gray-600">
-                          {service.description}
-                        </p>
-                        <ul
-                          role="list"
-                          className="text-gray-300 mt-3 space-y-1 text-xs"
-                        >
-                          {service?.variants?.map((item, idx) => (
-                            <li
-                              key={idx}
-                              className="w-full flex justify-between items-center gap-x-3 text-pretty text-gray-900 ml-0 lg:ml-6 list-disc"
+                <div className="mx-auto grid grid-cols-1 gap-x-8 gap-y-16 border-t border-(--border-1) pt-8 mt-8 lg:mx-0 lg:max-w-none">
+                  {group.services.map((service, index) => {
+                    const duration = durationLabel(service);
+                    return (
+                      <article
+                        key={index}
+                        className="flex max-w-full flex-col items-start justify-between"
+                      >
+                        {duration && (
+                          <div className="w-full flex justify-between items-center gap-x-4 text-xs">
+                            <time
+                              dateTime={service?.duration?.toString()}
+                              className="text-(--fg-3)"
                             >
-                              <span className="flex gap-x-2">
-                                <CheckIcon
-                                  aria-hidden="true"
-                                  className="text-(--secondary-color) h-6 w-5 flex-none"
-                                />
-                                {item.name}
-                              </span>
-                              <hr className="flex-1 border-dashed text-gray-700" />
-                              <span className="rounded-full text-[.65rem] lg:text-sm bg-white px-3 py-0.5 font-semibold text-(--secondary-color)">
-                                {formatPriceToString(item.price)}{" "}
-                                <small>RSD</small>
-                              </span>
-                            </li>
-                          ))}
-                        </ul>
-                        {service?.items?.length > 0 && (
-                          <p className="mt-5 font-semibold text-gray-700">
-                            Šta je uključeno
-                          </p>
+                              Trajanje: {duration}
+                            </time>
+                          </div>
                         )}
-                        <ul
-                          role="list"
-                          className="text-gray-300 mt-1 space-y-1 text-sm/6 sm:mt-3"
-                        >
-                          {service?.items?.map((item, idx) => (
-                            <li
-                              key={idx}
-                              className="flex gap-x-3 text-pretty text-gray-900 flex-col ml-6 list-disc"
-                            >
-                              <span className="flex gap-x-2">
-                                <CheckIcon
-                                  aria-hidden="true"
-                                  className="text-(--secondary-color) h-6 w-5 flex-none"
-                                />
-                                {item}
-                              </span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    </article>
-                  ))}
+                        <div className="group w-full relative grow">
+                          <div className="mt-3 w-full flex justify-between items-center gap-x-3 text-pretty">
+                            <h3 className="flex-1 md:flex-0 md:min-w-[25%] w-full text-md font-semibold text-(--fg-1)">
+                              {service.name}
+                              {service.subcategory && ` - ${service.subcategory}`}
+                            </h3>
+                            {service.basePrice && (
+                              <>
+                                <hr className="flex-1 border-dashed text-(--border-2)" />
+                                <span className="relative text-xs md:text-sm z-0 rounded-full bg-(--secondary-color) px-1 md:px-3 py-1.5 font-semibold text-white">
+                                  {formatPriceToString(service.basePrice)} RSD
+                                </span>
+                              </>
+                            )}
+                          </div>
+                          <p className="mt-5 line-clamp-3 text-sm/6 text-(--fg-2)">
+                            {service.description}
+                          </p>
+                          <ul
+                            role="list"
+                            className="text-(--fg-3) mt-3 space-y-1 text-xs"
+                          >
+                            {service?.variants?.map((item, idx) => (
+                              <li
+                                key={idx}
+                                className="w-full flex justify-between items-center gap-x-3 text-pretty text-(--fg-1) ml-0 lg:ml-6 list-disc"
+                              >
+                                <span className="flex gap-x-2">
+                                  <CheckIcon
+                                    aria-hidden="true"
+                                    className="text-(--secondary-color) h-6 w-5 flex-none"
+                                  />
+                                  {item.name}
+                                </span>
+                                <hr className="flex-1 border-dashed text-(--border-2)" />
+                                <span className="rounded-full text-[.65rem] lg:text-sm bg-(--surface-elev) px-3 py-0.5 font-semibold text-(--secondary-color)">
+                                  {formatPriceToString(item.price)}{" "}
+                                  <small>RSD</small>
+                                </span>
+                              </li>
+                            ))}
+                          </ul>
+                          {service?.items?.length > 0 && (
+                            <p className="mt-5 font-semibold text-(--fg-2)">
+                              Šta je uključeno
+                            </p>
+                          )}
+                          <ul
+                            role="list"
+                            className="text-(--fg-3) mt-1 space-y-1 text-sm/6 sm:mt-3"
+                          >
+                            {service?.items?.map((item, idx) => (
+                              <li
+                                key={idx}
+                                className="flex gap-x-3 text-pretty text-(--fg-1) flex-col ml-6 list-disc"
+                              >
+                                <span className="flex gap-x-2">
+                                  <CheckIcon
+                                    aria-hidden="true"
+                                    className="text-(--secondary-color) h-6 w-5 flex-none"
+                                  />
+                                  {item}
+                                </span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      </article>
+                    );
+                  })}
                 </div>
               </div>
             ))}

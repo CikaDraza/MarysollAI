@@ -130,6 +130,7 @@ export async function POST(req: Request) {
       userCity,
       conversationId,
       guestSessionId,
+      selectedModelId,
     } = body as {
       message: string;
       isAuthenticated: boolean;
@@ -141,6 +142,7 @@ export async function POST(req: Request) {
       userCity?: string;
       conversationId?: string;
       guestSessionId?: string;
+      selectedModelId?: string;
     };
     const requestToken =
       readBearerToken(req) ?? (await cookies()).get("token")?.value ?? null;
@@ -192,11 +194,20 @@ export async function POST(req: Request) {
                   ? guestSessionId
                   : undefined,
             },
+            typeof selectedModelId === "string" ? selectedModelId : undefined,
           );
           const json = await readStreamToString(inner);
           let response: unknown;
+          let usage: unknown;
           try {
             response = JSON.parse(json);
+            // Model Lab — podigni __meta (usage telemetrija) u poseban kanal,
+            // pa ga ukloni iz response-a (klijentski parser ga ignoriše ionako).
+            if (response && typeof response === "object") {
+              const obj = response as Record<string, unknown>;
+              usage = obj.__meta;
+              delete obj.__meta;
+            }
           } catch {
             response = {
               messages: [
@@ -210,7 +221,7 @@ export async function POST(req: Request) {
               intent: {},
             };
           }
-          controller.enqueue(sseFrame({ type: "final", response }));
+          controller.enqueue(sseFrame({ type: "final", response, usage }));
         } catch (error) {
           console.error("[conversation] askAgent failed:", error);
           controller.enqueue(

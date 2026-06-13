@@ -324,6 +324,23 @@ function handleAppointmentUpdateRequested(event: SystemActionEvent): void {
   const appointmentId = asString(event.payload?.appointmentId);
   if (!appointmentId || !appointment) return;
 
+  // Prefer the resolved fields from the source block (ClientBlockAppointments
+  // razrešava salon/uslugu preko salonDirectory) — sirovi appointment fildovi
+  // su često prazni/objekti pa bi kalendar pao na missingSalon recovery.
+  const salonId =
+    asString(event.payload?.salonId) ||
+    asString(appointment.salonId) ||
+    asString(appointment.tenantId);
+  const salonName =
+    asString(event.payload?.salonName) || asString(appointment.salonName);
+  const city =
+    asString(event.payload?.salonCity) || asString(appointment.salonCity);
+  const serviceId =
+    asString(event.payload?.serviceId) ||
+    asString(appointment.services?.[0]?.serviceId);
+  const serviceName =
+    asString(event.payload?.serviceName) || asString(appointment.serviceName);
+
   // Activate reschedule context so bookingFlow is not polluted during this flow.
   rescheduleFlow.start(appointmentId, appointment);
 
@@ -332,6 +349,8 @@ function handleAppointmentUpdateRequested(event: SystemActionEvent): void {
 
   // Render the reschedule calendar directly in workspace so the user
   // doesn't have to wait for the LLM round-trip before seeing the UI.
+  // Prefill only the service — date/time stay empty so the user consciously
+  // picks a new slot (confirm is disabled until a time is chosen).
   executeUICommand({
     type: "RENDER_BLOCK",
     block: {
@@ -339,12 +358,12 @@ function handleAppointmentUpdateRequested(event: SystemActionEvent): void {
       type: "AppointmentCalendarBlock",
       priority: 1,
       metadata: {
-        serviceId: appointment.services?.[0]?.serviceId ?? "",
-        serviceName: appointment.serviceName ?? "",
+        serviceId,
+        serviceName,
         variantName: "",
-        city: appointment.salonCity ?? "",
-        salonId: appointment.salonId ?? appointment.tenantId,
-        salonName: appointment.salonName,
+        city,
+        salonId,
+        salonName,
         rescheduleMode: true,
         currentAppointmentId: appointmentId,
         currentAppointment: appointment,

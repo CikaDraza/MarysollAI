@@ -24,11 +24,29 @@ interface LandingUIContextValue {
 
 const LandingUIContext = createContext<LandingUIContextValue | null>(null);
 
+const THEME_STORAGE_KEY = "marysoll_theme";
+
 export function LandingUIProvider({ children }: { children: ReactNode }) {
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
   const [confirmedTime, setConfirmedTime] = useState("");
+
+  // Restore the saved theme (or OS preference if none saved) on mount.
+  // SSR-safe: state starts "light" so server/client initial render match;
+  // this runs only on the client, after hydration.
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(THEME_STORAGE_KEY);
+      if (stored === "dark" || stored === "light") {
+        setTheme(stored);
+      } else if (window.matchMedia?.("(prefers-color-scheme: dark)").matches) {
+        setTheme("dark");
+      }
+    } catch {
+      /* localStorage nedostupan (npr. privatni mod) — ostavi default */
+    }
+  }, []);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -84,7 +102,18 @@ export function LandingUIProvider({ children }: { children: ReactNode }) {
     <LandingUIContext.Provider
       value={{
         theme,
-        toggleTheme: () => setTheme((t) => (t === "dark" ? "light" : "dark")),
+        toggleTheme: () =>
+          setTheme((t) => {
+            const next = t === "dark" ? "light" : "dark";
+            // Persist only explicit user choice — kad nema sačuvanog, mount
+            // efekat prati OS preferenciju.
+            try {
+              localStorage.setItem(THEME_STORAGE_KEY, next);
+            } catch {
+              /* ignore */
+            }
+            return next;
+          }),
         drawerOpen,
         setDrawerOpen,
         confirmed,

@@ -336,7 +336,7 @@ function SalonCard({
                 textAlign: "left",
                 borderRadius: 12,
                 padding: "9px 10px",
-                background: disabled ? "var(--surface-3, #f5f3f7)" : "#fff",
+                background: disabled ? "var(--surface-3)" : "var(--surface-elev)",
                 color: disabled ? "var(--fg-3)" : "var(--fg-1)",
               }}
             >
@@ -366,7 +366,7 @@ function SalonCard({
           padding: "10px 0",
           borderRadius: 12,
           background: disabled
-            ? "var(--surface-3, #f5f3f7)"
+            ? "var(--surface-3)"
             : hovered
             ? "var(--secondary-color)"
             : "var(--brand-100, #f3e8ff)",

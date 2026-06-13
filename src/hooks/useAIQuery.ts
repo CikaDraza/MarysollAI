@@ -16,6 +16,7 @@ import {
   createClaudiaFrameReader,
   type ClaudiaStreamFrame,
 } from "@/lib/ai/sse-frames";
+import { setLastAiUsage, type AiUsageSnapshot } from "@/lib/ai/usage-store";
 import {
   parseClaudiaResponse,
   extractStreamingText,
@@ -217,6 +218,12 @@ export function useAIQuery(user?: AuthUser | null) {
         // episodes ("prošli put ste tražili...") and write new ones server-side.
         const { conversationId, guestSessionId } = getEpisodeIdentity();
 
+        // Model Lab — preferencija modela (server svejedno revalidira).
+        const selectedModelId =
+          typeof window !== "undefined"
+            ? (localStorage.getItem("marysoll_ai_model_id") ?? undefined)
+            : undefined;
+
         const response = await fetch("/api/ai/conversation", {
           method: "POST",
           headers: {
@@ -234,6 +241,7 @@ export function useAIQuery(user?: AuthUser | null) {
             userCity: options?.userCity,
             conversationId,
             guestSessionId,
+            selectedModelId,
           }),
         });
 
@@ -257,6 +265,10 @@ export function useAIQuery(user?: AuthUser | null) {
             setStreamingText(frame.message);
           } else {
             finalRaw = JSON.stringify(frame.response ?? {});
+            // Model Lab — usage telemetrija iz __meta (server je podigao u okvir).
+            if (frame.usage && typeof frame.usage === "object") {
+              setLastAiUsage(frame.usage as AiUsageSnapshot);
+            }
           }
         };
 

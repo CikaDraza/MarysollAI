@@ -7,7 +7,8 @@
 
 export type ClaudiaStreamFrame =
   | { type: "status"; message: string }
-  | { type: "final"; response: unknown };
+  // Model Lab — `usage` nosi telemetriju (provider/model/tokeni/cena/latencija).
+  | { type: "final"; response: unknown; usage?: unknown };
 
 /** Server: serijalizuje jedan SSE okvir (`data: {...}\n\n`). */
 export function encodeSseFrame(payload: ClaudiaStreamFrame): string {
@@ -16,7 +17,12 @@ export function encodeSseFrame(payload: ClaudiaStreamFrame): string {
 
 function parseFrameJson(jsonText: string): ClaudiaStreamFrame | null {
   if (!jsonText) return null;
-  let evt: { type?: unknown; message?: unknown; response?: unknown };
+  let evt: {
+    type?: unknown;
+    message?: unknown;
+    response?: unknown;
+    usage?: unknown;
+  };
   try {
     evt = JSON.parse(jsonText);
   } catch {
@@ -26,7 +32,7 @@ function parseFrameJson(jsonText: string): ClaudiaStreamFrame | null {
     return { type: "status", message: evt.message };
   }
   if (evt.type === "final") {
-    return { type: "final", response: evt.response ?? {} };
+    return { type: "final", response: evt.response ?? {}, usage: evt.usage };
   }
   return null;
 }

@@ -497,7 +497,9 @@ describe("Task 3.10 — Existing parseClaudiaDirectIntent behavior unchanged", (
       },
     });
     expect(intent.type).toBe("follow_up");
-    expect(intent.entities.dateMode).toBe("weekend");
+    // "Nedelja" = Sunday → konkretan datum (specific_date), NE generički "weekend".
+    expect(intent.entities.dateMode).toBe("specific_date");
+    expect(intent.entities.date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 
   it("detects follow_up for time correction with context", () => {

@@ -407,6 +407,20 @@ export default function BookingModal() {
         .join(" · ")
     : "";
 
+  // Datum kao badge (DD.MM) pored vremena — prihvata "YYYY-MM-DD" ili ISO datetime.
+  const dateBadge = (() => {
+    const date = bookingPayload?.date;
+    if (!date) return null;
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(date);
+    if (m) return `${m[3]}.${m[2]}`;
+    const d = new Date(date);
+    return Number.isNaN(d.getTime())
+      ? null
+      : `${String(d.getDate()).padStart(2, "0")}.${String(
+          d.getMonth() + 1,
+        ).padStart(2, "0")}`;
+  })();
+
   return (
     <>
       {/* Backdrop */}
@@ -537,6 +551,22 @@ export default function BookingModal() {
                 >
                   {bookingPayload?.time}
                 </span>
+                {dateBadge && (
+                  <span
+                    style={{
+                      fontFamily: "var(--main-font)",
+                      fontSize: 11,
+                      fontWeight: 600,
+                      background: "var(--brand-100, #f3e8ff)",
+                      color: "var(--secondary-color)",
+                      padding: "3px 9px",
+                      borderRadius: 20,
+                      flexShrink: 0,
+                    }}
+                  >
+                    datum: {dateBadge}
+                  </span>
+                )}
                 {bookingPayload?.city && (
                   <span
                     style={{

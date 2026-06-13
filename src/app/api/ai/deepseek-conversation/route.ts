@@ -37,6 +37,12 @@ import { SERBIAN_CITIES } from "@/lib/cities";
 import { buildMariaPrompt } from "@/lib/ai/communication/buildMariaPrompt";
 import { formatCommunicationRulesForPrompt } from "@/lib/ai/communication/formatCommunicationRulesForPrompt";
 import { MARIA_KNOWN_FAQ_ANSWERS } from "@/lib/ai/communication/agent-communication-rules";
+import {
+  adapterFromModelId,
+  estimateTokens,
+} from "@/lib/ai/models/aiModelRegistry";
+import { MODEL_PRICE_USD_PER_MTOK } from "@/lib/ai/eval/llm-adapter";
+import { costUsd } from "@/lib/ai/eval/eval-metrics";
 
 export const maxDuration = 60;
 export const dynamic = "force-dynamic";
@@ -623,6 +629,7 @@ export async function POST(req: Request) {
       lastIntent,
       lastRecoveryState,
       pendingContact,
+      selectedModelId,
     } = body as {
       messages: { role: string; content: string }[];
       isAuthenticated?: boolean;
@@ -635,6 +642,7 @@ export async function POST(req: Request) {
       lastIntent?: StructuredBookingIntent;
       lastRecoveryState?: SearchRecoveryState;
       pendingContact?: AiBookingContact;
+      selectedModelId?: string;
     };
 
     const conversationMessages = messages.filter(
@@ -859,51 +867,28 @@ export async function POST(req: Request) {
       "\n\n" +
       memorySection;
 
-    const dsResponse = await withTimeout(
-      fetch("https://api.deepseek.com/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${process.env.DEEPSEEK_API_KEY}`,
-        },
-        body: JSON.stringify({
-          model: "deepseek-chat",
-          messages: [
-            { role: "system", content: systemPrompt },
-            // Bound the window sent to the model; the first-message/recovery
-            // signals above are computed from the full conversation.
-            ...conversationMessages.slice(-20),
-          ],
-          temperature: 0.2,
-          max_tokens: 220,
-          stream: true,
-          response_format: { type: "json_object" },
-        }),
-      }),
-      AI_TIMEOUT_MS,
-      "deepseek",
-    );
-
-    if (!dsResponse.ok) {
-      const err = await dsResponse.json().catch(() => ({}));
-      console.error("[Maria] DeepSeek error:", err);
-      const contract = buildContract({
-        kind: "unknown",
-        message: "Trenutno ne mogu da odgovorim. Pokušajte ponovo za trenutak.",
-        domain: "unknown",
-        action: "clarify",
-        confidence: 0,
-        shouldHandoff: false,
-        targetAgent: "maria",
-        reason: "deepseek_error",
-      });
-      return quickResponse(contract, { error: String(err) });
-    }
-
-    return streamFromDeepSeek(dsResponse, (accumulated, usage, model) => {
+    // Model Lab — Maria koristi izabrani model. DeepSeek (default) zadržava
+    // postojeći streaming put (zero regresija); ne-DeepSeek ide kroz adapter
+    // (non-streaming) i emituje isti `done` payload oblik sa usage + model.
+    const buildMariaFinalPayload = (
+      accumulated: string,
+      usage: FinalPayload["usage"],
+      model: string,
+    ): FinalPayload => {
       const raw = accumulated || "{}";
       const contract = parseMariaContract(raw);
       const legacy = mariaContractToLegacyResponse(contract);
+
+      // Model Lab — usage telemetrija (provider + cena) za overlay.
+      const provider = model.startsWith("claude")
+        ? "anthropic"
+        : model.startsWith("gpt")
+          ? "openai"
+          : "deepseek";
+      const estimatedCostUsd = costUsd(
+        { inputTokens: usage.prompt_tokens, outputTokens: usage.completion_tokens },
+        MODEL_PRICE_USD_PER_MTOK[model],
+      );
 
       if (process.env.NODE_ENV !== "production") {
         console.debug("[Maria]", {
@@ -960,9 +945,110 @@ export async function POST(req: Request) {
           mariaContract: contract,
           mentionedCity: ctx.mentionedCity,
           mentionedService: ctx.mentionedService,
+          provider,
+          estimatedCostUsd,
         },
       };
-    });
+    };
+
+    const { adapter, entry } = adapterFromModelId(selectedModelId);
+
+    if (entry.provider !== "deepseek") {
+      const llmMessages = conversationMessages.slice(-20).map((m) => ({
+        role: m.role,
+        content: m.content,
+      }));
+      try {
+        const started = Date.now();
+        const result = await adapter.complete({
+          system: systemPrompt,
+          messages: llmMessages,
+          maxTokens: 400,
+        });
+        let inTok = result.usage.inputTokens;
+        let outTok = result.usage.outputTokens;
+        if (inTok === 0 && outTok === 0) {
+          inTok = estimateTokens(
+            systemPrompt + llmMessages.map((m) => m.content).join("\n"),
+          );
+          outTok = estimateTokens(result.text);
+        }
+        const payload = buildMariaFinalPayload(
+          result.text,
+          {
+            prompt_tokens: inTok,
+            completion_tokens: outTok,
+            total_tokens: inTok + outTok,
+          },
+          entry.apiModel,
+        );
+        return streamFromPayload({
+          ...payload,
+          aiDebug: {
+            ...(payload.aiDebug ?? {}),
+            replyMode: `adapter_${entry.provider}`,
+            latencyMs: result.latencyMs ?? Date.now() - started,
+          },
+        });
+      } catch (error) {
+        console.error(`[Maria] ${entry.provider} adapter error:`, error);
+        const contract = buildContract({
+          kind: "unknown",
+          message:
+            "Trenutno ne mogu da odgovorim. Pokušajte ponovo za trenutak.",
+          domain: "unknown",
+          action: "clarify",
+          confidence: 0,
+          shouldHandoff: false,
+          targetAgent: "maria",
+          reason: "adapter_error",
+        });
+        return quickResponse(contract, { error: String(error) });
+      }
+    }
+
+    const dsResponse = await withTimeout(
+      fetch("https://api.deepseek.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${process.env.DEEPSEEK_API_KEY}`,
+        },
+        body: JSON.stringify({
+          model: "deepseek-chat",
+          messages: [
+            { role: "system", content: systemPrompt },
+            // Bound the window sent to the model; the first-message/recovery
+            // signals above are computed from the full conversation.
+            ...conversationMessages.slice(-20),
+          ],
+          temperature: 0.2,
+          max_tokens: 220,
+          stream: true,
+          response_format: { type: "json_object" },
+        }),
+      }),
+      AI_TIMEOUT_MS,
+      "deepseek",
+    );
+
+    if (!dsResponse.ok) {
+      const err = await dsResponse.json().catch(() => ({}));
+      console.error("[Maria] DeepSeek error:", err);
+      const contract = buildContract({
+        kind: "unknown",
+        message: "Trenutno ne mogu da odgovorim. Pokušajte ponovo za trenutak.",
+        domain: "unknown",
+        action: "clarify",
+        confidence: 0,
+        shouldHandoff: false,
+        targetAgent: "maria",
+        reason: "deepseek_error",
+      });
+      return quickResponse(contract, { error: String(err) });
+    }
+
+    return streamFromDeepSeek(dsResponse, buildMariaFinalPayload);
   } catch (error) {
     console.error("[Maria] Route error:", error);
     const contract = buildContract({

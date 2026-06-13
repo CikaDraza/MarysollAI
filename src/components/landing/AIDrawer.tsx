@@ -16,6 +16,8 @@ import { HistoryDropdown } from "@/components/chat/HistoryDropdown";
 import { UsageStats } from "@/components/chat/UsageStats";
 import { useLandingUI } from "@/context/landing/LandingUIContext";
 import { useAIContext } from "@/context/landing/AIContext";
+import { useAiRuntimeModel } from "@/hooks/useAiRuntimeModel";
+import { useLastAiUsage } from "@/lib/ai/usage-store";
 
 type Agent = "maria" | "claudia";
 
@@ -101,6 +103,9 @@ export default function AIDrawer() {
 
   const [syntheticSessions, setSyntheticSessions] = useState<ChatSession[]>([]);
   const [usage, setUsage] = useState({ messagesSent: 0, estimatedTokens: 0 });
+  // Model Lab — izbor modela + prave usage metrike (globalni store).
+  const runtimeModel = useAiRuntimeModel();
+  const lastUsage = useLastAiUsage();
   useEffect(() => {
     if (!aiThread || aiThread.length === 0) {
       setSyntheticSessions([]);
@@ -526,7 +531,15 @@ export default function AIDrawer() {
 
         {/* Input row */}
         <div className="px-3 pb-3 border-t border-[var(--border-1)] flex-shrink-0 relative">
-          <UsageStats isOpen={showStats} usage={usage} />
+          <UsageStats
+            isOpen={showStats}
+            usage={{ ...usage, ...(lastUsage ?? {}) }}
+            models={runtimeModel.models}
+            selectedModelId={runtimeModel.selectedModelId}
+            onSelectModel={runtimeModel.setSelectedModelId}
+            labEnabled={runtimeModel.labEnabled}
+            loading={runtimeModel.loading}
+          />
           <div className="flex items-end gap-2 pt-3">
             <textarea
               rows={1}

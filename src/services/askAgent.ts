@@ -1,6 +1,5 @@
 // src/services/askAgent.ts
 import { ThreadItem } from "@/types/ai/chat-thread";
-import OpenAI from "openai";
 import { ClaudiaIntentSchema } from "@/lib/ai/schemas/claudia.schema";
 import {
   claudiaContractToLegacyResponse,
@@ -43,9 +42,16 @@ import {
   recordAgentEpisode,
   type EpisodeRecallKey,
 } from "@/lib/ai/memory/agentEpisodeStore";
+import {
+  adapterFromModelId,
+  estimateTokens,
+} from "@/lib/ai/models/aiModelRegistry";
+import { costUsd } from "@/lib/ai/eval/eval-metrics";
+import { MODEL_PRICE_USD_PER_MTOK } from "@/lib/ai/eval/llm-adapter";
 import type { AiBookingContact } from "@/types/aiBooking";
 import { runBookingSearch } from "@/lib/search/runBookingSearch";
 import { normalizeSemanticTerm } from "@/lib/search/serviceSemanticMap";
+import { resolveBookingDate } from "@/lib/date/bookingDateResolver";
 import { buildConversationSummary } from "@/lib/ai/buildConversationSummary";
 import { repairClaudiaJson } from "@/lib/ai/anthropic-client";
 import type { StructuredBookingIntent } from "@/types/intent";
@@ -85,15 +91,6 @@ export interface ClaudiaDirectIntent {
   };
 }
 
-let deepseekClient: OpenAI | null = null;
-
-function getDeepseekClient(): OpenAI {
-  deepseekClient ??= new OpenAI({
-    baseURL: "https://api.deepseek.com/v1",
-    apiKey: process.env.DEEPSEEK_API_KEY_SYSTEM!,
-  });
-  return deepseekClient;
-}
 
 // Phase 1.5 — Booking memory section.
 // Generated server-side from the snapshot the client forwards. Tells Claudia
@@ -166,6 +163,20 @@ export function buildClaudiaSystemPrompt(
   const dayAfter = new Date(Date.now() + 172_800_000)
     .toISOString()
     .split("T")[0];
+
+  // Deterministički datumi dana u nedelji (kanonski resolver) — LLM inače
+  // pogrešno računa "utorak" (često → sutra). Injektujemo tačno mapiranje.
+  const weekdayLines = [
+    "ponedeljak",
+    "utorak",
+    "sreda",
+    "četvrtak",
+    "petak",
+    "subota",
+    "nedelja",
+  ]
+    .map((w) => `- "${w}" = ${resolveBookingDate(w).date}`)
+    .join("\n");
 
   return `
 # IDENTITY
@@ -260,6 +271,8 @@ ${categoriesText}
 
 - "sutra" = ${tomorrow}
 - "prekosutra" = ${dayAfter}
+${weekdayLines}
+- Za dan u nedelji UVEK koristi tačan datum iz liste iznad (sledeće pojavljivanje); nikada ne pretpostavljaj.
 - "večeras" = posle 18:00 danas
 - "posle 14h" → timeWindowStart: 14
 - "ujutru" → timeWindowStart: 8, timeWindowEnd: 12
@@ -582,6 +595,51 @@ export function enrichClaudiaLayoutBlocks(
     console.debug("[CLAUDIA_BLOCK_ENRICH]", {
       types: layout.map((block) => block.type),
     });
+    return JSON.stringify(parsed);
+  } catch {
+    return raw;
+  }
+}
+
+// Model Lab — ubaci usage telemetriju u `__meta` polje JSON odgovora. Ruta je
+// podiže u SSE `final` okvir i briše iz response-a (klijentski parser je ionako
+// ignoriše). Bezbedno: na neuspeli parse vraća raw nepromenjen.
+function injectUsageMeta(
+  raw: string,
+  ctx: {
+    provider: string;
+    model: string;
+    usage: { inputTokens: number; outputTokens: number };
+    latencyMs: number;
+    promptText: string;
+    responseText: string;
+  },
+): string {
+  try {
+    const parsed = JSON.parse(stripClaudiaJsonEnvelope(raw)) as Record<
+      string,
+      unknown
+    >;
+    let inputTokens = ctx.usage.inputTokens;
+    let outputTokens = ctx.usage.outputTokens;
+    const estimated = inputTokens === 0 && outputTokens === 0;
+    if (estimated) {
+      inputTokens = estimateTokens(ctx.promptText);
+      outputTokens = estimateTokens(ctx.responseText);
+    }
+    parsed.__meta = {
+      provider: ctx.provider,
+      model: ctx.model,
+      inputTokens,
+      outputTokens,
+      totalTokens: inputTokens + outputTokens,
+      estimatedCostUsd: costUsd(
+        { inputTokens, outputTokens },
+        MODEL_PRICE_USD_PER_MTOK[ctx.model],
+      ),
+      latencyMs: ctx.latencyMs,
+      estimated,
+    };
     return JSON.stringify(parsed);
   } catch {
     return raw;
@@ -1131,13 +1189,24 @@ function detectDirectService(
 
 function detectDirectDate(
   text: string,
+  now: Date = new Date(),
 ): Pick<ClaudiaDirectIntent["entities"], "date" | "dateMode"> {
-  const normalized = normalizeDirectText(text);
-  if (/\b(danas)\b/.test(normalized)) return { dateMode: "today" };
-  if (/\b(sutra)\b/.test(normalized)) return { dateMode: "tomorrow" };
-  if (/\b(nedelja|nedelju|nedjelja|nedjelju|vikend)\b/.test(normalized))
-    return { dateMode: "weekend" };
-  return {};
+  // Canonical resolver — same logic search uses (lib/date/bookingDateResolver →
+  // parseIntent). Handles weekdays correctly: "utorak" → next Tuesday,
+  // "u nedelju" → next Sunday (NOT generic weekend). The concrete `date` is what
+  // drives block metadata; `dateMode` stays in the legacy vocabulary so the
+  // downstream intent typing (StructuredBookingIntent.dateMode) is unchanged.
+  const resolved = resolveBookingDate(text, now);
+  if (!resolved.dateMode) return {};
+  const dateMode =
+    resolved.dateMode === "today"
+      ? "today"
+      : resolved.dateMode === "tomorrow"
+        ? "tomorrow"
+        : resolved.dateMode === "weekend"
+          ? "weekend"
+          : "specific_date";
+  return { ...(resolved.date ? { date: resolved.date } : {}), dateMode };
 }
 
 function detectDirectTime(
@@ -1293,23 +1362,19 @@ export function detectDirectCorrection(input: {
     remove.add("serviceName");
   }
 
-  // DATUM — "ipak ne sutra" briše; "može sutra" (uz marker) menja.
+  // DATUM — "ipak ne sutra" briše; "može utorak/sutra" menja na konkretan datum.
+  // detectDirectDate sada vraća konkretan YYYY-MM-DD (i za dane u nedelji), pa
+  // korekcija "Promeni za utorak" radi isto kao i početni booking.
   const date = detectDirectDate(input.text);
-  if (date.dateMode) {
-    const resolvedDate =
-      date.dateMode === "today"
-        ? new Date().toISOString().split("T")[0]
-        : date.dateMode === "tomorrow"
-          ? new Date(Date.now() + 86_400_000).toISOString().split("T")[0]
-          : undefined;
+  if (date.dateMode || date.date) {
     const negatedDate =
       /\b(ne|necu|nemoj|bez)\s+(sutra|danas|prekosutra|vikend\w*)\b/.test(
         normalized,
       );
     if (negatedDate) {
       remove.add("date");
-    } else if (resolvedDate && resolvedDate !== collected?.date) {
-      replace.date = resolvedDate;
+    } else if (date.date && date.date !== collected?.date) {
+      replace.date = date.date;
     }
   }
 
@@ -1496,6 +1561,18 @@ export function parseClaudiaDirectIntent(input: {
   const service = detectDirectService(input.text, catalog);
   const date = detectDirectDate(input.text);
   const time = detectDirectTime(input.text);
+  if (
+    process.env.NODE_ENV !== "production" &&
+    (date.date || date.dateMode)
+  ) {
+    console.debug("[CLAUDIA_DATE_RESOLVED]", {
+      input: input.text,
+      previousDate: input.collectedBookingFields?.date,
+      resolvedDate: date.date,
+      dateMode: date.dateMode,
+      source: "canonical_date_resolver",
+    });
+  }
   const hasContext = Boolean(
     input.collectedBookingFields?.service ||
     input.collectedBookingFields?.city ||
@@ -1939,6 +2016,8 @@ export async function askAgent(
   userCity?: string,
   /** Faza 6 — episode identity for structured recall + server-side writes. */
   episodeContext?: EpisodeRecallKey,
+  /** Model Lab — public model id; resolved server-side (fallback DeepSeek). */
+  selectedModelId?: string,
 ): Promise<ReadableStream> {
   // Faza 6 — server-resolved episode write (prices, no_slots, conflict).
   // Awaited so the row lands before the serverless invocation can be torn
@@ -2233,6 +2312,7 @@ export async function askAgent(
         },
         userCity,
         episodeContext,
+        selectedModelId,
       );
       return withIntentExtras(correctedStream, {
         cleared: correction.remove,
@@ -2281,6 +2361,7 @@ export async function askAgent(
         },
         userCity,
         episodeContext,
+        selectedModelId,
       );
     }
 
@@ -2297,6 +2378,7 @@ export async function askAgent(
         },
         userCity,
         episodeContext,
+        selectedModelId,
       );
     }
 
@@ -2536,6 +2618,7 @@ export async function askAgent(
         bookingPayload,
         userCity,
         episodeContext,
+        selectedModelId,
       );
     }
   }
@@ -3069,6 +3152,7 @@ export async function askAgent(
         { intent: "select_city", city },
         userCity,
         episodeContext,
+        selectedModelId,
       );
     }
   }
@@ -3967,22 +4051,19 @@ export async function askAgent(
   // Phase D — buffer + validate + repair + recover. We no longer stream raw
   // DeepSeek tokens straight to the client; instead we validate the JSON first
   // so a malformed/empty response never reaches parseClaudiaResponse as a reset.
+  //
+  // Model Lab — LLM poziv ide kroz adapter za izabrani model (DeepSeek default,
+  // behavior-preserving non-streaming swap; usage se sad hvata uniformno).
+  const { adapter, entry } = adapterFromModelId(selectedModelId);
   try {
-    const completion = await getDeepseekClient().chat.completions.create(
-      {
-        model: "deepseek-chat",
-        messages: [
-          { role: "system", content: systemPrompt },
-          ...deepseekHistory,
-          { role: "user", content: userInput },
-        ],
-        temperature: 0.2,
-        response_format: { type: "json_object" as const },
-      },
-      { timeout: 18_000 },
-    );
+    const llmMessages = [...deepseekHistory, { role: "user" as const, content: userInput }];
+    const result = await adapter.complete({
+      system: systemPrompt,
+      messages: llmMessages,
+      jsonObjectMode: true,
+    });
 
-    let raw = completion.choices[0]?.message?.content ?? "";
+    let raw = result.text;
 
     if (!isUsableClaudiaJson(raw)) {
       // Recovery step 1 — Claude repairs the broken JSON (no-op without a key).
@@ -4007,6 +4088,16 @@ export async function askAgent(
     raw = enrichClaudiaLayoutBlocks(raw, {
       platform,
       collected: mergedBookingContext,
+    });
+
+    // Model Lab — usage telemetrija u __meta (ruta je podiže u SSE final okvir).
+    raw = injectUsageMeta(raw, {
+      provider: entry.provider,
+      model: entry.apiModel,
+      usage: result.usage,
+      latencyMs: result.latencyMs,
+      promptText: systemPrompt + llmMessages.map((m) => m.content).join("\n"),
+      responseText: result.text,
     });
 
     return streamRawString(raw);

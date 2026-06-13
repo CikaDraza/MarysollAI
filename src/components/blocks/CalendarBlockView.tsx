@@ -40,15 +40,15 @@ export function CalendarBlockView({ block, onAction }: Props) {
   return (
     <div ref={containerRef} className="scroll-mt-20">
       <Reveal>
-        <div className="bg-white rounded-xl shadow-xl overflow-hidden sm:max-w-xl md:max-w-4xl xl:max-w-full my-4">
+        <div className="bg-(--surface) rounded-xl shadow-xl overflow-hidden sm:max-w-xl md:max-w-4xl xl:max-w-full my-4">
           {/* Lite Header - Tanji i svedeniji */}
-          <div className="flex bg-gray-50/80 p-1 gap-1">
+          <div className="flex bg-(--surface-2) p-1 gap-1">
             <button
               onClick={() => setView("preview")}
               className={`cursor-pointer flex-1 flex items-center hover:text-(--secondary-color)/90 justify-center gap-2 py-4 text-xs font-bold rounded-lg transition-all ${
                 view === "preview"
-                  ? "bg-white text-(--secondary-color) shadow-sm"
-                  : "text-gray-400"
+                  ? "bg-(--surface-elev) text-(--secondary-color) shadow-sm"
+                  : "text-(--fg-3)"
               }`}
             >
               <CalendarIcon className="size-4" />
@@ -58,8 +58,8 @@ export function CalendarBlockView({ block, onAction }: Props) {
               onClick={() => setView("list")}
               className={`cursor-pointer flex-1 flex items-center hover:text-(--secondary-color)/90 justify-center gap-2 py-2 text-xs font-bold rounded-lg transition-all ${
                 view === "list"
-                  ? "bg-white text-(--secondary-color) shadow-sm"
-                  : "text-gray-400"
+                  ? "bg-(--surface-elev) text-(--secondary-color) shadow-sm"
+                  : "text-(--fg-3)"
               }`}
             >
               <ListBulletIcon className="size-4" />

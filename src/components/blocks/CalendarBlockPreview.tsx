@@ -157,15 +157,15 @@ export function CalendarBlockPreview({ onBookingSuccess }: Props) {
   if (!selectedSalon) {
     return (
       <div className="flex flex-col gap-3">
-        <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-1">
+        <p className="text-xs font-semibold uppercase tracking-widest text-(--fg-3) mb-1">
           Izaberite salon
         </p>
         {salonsLoading ? (
-          <div className="py-8 text-center text-sm text-gray-400">
+          <div className="py-8 text-center text-sm text-(--fg-3)">
             Učitavam salone…
           </div>
         ) : salons.length === 0 ? (
-          <div className="py-8 text-center text-sm text-gray-400">
+          <div className="py-8 text-center text-sm text-(--fg-3)">
             Nema dostupnih salona.
           </div>
         ) : (
@@ -179,18 +179,18 @@ export function CalendarBlockPreview({ onBookingSuccess }: Props) {
                   setSelectedDate(new Date());
                   setWeekStart(startOfWeek(new Date(), { weekStartsOn: 1 }));
                 }}
-                className="cursor-pointer flex items-center justify-between px-4 py-3 rounded-xl bg-gray-50 hover:bg-gray-100 border border-transparent hover:border-gray-200 text-left transition-all"
+                className="cursor-pointer flex items-center justify-between px-4 py-3 rounded-xl bg-(--surface-2) hover:bg-(--surface-3) border border-transparent hover:border-(--border-2) text-left transition-all"
               >
                 <div className="flex flex-col gap-0.5">
-                  <span className="text-sm font-bold text-gray-800">
+                  <span className="text-sm font-bold text-(--fg-1)">
                     {s.name}
                   </span>
                   {s.city && (
-                    <span className="text-xs text-gray-400">{s.city}</span>
+                    <span className="text-xs text-(--fg-3)">{s.city}</span>
                   )}
                 </div>
                 {s.nextAvailableSlot && (
-                  <span className="text-xs font-semibold text-(--secondary-color) bg-purple-50 px-2 py-1 rounded-full">
+                  <span className="text-xs font-semibold text-(--secondary-color) bg-(--brand-100) px-2 py-1 rounded-full">
                     Slobodan termin
                   </span>
                 )}
@@ -208,11 +208,11 @@ export function CalendarBlockPreview({ onBookingSuccess }: Props) {
       {/* Salon header */}
       <div className="flex items-center justify-between">
         <div>
-          <span className="text-sm font-bold text-gray-800">
+          <span className="text-sm font-bold text-(--fg-1)">
             {selectedSalon.name}
           </span>
           {selectedSalon.city && (
-            <span className="text-xs text-gray-400 ml-2">
+            <span className="text-xs text-(--fg-3) ml-2">
               {selectedSalon.city}
             </span>
           )}
@@ -227,15 +227,15 @@ export function CalendarBlockPreview({ onBookingSuccess }: Props) {
 
       {/* Toolbar: view toggle + nav */}
       <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-1 bg-gray-100 rounded-xl p-1">
+        <div className="flex items-center gap-1 bg-(--surface-2) rounded-xl p-1">
           {(["week", "day"] as ViewMode[]).map((v) => (
             <button
               key={v}
               onClick={() => setViewMode(v)}
               className={`cursor-pointer px-3 py-1.5 text-xs font-semibold rounded-lg transition ${
                 viewMode === v
-                  ? "bg-white text-(--secondary-color) shadow-sm"
-                  : "text-gray-400 hover:text-gray-700"
+                  ? "bg-(--surface-elev) text-(--secondary-color) shadow-sm"
+                  : "text-(--fg-3) hover:text-(--fg-1)"
               }`}
             >
               {v === "week" ? "Sedmica" : "Dan"}
@@ -250,11 +250,11 @@ export function CalendarBlockPreview({ onBookingSuccess }: Props) {
                 ? setWeekStart((w) => subWeeks(w, 1))
                 : setSelectedDate((d) => subDays(d, 1))
             }
-            className="cursor-pointer p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-700 transition"
+            className="cursor-pointer p-1.5 rounded-lg hover:bg-(--surface-2) text-(--fg-3) hover:text-(--fg-1) transition"
           >
             <ChevronLeftIcon className="w-4 h-4" />
           </button>
-          <span className="text-xs font-semibold text-gray-700 min-w-[110px] text-center capitalize">
+          <span className="text-xs font-semibold text-(--fg-2) min-w-[110px] text-center capitalize">
             {navLabel}
           </span>
           <button
@@ -263,7 +263,7 @@ export function CalendarBlockPreview({ onBookingSuccess }: Props) {
                 ? setWeekStart((w) => addWeeks(w, 1))
                 : setSelectedDate((d) => addDays(d, 1))
             }
-            className="cursor-pointer p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-700 transition"
+            className="cursor-pointer p-1.5 rounded-lg hover:bg-(--surface-2) text-(--fg-3) hover:text-(--fg-1) transition"
           >
             <ChevronRightIcon className="w-4 h-4" />
           </button>
@@ -289,21 +289,21 @@ export function CalendarBlockPreview({ onBookingSuccess }: Props) {
                 }}
                 className={`flex flex-col items-center gap-0.5 py-2 px-1 rounded-xl border-2 transition min-h-[68px] ${
                   !dayWorking || isPast
-                    ? "border-red-200 bg-red-50 cursor-default opacity-70"
+                    ? "border-red-500/30 bg-red-500/10 cursor-default opacity-70"
                     : isSelected
                       ? "border-(--secondary-color) bg-(--secondary-color)/10 cursor-pointer"
                       : isToday
-                        ? "border-amber-300 bg-amber-50 cursor-pointer hover:border-amber-400"
-                        : "border-gray-200 bg-white cursor-pointer hover:border-(--secondary-color)/40 hover:bg-(--secondary-color)/5 shadow-sm"
+                        ? "border-amber-400/40 bg-amber-400/10 cursor-pointer hover:border-amber-400"
+                        : "border-(--border-1) bg-(--surface) cursor-pointer hover:border-(--secondary-color)/40 hover:bg-(--secondary-color)/5 shadow-sm"
                 }`}
               >
                 <span
                   className={`text-[9px] font-bold uppercase tracking-wide ${
                     !dayWorking || isPast
-                      ? "text-red-300"
+                      ? "text-red-400"
                       : isToday
                         ? "text-amber-500"
-                        : "text-gray-400"
+                        : "text-(--fg-3)"
                   }`}
                 >
                   {format(day, "EEE", { locale: sr })}
@@ -311,12 +311,12 @@ export function CalendarBlockPreview({ onBookingSuccess }: Props) {
                 <span
                   className={`text-sm font-bold leading-none ${
                     !dayWorking || isPast
-                      ? "text-red-300"
+                      ? "text-red-400"
                       : isSelected
                         ? "text-(--secondary-color)"
                         : isToday
                           ? "text-amber-600"
-                          : "text-gray-700"
+                          : "text-(--fg-2)"
                   }`}
                 >
                   {format(day, "d")}
@@ -348,7 +348,7 @@ export function CalendarBlockPreview({ onBookingSuccess }: Props) {
                 setSelectedServiceId(e.target.value);
                 setSelectedServiceName(svc?.name ?? "");
               }}
-              className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm font-medium text-gray-700 focus:outline-none focus:border-(--secondary-color) transition-colors"
+              className="w-full rounded-xl border border-(--border-1) bg-(--surface-2) px-3 py-2.5 text-sm font-medium text-(--fg-2) focus:outline-none focus:border-(--secondary-color) transition-colors"
             >
               <option value="">Sve usluge</option>
               {services.map((svc) => (
@@ -366,15 +366,15 @@ export function CalendarBlockPreview({ onBookingSuccess }: Props) {
 
           {/* Slot grid */}
           {!isWorking ? (
-            <div className="py-8 text-center text-sm text-gray-400 bg-red-50 rounded-2xl border-2 border-red-200">
+            <div className="py-8 text-center text-sm text-(--fg-3) bg-red-500/10 rounded-2xl border-2 border-red-500/30">
               Neradan dan — nema slobodnih termina.
             </div>
           ) : slotsLoading ? (
-            <div className="py-8 text-center text-sm text-gray-400">
+            <div className="py-8 text-center text-sm text-(--fg-3)">
               Učitavam termine…
             </div>
           ) : availableSlotTimes.length === 0 ? (
-            <div className="py-8 text-center text-sm text-gray-400 bg-gray-50 rounded-2xl">
+            <div className="py-8 text-center text-sm text-(--fg-3) bg-(--surface-2) rounded-2xl">
               Nema slobodnih termina za ovaj dan.
             </div>
           ) : (
@@ -440,7 +440,7 @@ export function CalendarBlockPreview({ onBookingSuccess }: Props) {
                         onBookingSuccess,
                       );
                     }}
-                    className="cursor-pointer flex flex-col items-center justify-center gap-0.5 py-3 px-2 rounded-xl bg-gray-50 hover:bg-(--secondary-color) hover:text-white border border-transparent hover:border-(--secondary-color) transition-all text-sm font-bold text-gray-700"
+                    className="cursor-pointer flex flex-col items-center justify-center gap-0.5 py-3 px-2 rounded-xl bg-(--surface-2) hover:bg-(--secondary-color) hover:text-white border border-transparent hover:border-(--secondary-color) transition-all text-sm font-bold text-(--fg-2)"
                   >
                     {time}
                   </button>

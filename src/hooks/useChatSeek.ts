@@ -16,6 +16,7 @@ import {
 } from "@/types/ai/deepseek";
 import { bookingFlow } from "@/lib/ai/booking-flow-state";
 import { UsageStats } from "@/types/ai/deepseek/usage";
+import { setLastAiUsage } from "@/lib/ai/usage-store";
 import type { SearchResult } from "@/types/slots";
 import type {
   AiBookingContact,
@@ -318,6 +319,11 @@ export function useChatSeek(
             lastIntent: lastIntentRef.current,
             lastRecoveryState: lastRecoveryStateRef.current,
             pendingContact: pendingContactRef.current,
+            // Model Lab — preferencija modela (server svejedno revalidira).
+            selectedModelId:
+              typeof window !== "undefined"
+                ? (localStorage.getItem("marysoll_ai_model_id") ?? undefined)
+                : undefined,
           }),
           signal: controller.signal,
         });
@@ -410,6 +416,20 @@ export function useChatSeek(
           modelVersion: data.model,
         };
         setUsage(usageData);
+
+        // Model Lab — globalni usage store (overlay u UsageStats). Provider/cena
+        // dolaze iz aiDebug-a (server izračunao), tokeni iz usage-a.
+        const aiDebug = data.aiDebug as
+          | { provider?: string; estimatedCostUsd?: number | null }
+          | undefined;
+        setLastAiUsage({
+          provider: aiDebug?.provider,
+          model: data.model,
+          inputTokens: usageData.inputTokens,
+          outputTokens: usageData.outputTokens,
+          totalTokens: usageData.totalTokens,
+          estimatedCostUsd: aiDebug?.estimatedCostUsd ?? null,
+        });
 
         const assistantMessage: Message = {
           id: crypto.randomUUID(),

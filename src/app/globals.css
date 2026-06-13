@@ -40,6 +40,7 @@
   --background:    #F4F6F8;
   --surface:       #ffffff;
   --surface-2:     #FAF7FB;
+  --surface-3:     #F1ECF4;
   --surface-elev:  #ffffff;
   --overlay-blur:  rgba(255,255,255,0.6);
   --foreground: var(--black-color);
@@ -125,6 +126,7 @@
     --background: #120111;
     --surface:    #1B0419;
     --surface-2:  #2A1028;
+    --surface-3:  #351433;
     --surface-elev: #321438;
     --foreground: var(--white-color);
     --fg-1: #F4EEF3;
@@ -147,6 +149,7 @@
   --background: #120111;
   --surface:    #1B0419;
   --surface-2:  #2A1028;
+  --surface-3:  #351433;
   --surface-elev: #321438;
   --foreground: var(--white-color);
   --fg-1: #F4EEF3;

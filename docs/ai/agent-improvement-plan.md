@@ -21,14 +21,14 @@ Postojeću infrastrukturu (Orchestrator, LayoutEngine, Recovery, Zod šeme, memo
 
 ## FAZA 1 — Dead-endovi ⚡
 
-| # | Task | Fajl | Pristup |
-|---|------|------|---------|
-| 1.1 | Rate-limit poruka umesto praznog `{messages:[]}` (status 200, tišina) | `conversation/route.ts:66-68` + `deepseek-conversation/route.ts` | "Primili smo više zahteva odjednom — sačekajte par sekundi pa pokušajte ponovo." |
-| 1.2 | Stale handoff vraća praznu poruku | `askAgent.ts:1538-1551` | Reuse `buildContextPreservingClarification()` (askAgent.ts:390) |
-| 1.3 | Unknown intent → generičko "Ne razumem zahtev" bez bloka | `askAgent.ts:1466-1472` | Context-preserving poruka + `chooseBlockForMissingField()` za prvo nedostajuće polje |
-| 1.4 | Recovery bez akcije (`missing_contact`/`unknown` samo toast) | `recovery-engine.ts:325,404` | missing_contact → `OPEN_BOOKING_MODAL` sa selectedSlot; unknown → `BOOKING_PAYLOAD_INCOMPLETE` system action |
-| 1.5 | Nevalidan blok se tiho preskače | `block-registry.ts:181-207` + LayoutEngine | Fail → recovery event (`missing_salon`/`missing_service`); `requires: ["cities"]` za CityListBlock |
-| 1.6 | Timeout 18s: kontradiktoran fallback + fire-and-forget | `ai-orchestrator.ts:236-271` | "Molimo vas sačekajte, proveravamo…"; background rezultat renderuj ILI odbaci ako je flowVersion porastao |
+| #   | Task                                                                  | Fajl                                                             | Pristup                                                                                                      |
+| --- | --------------------------------------------------------------------- | ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| 1.1 | Rate-limit poruka umesto praznog `{messages:[]}` (status 200, tišina) | `conversation/route.ts:66-68` + `deepseek-conversation/route.ts` | "Primili smo više zahteva odjednom — sačekajte par sekundi pa pokušajte ponovo."                             |
+| 1.2 | Stale handoff vraća praznu poruku                                     | `askAgent.ts:1538-1551`                                          | Reuse `buildContextPreservingClarification()` (askAgent.ts:390)                                              |
+| 1.3 | Unknown intent → generičko "Ne razumem zahtev" bez bloka              | `askAgent.ts:1466-1472`                                          | Context-preserving poruka + `chooseBlockForMissingField()` za prvo nedostajuće polje                         |
+| 1.4 | Recovery bez akcije (`missing_contact`/`unknown` samo toast)          | `recovery-engine.ts:325,404`                                     | missing_contact → `OPEN_BOOKING_MODAL` sa selectedSlot; unknown → `BOOKING_PAYLOAD_INCOMPLETE` system action |
+| 1.5 | Nevalidan blok se tiho preskače                                       | `block-registry.ts:181-207` + LayoutEngine                       | Fail → recovery event (`missing_salon`/`missing_service`); `requires: ["cities"]` za CityListBlock           |
+| 1.6 | Timeout 18s: kontradiktoran fallback + fire-and-forget                | `ai-orchestrator.ts:236-271`                                     | "Molimo vas sačekajte, proveravamo…"; background rezultat renderuj ILI odbaci ako je flowVersion porastao    |
 
 **Verifikacija:** 11 poruka/min → ljubazna poruka; klik na stale salon → smislena poruka; spor odgovor → bez duplih poruka.
 
@@ -37,18 +37,19 @@ Postojeću infrastrukturu (Orchestrator, LayoutEngine, Recovery, Zod šeme, memo
 Realizovano kao **CatalogContext** (`src/lib/ai/catalog/`): cities + salons + services +
 categories + synonyms iz platforme/DB; statična semantička mapa je samo jezički seed.
 
-| # | Task | Status | Realizacija |
-|---|------|--------|-------------|
-| 2.1 | `CatalogContext` modul | ✅ | `catalog-context.ts` (builder + matcheri: padeži, bez dijakritike, pozicioni matchLastCity), `get-catalog-context.ts` (server, keš po snapshot identitetu), `/api/ai/catalog` + `client-catalog.ts` (klijentska hidracija, localStorage TTL) |
-| 2.2 | Zameni hardkodirane liste | ✅ | `agentEntryRouter` (katalog + statični fallback do hidracije), `askAgent`: `detectDirectCity/SalonName/Service`, `extractAskedCity`, `isSalonCityExistenceFollowUp` → `intentCatalogFor()` |
-| 2.3 | Detekcija negacije/korekcije (`correction` intent) | ⏳ uz Fazu 4 | `{replace, remove}` semantika ide zajedno sa correction flow-om |
-| 2.4 | Unit testovi leksikona | ✅ | `src/tests/catalogContext.test.ts` (12 testova: padeži, dijakritike, DB sinonimi, novi grad/usluga, router integracija) |
+| #   | Task                                               | Status       | Realizacija                                                                                                                                                                                                                                  |
+| --- | -------------------------------------------------- | ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 2.1 | `CatalogContext` modul                             | ✅           | `catalog-context.ts` (builder + matcheri: padeži, bez dijakritike, pozicioni matchLastCity), `get-catalog-context.ts` (server, keš po snapshot identitetu), `/api/ai/catalog` + `client-catalog.ts` (klijentska hidracija, localStorage TTL) |
+| 2.2 | Zameni hardkodirane liste                          | ✅           | `agentEntryRouter` (katalog + statični fallback do hidracije), `askAgent`: `detectDirectCity/SalonName/Service`, `extractAskedCity`, `isSalonCityExistenceFollowUp` → `intentCatalogFor()`                                                   |
+| 2.3 | Detekcija negacije/korekcije (`correction` intent) | ⏳ uz Fazu 4 | `{replace, remove}` semantika ide zajedno sa correction flow-om                                                                                                                                                                              |
+| 2.4 | Unit testovi leksikona                             | ✅           | `src/tests/catalogContext.test.ts` (12 testova: padeži, dijakritike, DB sinonimi, novi grad/usluga, router integracija)                                                                                                                      |
 
 Potrošači na jednom izvoru: AgentEntryRouter ✅, parseClaudiaDirectIntent ✅,
 Semantic Interpreter ✅ (platformKnowledge = isti izvor), Price/Booking/NotifyMe ✅
 (preko parsera), Search normalizacija ✅ (deli `serviceSemanticMap` seed).
 
 **Usput rešena 4 prava buga** (otkrivena u starim testovima):
+
 1. FAQ "da li moram da se registrujem" padao u catch-all "Nešto je zapelo" → deterministička FAQ brza putanja (`detectKnownFaq`, deepseek ruta) sa kanonskim odgovorom iz communication-rules.
 2. `inferCityFromSalon` izmišljao grad za nepoznat salon (generička reč "salon" pravila match) → stoplista generičkih tokena.
 3. BookingWidget policy dozvoljavao sintetičke slotove (allowSynthetic=true, L6) → strikt: `allowSynthetic:false`, L3 cap, `strictOrigins` za explicit intente (tražena usluga se ne menja drugom kategorijom), trust gate za real availability.
@@ -59,13 +60,13 @@ suite zelen: 821/821.
 
 ## FAZA 3 — Podaci POSLE intenta ✅ urađeno
 
-| # | Task | Status | Realizacija |
-|---|------|--------|-------------|
-| 3.1 | Maria prompt na dijeti | ✅ | `buildMariaPrompt.ts`: bez pomenute usluge nema kataloga (ni cena — cenovnik vodi Claudia); sa uslugom top-10 poklapanja (ime\|salon\|grad, bez RSD). Cenovnik primer sada rutira ka Claudii umesto da Maria citira cene |
-| 3.2 | Data-prep korak po intentu | ✅ | Direct putanja: leksikon iz JEDNOG keširanog poziva (`fetchBookingSalons`, embedded usluge) → intent → skupi per-salon fetch (`fetchServicesBySalon`, N poziva) SAMO u prices grani. appointments/auth/booking grane više ne plaćaju N poziva. salon_info odgovara činjenično samo uz učitane podatke (inače LLM putanja) |
-| 3.2b | Leksikon u guard putanjama | ✅ | `extractAskedCity` i `isSalonCityExistenceFollowUp` primaju snapshot → prepoznaju sve marketplace gradove |
-| 3.3 | Server popunjava blokove, ne LLM | ✅ | `enrichClaudiaLayoutBlocks` (askAgent): LLM bira TIP bloka + poruku; server iz platform snapshot-a puni `cities` (matchingCityItems / svi gradovi sa brojem salona) i `salons` (resolveSalonsForService) — izmišljene LLM liste se PREPISUJU. Prompt više ne traži "popuni iz SALONI/GRADOVI sekcije" |
-| 3.4 | Svežina podataka | ✅ | `platformClient.ts`: working-hours 3600s→300s, services 60s→30s |
+| #    | Task                             | Status | Realizacija                                                                                                                                                                                                                                                                                                               |
+| ---- | -------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 3.1  | Maria prompt na dijeti           | ✅     | `buildMariaPrompt.ts`: bez pomenute usluge nema kataloga (ni cena — cenovnik vodi Claudia); sa uslugom top-10 poklapanja (ime\|salon\|grad, bez RSD). Cenovnik primer sada rutira ka Claudii umesto da Maria citira cene                                                                                                  |
+| 3.2  | Data-prep korak po intentu       | ✅     | Direct putanja: leksikon iz JEDNOG keširanog poziva (`fetchBookingSalons`, embedded usluge) → intent → skupi per-salon fetch (`fetchServicesBySalon`, N poziva) SAMO u prices grani. appointments/auth/booking grane više ne plaćaju N poziva. salon_info odgovara činjenično samo uz učitane podatke (inače LLM putanja) |
+| 3.2b | Leksikon u guard putanjama       | ✅     | `extractAskedCity` i `isSalonCityExistenceFollowUp` primaju snapshot → prepoznaju sve marketplace gradove                                                                                                                                                                                                                 |
+| 3.3  | Server popunjava blokove, ne LLM | ✅     | `enrichClaudiaLayoutBlocks` (askAgent): LLM bira TIP bloka + poruku; server iz platform snapshot-a puni `cities` (matchingCityItems / svi gradovi sa brojem salona) i `salons` (resolveSalonsForService) — izmišljene LLM liste se PREPISUJU. Prompt više ne traži "popuni iz SALONI/GRADOVI sekcije"                     |
+| 3.4  | Svežina podataka                 | ✅     | `platformClient.ts`: working-hours 3600s→300s, services 60s→30s                                                                                                                                                                                                                                                           |
 
 Regression: `src/tests/dataAfterIntent.test.ts` (9 testova: enrichment, prompt bez kataloških
 instrukcija, Maria dijeta). Suite zelen: 830/830.
@@ -76,24 +77,24 @@ Ključni princip: **ponovni intent PONIŠTAVA prethodni (revoke)** — nova vred
 staru, negirana vrednost se stvarno briše iz memorije, neodređena korekcija dobija
 rezime + pitanje umesto blokade.
 
-| # | Task | Status | Realizacija |
-|---|------|--------|-------------|
-| 4.1 | `clearFields(keys)` | ✅ | `booking-flow-state.ts` — brisanje po ključu (collect samo merge-uje) |
-| 4.2 | `detectDirectCorrection` + obrada | ✅ | `askAgent.ts`: markeri ("nisam to želeo", "ne u X nego Y", "umesto", "promeni", "ipak ne"), semantika replace/remove: ista vrednost uz marker = brisanje, nova = zamena (rep posle pivota ima prednost — "umesto feniranja hoću masažu"). Implicitni revoke: promena grada/usluge briše salonId/serviceId. Zamena → re-dispatch booking sa ispravljenim snapshot-om; `withIntentExtras` ubacuje `cleared`+`corrected` u intent odgovora |
-| 4.2b | Klijentski write-back | ✅ | `extractClearedFields` (parseClaudiaResponse) + `useAIQuery`: clearFields PRE collect (stara vrednost ne preživi merge), pa `bumpFlowVersion("correction_cleared")` — blokovi pogrešnog pokušaja postaju stale |
-| 4.3 | Neodređena korekcija → rezime | ✅ | "Razumem. Trenutno imam — usluga: X, grad: Y… Šta od toga menjamo: uslugu, grad, salon, datum ili vreme?" |
-| 4.4 | Ne resetuj flow na povratku Mariji | ✅ | `handleAgentTransition`: reset SAMO kad je `state === "completed"` (postavlja ga BOOKING_SUBMIT_SUCCESS) |
+| #    | Task                               | Status | Realizacija                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ---- | ---------------------------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 4.1  | `clearFields(keys)`                | ✅     | `booking-flow-state.ts` — brisanje po ključu (collect samo merge-uje)                                                                                                                                                                                                                                                                                                                                                                   |
+| 4.2  | `detectDirectCorrection` + obrada  | ✅     | `askAgent.ts`: markeri ("nisam to želeo", "ne u X nego Y", "umesto", "promeni", "ipak ne"), semantika replace/remove: ista vrednost uz marker = brisanje, nova = zamena (rep posle pivota ima prednost — "umesto feniranja hoću masažu"). Implicitni revoke: promena grada/usluge briše salonId/serviceId. Zamena → re-dispatch booking sa ispravljenim snapshot-om; `withIntentExtras` ubacuje `cleared`+`corrected` u intent odgovora |
+| 4.2b | Klijentski write-back              | ✅     | `extractClearedFields` (parseClaudiaResponse) + `useAIQuery`: clearFields PRE collect (stara vrednost ne preživi merge), pa `bumpFlowVersion("correction_cleared")` — blokovi pogrešnog pokušaja postaju stale                                                                                                                                                                                                                          |
+| 4.3  | Neodređena korekcija → rezime      | ✅     | "Razumem. Trenutno imam — usluga: X, grad: Y… Šta od toga menjamo: uslugu, grad, salon, datum ili vreme?"                                                                                                                                                                                                                                                                                                                               |
+| 4.4  | Ne resetuj flow na povratku Mariji | ✅     | `handleAgentTransition`: reset SAMO kad je `state === "completed"` (postavlja ga BOOKING_SUBMIT_SUCCESS)                                                                                                                                                                                                                                                                                                                                |
 
 Zaštita: "otkaži/pomeri termin" NIJE korekcija (operacije nad postojećim terminom).
 Testovi: `src/tests/correctionFlow.test.ts` (13). Suite zelen: 843/843.
 
 ## FAZA 5 — Persona cleanup ✅ urađeno
 
-| # | Task | Status | Realizacija |
-|---|------|--------|-------------|
-| 5.1 | Jedinstveni voice guide | ✅ | `AGENT_VOICE_GUIDE` u `agent-communication-rules.ts` (topla recepcionerka hotela 5*, dosledno Vi, ženski rod o sebi, najava provere, greška uvek sa sledećim korakom) — ulazi u communication rules OBA agenta i time u oba prompta |
-| 5.1b | Identitet u promptovima | ✅ | Claudia: stari "profesionalan, brz" ton zamenjen toplom recepcionerkom + eksplicitno persiranje; ispravljena i pogrešna instrukcija "Obraćaj se korisniku u ženskom rodu" → "O sebi govoriš u ženskom rodu". Maria: dodato persiranje |
-| 5.2 | Sweep hardkodiranih poruka ti→Vi | ✅ | ~30 poruka kroz 10 fajlova: askAgent (sve "Prijavi se/želiš/Izaberi/Reci mi/Najbliže tebi/Možeš..."), orchestrator parse-fallback (i uklonjena zabranjena reč "agent" iz poruke), claudia-contract reset-fallback ("Izvini... napiši" → Vi bez "krenemo ponovo"), parseClaudiaResponse fallback + placeholder, searchFallback, ConversationalSearch, LandingPage, NotifyMeWidget |
+| #    | Task                             | Status | Realizacija                                                                                                                                                                                                                                                                                                                                                                      |
+| ---- | -------------------------------- | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 5.1  | Jedinstveni voice guide          | ✅     | `AGENT_VOICE_GUIDE` u `agent-communication-rules.ts` (topla recepcionerka hotela 5\*, dosledno Vi, ženski rod o sebi, najava provere, greška uvek sa sledećim korakom) — ulazi u communication rules OBA agenta i time u oba prompta                                                                                                                                             |
+| 5.1b | Identitet u promptovima          | ✅     | Claudia: stari "profesionalan, brz" ton zamenjen toplom recepcionerkom + eksplicitno persiranje; ispravljena i pogrešna instrukcija "Obraćaj se korisniku u ženskom rodu" → "O sebi govoriš u ženskom rodu". Maria: dodato persiranje                                                                                                                                            |
+| 5.2  | Sweep hardkodiranih poruka ti→Vi | ✅     | ~30 poruka kroz 10 fajlova: askAgent (sve "Prijavi se/želiš/Izaberi/Reci mi/Najbliže tebi/Možeš..."), orchestrator parse-fallback (i uklonjena zabranjena reč "agent" iz poruke), claudia-contract reset-fallback ("Izvini... napiši" → Vi bez "krenemo ponovo"), parseClaudiaResponse fallback + placeholder, searchFallback, ConversationalSearch, LandingPage, NotifyMeWidget |
 
 Test sync: 7 asertacija ažurirano na Vi forme. Regression: `src/tests/personaVoice.test.ts`
 (voice guide u oba prompta, kanonski FAQ u Vi formi). Suite zelen: 848/848.
@@ -103,12 +104,12 @@ Test sync: 7 asertacija ažurirano na Vi forme. Regression: `src/tests/personaVo
 Strukturisane booking/user epizode (NE raw chat, NE PII). Cilj: "Prošli put ste tražili
 maderoterapiju u Boru — da proverim Beauty M Glow ponovo?".
 
-| # | Task | Status | Realizacija |
-|---|------|--------|-------------|
-| 6.1 | `conversationId` | ✅ | `src/lib/ai/memory/conversation-session.ts`: conversationId (sessionStorage, po razgovoru) + guestSessionId (localStorage, stabilan guest identitet za cross-session recall). Šalju se u svaki /api/ai/conversation poziv (useAIQuery); userId server izvodi iz tokena. `resetConversationId()` na /clear (guest identitet ostaje) |
-| 6.2 | `AgentEpisode` Mongo model | ✅ | `src/lib/models/AgentEpisode.ts` (kolekcija `agent_episodes`, obrazac AvailabilityWatch): tačno polja iz spec-a (conversationId/userId/guestSessionId/type/outcome/city/service/category/salonId/salonName/date/time/recoveryUsed). Indeksi userId+createdAt, guestSessionId+createdAt; TTL 90 dana. NULA PII/raw poruka kolona |
-| 6.3 | Write trigeri (samo važni) | ✅ | Klijent-resolved (POST /api/ai/episodes preko `client-episode-writer` u `recordEpisodicSystemAction`): BOOKING_SUBMIT_SUCCESS, NOTIFY_ME_CREATED, APPOINTMENT_CANCELLED, APPOINTMENT_UPDATED. Server-resolved (askAgent in-process `recordAgentEpisode`, await pre stream-a): PRICE_VIEWED, BOOKING_CONFLICT, NO_SLOTS. Disjunktni skupovi → bez duplih upisa. Dedup prozor 10s, guard: bez recall ključa nema upisa |
-| 6.4 | Čitanje u prompt | ✅ | `fetchEpisodicMemory` (po userId, pa guestSessionId) → `episodesToEpisodicMemory` → `buildAgentMemoryContext({episodicMemory})` u glavnoj LLM putanji (zamenjuje server-side prazan in-memory snapshot). Claudia prompt: nova sekcija "PRETHODNE EPIZODE" — proaktivno ponudi nastavak prošlog puta kad memorija prazna; nikad PII |
+| #   | Task                       | Status | Realizacija                                                                                                                                                                                                                                                                                                                                                                                                          |
+| --- | -------------------------- | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 6.1 | `conversationId`           | ✅     | `src/lib/ai/memory/conversation-session.ts`: conversationId (sessionStorage, po razgovoru) + guestSessionId (localStorage, stabilan guest identitet za cross-session recall). Šalju se u svaki /api/ai/conversation poziv (useAIQuery); userId server izvodi iz tokena. `resetConversationId()` na /clear (guest identitet ostaje)                                                                                   |
+| 6.2 | `AgentEpisode` Mongo model | ✅     | `src/lib/models/AgentEpisode.ts` (kolekcija `agent_episodes`, obrazac AvailabilityWatch): tačno polja iz spec-a (conversationId/userId/guestSessionId/type/outcome/city/service/category/salonId/salonName/date/time/recoveryUsed). Indeksi userId+createdAt, guestSessionId+createdAt; TTL 90 dana. NULA PII/raw poruka kolona                                                                                      |
+| 6.3 | Write trigeri (samo važni) | ✅     | Klijent-resolved (POST /api/ai/episodes preko `client-episode-writer` u `recordEpisodicSystemAction`): BOOKING_SUBMIT_SUCCESS, NOTIFY_ME_CREATED, APPOINTMENT_CANCELLED, APPOINTMENT_UPDATED. Server-resolved (askAgent in-process `recordAgentEpisode`, await pre stream-a): PRICE_VIEWED, BOOKING_CONFLICT, NO_SLOTS. Disjunktni skupovi → bez duplih upisa. Dedup prozor 10s, guard: bez recall ključa nema upisa |
+| 6.4 | Čitanje u prompt           | ✅     | `fetchEpisodicMemory` (po userId, pa guestSessionId) → `episodesToEpisodicMemory` → `buildAgentMemoryContext({episodicMemory})` u glavnoj LLM putanji (zamenjuje server-side prazan in-memory snapshot). Claudia prompt: nova sekcija "PRETHODNE EPIZODE" — proaktivno ponudi nastavak prošlog puta kad memorija prazna; nikad PII                                                                                   |
 
 Arhitektura: epizode su best-effort obogaćivanje — write/read padovi nikad ne ruše booking.
 PII bezbednost: model nema kontakt kolone, writer/ruta primaju samo strukturisana polja.
@@ -120,28 +121,43 @@ Framed SSE protokol izdvojen u `src/lib/ai/sse-frames.ts` (čist modul: encode/r
 dele ga ruta, klijentski hook i testovi. askAgent ostaje nepromenjen (i dalje vraća one-shot JSON);
 uokviravanje je na nivou rute, pa svi postojeći askAgent testovi ostaju validni.
 
-| # | Task | Status | Realizacija |
-|---|------|--------|-------------|
-| 7.1 | Multi-event stream | ✅ | `/api/ai/conversation` umota askAgent: odmah emituje `data:{type:"status",message}` (flush pre spore `await askAgent`), pa `data:{type:"final",response}`. `statusMessageForIntent` daje intent-aware tekst (termini/cenovnik/rezervacija/izbor/slobodni termini) |
-| 7.2 | Klijent: status = transient bubble | ✅ | `useAIQuery` koristi `createClaudiaFrameReader`: status → postojeći streaming bubble (mimo typewriter-a, NE upisuje se u istoriju), final → `fullRaw` za parse/extract. Fallback: neuokvireni JSON (rate-limit/error) ide kroz `rest()` |
-| 7.3 | Timeout svestan statusa | ✅ | `claudia-activity.ts` signal; orchestrator `withTimeout`→`withActivityTimeout` (okida tek posle 18s BEZ aktivnosti); klijent zove `markClaudiaActivity()` na svaki okvir → status resetuje budžet i spreči lažni "stuck" fallback |
+| #   | Task                               | Status | Realizacija                                                                                                                                                                                                                                                       |
+| --- | ---------------------------------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 7.1 | Multi-event stream                 | ✅     | `/api/ai/conversation` umota askAgent: odmah emituje `data:{type:"status",message}` (flush pre spore `await askAgent`), pa `data:{type:"final",response}`. `statusMessageForIntent` daje intent-aware tekst (termini/cenovnik/rezervacija/izbor/slobodni termini) |
+| 7.2 | Klijent: status = transient bubble | ✅     | `useAIQuery` koristi `createClaudiaFrameReader`: status → postojeći streaming bubble (mimo typewriter-a, NE upisuje se u istoriju), final → `fullRaw` za parse/extract. Fallback: neuokvireni JSON (rate-limit/error) ide kroz `rest()`                           |
+| 7.3 | Timeout svestan statusa            | ✅     | `claudia-activity.ts` signal; orchestrator `withTimeout`→`withActivityTimeout` (okida tek posle 18s BEZ aktivnosti); klijent zove `markClaudiaActivity()` na svaki okvir → status resetuje budžet i spreči lažni "stuck" fallback                                 |
 
 Test: `src/tests/sseStatusFrames.test.ts` (9: format, reader preko chunk granica, trailing okvir,
 fallback, intent poruke, activity signal). Suite zelen: 865/865.
 
-## FAZA 8 — A/B test modela (DeepSeek vs Claude Sonnet 4.6 vs GPT-5.5)
+## FAZA 8 — A/B test modela (DeepSeek vs Claude Sonnet 4.6 vs GPT 5.5) ✅ urađeno
 
-Kriterijumi: razume booking intent, drži kontekst, prati JSON contract, ne halucinira, radi kao agent.
+Kriterijumi: razume booking intent, drži kontekst, prati JSON contract, ne halucinira.
 
-| # | Task | Pristup |
-|---|------|---------|
-| 8.1 | Model adapter sloj | `LlmAdapter { complete(system, messages, schema?) }`: DeepSeek (postojeći openai klijent), Anthropic (`@anthropic-ai/sdk`, `claude-sonnet-4-6`; opciono `claude-haiku-4-5` za ruter ulogu), OpenAI GPT (model iz env-a). Env: `CLAUDIA_MODEL_PROVIDER/ID`, `MARIA_MODEL_PROVIDER/ID` |
-| 8.2 | Claude: structured outputs + caching | `output_config.format` json_schema iz postojećih Zod šema (`zodOutputFormat`) garantuje validan ClaudiaContract → repair nepotreban; `cache_control` na system promptu |
-| 8.3 | Golden eval dataset | 40–60 srpskih scenarija: intent, višeturni kontekst, korekcije, padeži, nepostojeći gradovi/usluge (halucinacije) — sa očekivanim intentom/entitetima/blokom |
-| 8.4 | Eval harness | `scripts/eval/run-agent-eval.ts`: 3 adaptera × dataset. Metrike: % validan JSON, tačnost intenta/entiteta, hallucination rate (`validateAgentClaim`), latencija p50/p95, cena. Izlaz: md izveštaj |
-| 8.5 | Odluka po ulozi | Mogući različiti modeli po agentu. Orijentacija: Sonnet 4.6 $3/$15 MTok, Haiku 4.5 $1/$5; ostale izmeriti |
+| #   | Task                                | Status       | Realizacija                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| --- | ----------------------------------- | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 8.1 | Model adapter sloj                  | ✅           | `src/lib/ai/eval/llm-adapter.ts`: `LlmAdapter { complete({system, messages, jsonSchema?}) }`. DeepSeek + OpenAI preko `openai` klijenta (GPT koristi `max_completion_tokens`), Anthropic Sonnet 4.6 preko Messages API raw fetch (isti obrazac kao postojeći anthropic-client.ts — bez novog dependency-ja). `adapterFromEnv` čita ključeve: `ANTHROPIC_MARIA_CLAUDIA_API_KEY`, `OPENAI_MARIA_CLAUDIA_API_KEY`, DeepSeek nepromenjen (`DEEPSEEK_API_KEY_SYSTEM`). Model override: `*_MARIA_CLAUDIA_MODEL` |
+| 8.2 | Claude structured outputs + caching | ✅           | Anthropic adapter: `output_config.format` json_schema kad se prosledi šema (garantuje validan JSON), `cache_control:{ephemeral}` na system promptu. `EVAL_STRUCTURED=1` uključuje provajdersko JSON forsiranje (json_object za DeepSeek/OpenAI)                                                                                                                                                                                                                                                                                         |
+| 8.3 | Golden eval dataset                 | ✅           | `src/lib/ai/eval/golden-dataset.ts`: 20 srpskih scenarija nad MariaContract ruterom — booking (grad+usluga, bez dijakritika, padeži), višeturni kontekst, korekcije, cenovnik, termini, otkazivanje, FAQ/B2B/closure, halucinacije (nepostojeći grad/usluga). Samostalan katalog + `buildEvalSystemPrompt` (fer, identičan prompt za sve)                                                                                                                                                                                               |
+| 8.4 | Eval harness + metrike              | ✅           | `scripts/eval/run-agent-eval.ts` (`npm run eval:agents`, ručno, mreža): 3 adaptera × dataset → md izveštaj. Metrike (`eval-metrics.ts`, čiste): % validan JSON, tačnost intenta/handoff/entiteta, hallucination rate, latencija p50/p95, tokeni, cena (cache-read na 0.1x)                                                                                                                                                                                                                                                              |
+| 8.5 | Odluka po ulozi                     | ✅ pokrenuto | Eval izvršen nad sva 3 prava modela (20 scenarija, 2026-06-13). Rezultati ispod                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 
-Napomena: "Claude Sonnet 4" je deprecated — aktuelni ID je `claude-sonnet-4-6`. GPT-5.5 ID kroz env.
+Napomena: Sonnet ID je `claude-sonnet-4-6` (verifikovano). GPT 5.5 model/cena kroz env.
+Testovi: `src/tests/evalHarness.test.ts` (19, bez mreže). Suite zelen: 884/884.
+
+### Rezultati eval-a (2026-06-13, 20 scenarija, prompt-only JSON)
+
+| Model                | JSON | Intent | Handoff | Entity | Halucinacije | p50    | p95    | Cena/run |
+| -------------------- | ---- | ------ | ------- | ------ | ------------ | ------ | ------ | -------- |
+| deepseek-chat (prod) | 100% | 100%   | 95%     | 100%   | 0%           | 1740ms | 2345ms | $0.0018  |
+| claude-sonnet-4-6    | 100% | 100%   | 100%    | 100%   | 0%           | 2881ms | 4357ms | $0.0773  |
+| gpt-5.5              | 100% | 95%    | 95%     | 100%   | 0%           | 3253ms | 5400ms | n/a\*    |
+
+\* GPT cena nije izračunata (nije postavljen `OPENAI_MARIA_CLAUDIA_PRICE_IN/_OUT`).
+
+**Preporuka:** Zadržati **DeepSeek kao primarni** za oba agenta — najbrži (~1.7s p50), ~43× jeftiniji od Sonnet-a, sa praktično istim kvalitetom (jedan handoff promašaj = 1/20 = unutar šuma). **Claude Sonnet 4.6** je jedini sa 100% na svim dimenzijama i ostaje idealan **JSON-repair/fallback** (već je u toj ulozi) ili za booking-specijalistu ako se traži dodatni pouzdanost-margin. GPT 5.5 nije pokazao prednost (sporiji, jedan intent + jedan handoff promašaj, cena nepoznata).
+
+**Ograničenja:** 20 scenarija (±1 slučaj = ±5%, nije statistički presudno); jedan prolaz bez ponavljanja. Pre konačne odluke proširiti dataset (40–60) i pokrenuti više puta.
 
 ---
 

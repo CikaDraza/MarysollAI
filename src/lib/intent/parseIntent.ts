@@ -190,8 +190,7 @@ const WEEKDAYS: [string, number][] = [
   ["thursday", 4], ["friday", 5], ["saturday", 6],
 ];
 
-function nextWeekday(target: number): string {
-  const now = new Date();
+function nextWeekday(target: number, now: Date = new Date()): string {
   let diff = target - now.getDay();
   if (diff <= 0) diff += 7;
   const d = new Date(now);
@@ -199,9 +198,23 @@ function nextWeekday(target: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+/** Matched Serbian/English weekday → day index (0=Sunday), or null. `norm`
+ *  must be diacritic-stripped (see {@link stripDiacritics}). Exported so the
+ *  canonical booking-date resolver can reuse the single weekday lexicon. */
+export function weekdayIndexFromText(norm: string): number | null {
+  for (const [word, dayNum] of WEEKDAYS) {
+    if (norm.includes(word)) return dayNum;
+  }
+  return null;
+}
+
 // ── Datetime ──────────────────────────────────────────────────────────────────
 
-function detectDatetime(norm: string, raw: string): BookingIntent["datetime"] {
+export function detectDatetime(
+  norm: string,
+  raw: string,
+  now: Date = new Date(),
+): BookingIntent["datetime"] {
   const timeResult = detectTime(norm, raw);
 
   if (norm.includes("danas") || norm.includes("today")) {
@@ -212,7 +225,7 @@ function detectDatetime(norm: string, raw: string): BookingIntent["datetime"] {
   // because "prekosutra".includes("sutra") would otherwise short-circuit
   // to tomorrow.
   if (norm.includes("prekosutra") || norm.includes("day after tomorrow")) {
-    const d = new Date();
+    const d = new Date(now);
     d.setDate(d.getDate() + 2);
     return {
       type: "day_after_tomorrow",
@@ -231,7 +244,7 @@ function detectDatetime(norm: string, raw: string): BookingIntent["datetime"] {
 
   for (const [word, dayNum] of WEEKDAYS) {
     if (norm.includes(word)) {
-      return { type: "date", value: nextWeekday(dayNum), ...timeResult };
+      return { type: "date", value: nextWeekday(dayNum, now), ...timeResult };
     }
   }
 
@@ -240,7 +253,7 @@ function detectDatetime(norm: string, raw: string): BookingIntent["datetime"] {
   if (dateMatch) {
     const day = dateMatch[1].padStart(2, "0");
     const month = dateMatch[2].padStart(2, "0");
-    const year = dateMatch[3] ?? new Date().getFullYear().toString();
+    const year = dateMatch[3] ?? now.getFullYear().toString();
     return { type: "date", value: `${year}-${month}-${day}`, ...timeResult };
   }
 

@@ -1,8 +1,9 @@
 "use client";
 // blocks/ClientBlockAppointments.tsx
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { IAppointment } from "@/types/appointments-type";
+import { PaginationInfo } from "@/types";
 import { useAppointmentsWithToken } from "@/hooks/useAppointmentsWithToken";
 import { useSalons } from "@/hooks/useSalons";
 import { formatISODate } from "@/helpers/formatISODate";
@@ -311,26 +312,26 @@ function ClientAppointmentListItem({
   const getStatusColor = (status: string) => {
     switch (status) {
       case "appointment_approved":
-        return "bg-green-100 text-green-800";
+        return "bg-green-500/15 text-green-600";
       case "appointment_rejected":
-        return "bg-red-100 text-red-800";
+        return "bg-red-500/15 text-red-600";
       case "pending":
-        return "bg-yellow-100 text-yellow-800";
+        return "bg-yellow-500/15 text-yellow-600";
       case "appointment_rescheduled":
-        return "bg-blue-100 text-blue-800";
+        return "bg-blue-500/15 text-blue-600";
       case "appointment_cancelled":
-        return "bg-gray-100 text-gray-800";
+        return "bg-(--surface-3) text-(--fg-2)";
       default:
-        return "bg-gray-100 text-gray-800";
+        return "bg-(--surface-3) text-(--fg-2)";
     }
   };
 
   return (
-    <li className="flex flex-col lg:flex-row justify-between gap-x-6 py-5 border-b border-gray-200">
+    <li className="flex flex-col lg:flex-row justify-between gap-x-6 py-5 border-b border-(--border-1)">
       <div className="flex min-w-0 gap-x-4 flex-1">
         <div className="min-w-0 flex-auto">
           <div className="flex items-center gap-2">
-            <p className="text-sm/6 font-semibold text-gray-900">
+            <p className="text-sm/6 font-semibold text-(--fg-1)">
               {currentAppointment.clientName}
             </p>
             <span
@@ -351,16 +352,16 @@ function ClientAppointmentListItem({
               {currentAppointment.status === "no_show" && "Nije se pojavio"}
             </span>
           </div>
-          <p className="mt-1 text-xs/5 text-gray-500">
+          <p className="mt-1 text-xs/5 text-(--fg-3)">
             {currentAppointment.clientEmail}
           </p>
           {currentAppointment.note && (
-            <p className="mt-2 text-xs text-gray-600">
+            <p className="mt-2 text-xs text-(--fg-2)">
               <strong>Napomena klijenta:</strong> {currentAppointment.note}
             </p>
           )}
-          <div className="mt-3 rounded-lg bg-gray-50 p-3">
-            <p className="text-sm font-semibold text-gray-900">
+          <div className="mt-3 w-fit max-w-full rounded-lg bg-(--surface-2) p-3">
+            <p className="text-sm font-semibold text-(--fg-1)">
               {salonSlug ? (
                 <Link
                   href={`/salons/${salonSlug}`}
@@ -373,7 +374,7 @@ function ClientAppointmentListItem({
               )}
             </p>
             {(salonAddress || salonCity) && (
-              <p className="mt-1 text-xs text-gray-600">
+              <p className="mt-1 text-xs text-(--fg-2)">
                 {salonAddress && <>Adresa: {salonAddress}</>}
                 {salonAddress && salonCity ? ", " : ""}
                 {salonCity}
@@ -382,7 +383,7 @@ function ClientAppointmentListItem({
             {(distanceLabel || travelLabel || mapsLink) && (
               <div className="mt-2 flex flex-wrap items-center gap-2">
                 {(distanceLabel || travelLabel) && (
-                  <span className="text-xs font-medium text-gray-500">
+                  <span className="text-xs font-medium text-(--fg-3)">
                     {[distanceLabel, travelLabel].filter(Boolean).join(" · ")}
                   </span>
                 )}
@@ -391,7 +392,7 @@ function ClientAppointmentListItem({
                     href={mapsLink}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="rounded-lg border border-gray-200 px-3 py-2 text-xs font-semibold text-gray-700 hover:border-gray-300 hover:bg-white"
+                    className="rounded-lg border border-(--border-1) px-3 py-2 text-xs font-semibold text-(--fg-2) hover:border-(--border-2) hover:bg-(--surface-2)"
                   >
                     Prikaži mapu
                   </a>
@@ -411,7 +412,7 @@ function ClientAppointmentListItem({
               </p>
             )}
           {currentAppointment.appointmentReliability?.cancellationDeadline && (
-            <p className="mt-1 text-xs text-gray-500">
+            <p className="mt-1 text-xs text-(--fg-3)">
               Otkazivanje moguće do:{" "}
               {formatISODate(
                 currentAppointment.appointmentReliability.cancellationDeadline,
@@ -422,11 +423,11 @@ function ClientAppointmentListItem({
       </div>
 
       <div className="flex flex-col items-end gap-2">
-        <p className="text-sm/6 font-semibold text-gray-900">
+        <p className="text-sm/6 font-semibold text-(--fg-1)">
           {currentAppointment.serviceName.toUpperCase()}
         </p>
         <div className="mt-1 flex flex-col items-end gap-x-1.5">
-          <p className="text-xs/5 text-gray-500">
+          <p className="text-xs/5 text-(--fg-3)">
             {`${
               currentAppointment.lastUpdatedBy === "client"
                 ? "Klijent"
@@ -446,7 +447,7 @@ function ClientAppointmentListItem({
               <button
                 type="button"
                 onClick={() => onChange(currentAppointment)}
-                className="rounded-lg border border-gray-200 px-3 py-2 text-xs font-semibold text-gray-700 hover:border-gray-300 hover:bg-gray-50"
+                className="rounded-lg border border-(--border-1) px-3 py-2 text-xs font-semibold text-(--fg-2) hover:border-(--border-2) hover:bg-(--surface-2)"
               >
                 Izmeni termin
               </button>
@@ -456,7 +457,7 @@ function ClientAppointmentListItem({
                 type="button"
                 onClick={() => onCancel(currentAppointment)}
                 disabled={isCancelling}
-                className="rounded-lg border border-red-200 px-3 py-2 text-xs font-semibold text-red-700 hover:border-red-300 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
+                className="rounded-lg border border-red-500/30 px-3 py-2 text-xs font-semibold text-red-600 hover:border-red-500/50 hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {isCancelling ? "Otkazujem..." : "Otkaži termin"}
               </button>
@@ -464,7 +465,7 @@ function ClientAppointmentListItem({
           </div>
         )}
         {windowExpired && (
-          <p className="mt-2 max-w-56 text-right text-xs font-medium text-amber-700">
+          <p className="mt-2 max-w-56 text-right text-xs font-medium text-amber-600">
             Vreme za izmenu i otkazivanje termina je isteklo.
           </p>
         )}
@@ -472,6 +473,8 @@ function ClientAppointmentListItem({
     </li>
   );
 }
+
+const PAGE_SIZE = 6;
 
 export default function ClientBlockAppointments({
   onAction,
@@ -485,6 +488,7 @@ export default function ClientBlockAppointments({
   const [cancelTarget, setCancelTarget] = useState<IAppointment | null>(null);
   const [selectedSalonId, setSelectedSalonId] = useState("all");
   const [showSalonPicker, setShowSalonPicker] = useState(false);
+  const listTopRef = useRef<HTMLDivElement>(null);
   const {
     token,
     user,
@@ -512,7 +516,6 @@ export default function ClientBlockAppointments({
     isLoading,
     isError,
   } = useAppointmentsWithToken(token ?? "", {
-    page,
     limit: 100,
     clientEmail: user?.email ?? "",
     enabled: authChecked && !!token,
@@ -572,10 +575,34 @@ export default function ClientBlockAppointments({
     return filterAppointmentsByMode(bySalon, appointmentListMode);
   }, [appointmentListMode, salonDirectory, selectedSalonId, userAppointments]);
 
-  const pagination = response?.pagination;
+  // Klijentska paginacija nad već filtriranom + sortiranom listom (6 po strani).
+  // Server vraća tenant podatke drugim sortom, pa response.pagination ne odgovara prikazu.
+  const totalCount = appointments.length;
+  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const pagedAppointments = appointments.slice(
+    (safePage - 1) * PAGE_SIZE,
+    safePage * PAGE_SIZE,
+  );
+  const clientPagination: PaginationInfo = {
+    page: safePage,
+    limit: PAGE_SIZE,
+    totalCount,
+    totalPages,
+    hasNextPage: safePage < totalPages,
+    hasPrevPage: safePage > 1,
+  };
+
+  // Reset na prvu stranicu kad se promene filteri (salon / mod prikaza).
+  useEffect(() => {
+    setPage(1);
+  }, [selectedSalonId, appointmentListMode]);
 
   const handlePageChange = (newPage: number) => {
     setPage(newPage);
+    // Posle promene strane vrati pogled na vrh liste — kraća strana inače
+    // ostavi viewport na sledećoj sekciji pa deluje kao da je blok nestao.
+    listTopRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
   const confirmCancel = () => {
@@ -598,12 +625,29 @@ export default function ClientBlockAppointments({
     // claudia.thread synchronously which causes unifiedThread to rebuild,
     // potentially clearing commandBlock before it renders (race condition).
     // The reschedule block banner provides sufficient context to the user.
+    //
+    // Razreši salon/uslugu istim helperima koje koristi i prikaz — sirovi
+    // appointment.salonId/salonCity/services[].serviceId su često prazni ili
+    // ugnježdeni objekti. Bez ovoga reschedule kalendar padne na missingFields
+    // → recovery "Nedostaje salon" → Claudia "Izaberi salon".
+    const directorySalon = directorySalonForAppointment(appointment, salonDirectory);
+    const salonId =
+      appointmentSalonId(appointment) ||
+      directorySalon?.id ||
+      directorySalon?.tenantId ||
+      "";
     sendSystemAction({
       action: "APPOINTMENT_UPDATE_REQUESTED",
       source: "ClientAppointmentsBlock",
       payload: {
         appointmentId: appointment._id,
         appointment,
+        salonId,
+        salonName: appointmentSalonName(appointment, salonDirectory),
+        salonCity: appointmentSalonCity(appointment, salonDirectory),
+        serviceId: appointmentServiceIds(appointment)[0] ?? "",
+        serviceName:
+          appointment.serviceName || appointment.services?.[0]?.serviceName || "",
       },
       notifyAgent: false,
       visibleInThread: false,
@@ -615,7 +659,7 @@ export default function ClientBlockAppointments({
   }
   if (!token || !user) {
     return (
-      <p className="text-center text-gray-500 py-8">
+      <p className="text-center text-(--fg-3) py-8">
         Prijavite se da biste videli svoje termine.
       </p>
     );
@@ -623,11 +667,11 @@ export default function ClientBlockAppointments({
   if (isError) return <p>Greška pri učitavanju termina.</p>;
 
   return (
-    <div className="space-y-6">
+    <div ref={listTopRef} className="scroll-mt-4 space-y-6">
       {salonOptions.length > 1 && (
-        <div className="flex flex-col gap-3 rounded-xl bg-gray-50 p-3">
+        <div className="flex flex-col gap-3 rounded-xl bg-(--surface-2) p-3">
           <div className="flex items-center justify-between gap-3">
-            <p className="text-sm font-semibold text-gray-800">
+            <p className="text-sm font-semibold text-(--fg-1)">
               {selectedSalonId === "all"
                 ? "Svi saloni"
                 : (() => {
@@ -659,8 +703,8 @@ export default function ClientBlockAppointments({
                 }}
                 className={`rounded-lg px-3 py-2 text-xs font-semibold ${
                   selectedSalonId === "all"
-                    ? "bg-gray-900 text-white"
-                    : "bg-white text-gray-700"
+                    ? "bg-(--secondary-color) text-white"
+                    : "bg-(--surface) text-(--fg-2)"
                 }`}
               >
                 Svi saloni
@@ -675,8 +719,8 @@ export default function ClientBlockAppointments({
                   }}
                   className={`rounded-lg px-3 py-2 text-xs font-semibold ${
                     selectedSalonId === salon.id
-                      ? "bg-gray-900 text-white"
-                      : "bg-white text-gray-700"
+                      ? "bg-(--secondary-color) text-white"
+                      : "bg-(--surface) text-(--fg-2)"
                   }`}
                 >
                   <span className="block text-left leading-tight">
@@ -694,15 +738,15 @@ export default function ClientBlockAppointments({
         </div>
       )}
       {appointments.length === 0 ? (
-        <p className="text-center text-gray-500 py-8">
+        <p className="text-center text-(--fg-3) py-8">
           {appointmentListMode === "can_cancel"
             ? "Nemate termina koje trenutno možete da otkažete."
             : "Nemate zakazanih termina."}
         </p>
       ) : (
         <>
-          <ul role="list" className="divide-y divide-gray-100">
-            {appointments.map((appointment: IAppointment) => (
+          <ul role="list" className="divide-y divide-(--border-1)">
+            {pagedAppointments.map((appointment: IAppointment) => (
               <ClientAppointmentListItem
                 key={appointment._id}
                 appointment={appointment}
@@ -719,8 +763,8 @@ export default function ClientBlockAppointments({
               role="dialog"
               aria-modal="true"
             >
-              <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
-                <p className="text-sm font-semibold text-gray-900">
+              <div className="w-full max-w-md rounded-xl bg-(--surface) p-6 shadow-xl">
+                <p className="text-sm font-semibold text-(--fg-1)">
                   Da li želite da otkažete termin za {cancelTarget.serviceName}{" "}
                   {formatISODate(`${cancelTarget.date}T${cancelTarget.time}`)}?
                 </p>
@@ -728,7 +772,7 @@ export default function ClientBlockAppointments({
                   <button
                     type="button"
                     onClick={() => setCancelTarget(null)}
-                    className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-semibold text-gray-700"
+                    className="rounded-lg border border-(--border-1) px-4 py-2 text-sm font-semibold text-(--fg-2)"
                   >
                     Ne
                   </button>
@@ -743,13 +787,11 @@ export default function ClientBlockAppointments({
               </div>
             </div>
           )}
-          {/* Paginator */}
-          {pagination && pagination.totalPages > 1 && (
-            <Paginator
-              pagination={pagination}
-              onPageChange={handlePageChange}
-            />
-          )}
+          {/* Paginator — skriva se sam kad je totalPages <= 1 */}
+          <Paginator
+            pagination={clientPagination}
+            onPageChange={handlePageChange}
+          />
         </>
       )}
     </div>
