@@ -38,6 +38,11 @@ import {
   catalogDataFromPlatformKnowledge,
   type CatalogContext as IntentCatalog,
 } from "@/lib/ai/catalog/catalog-context";
+import {
+  fetchEpisodicMemory,
+  recordAgentEpisode,
+  type EpisodeRecallKey,
+} from "@/lib/ai/memory/agentEpisodeStore";
 import type { AiBookingContact } from "@/types/aiBooking";
 import { runBookingSearch } from "@/lib/search/runBookingSearch";
 import { normalizeSemanticTerm } from "@/lib/search/serviceSemanticMap";
@@ -268,6 +273,15 @@ Ti NE računaš slobodne slotove.
 Ti NE proveravaš overlap termina.
 Ti pariraš intent i biraš pravi blok sa tačnim metadata.
 Blok sam učitava termine.
+
+--------------------------------------------------
+# PRETHODNE EPIZODE (Episodic memory)
+
+Ako u CONVERSATION STATE postoji "Episodic:" sekcija (npr. "last booking: Maderoterapija / Bor / Beauty M Glow"), a korisnik JOŠ uvek nije naveo uslugu i grad u ovom razgovoru:
+- Na početku ponudi nastavak iz prošlog puta, kratko i toplo, npr.: "Prošli put ste tražili maderoterapiju u Boru. Želite li da proverim Beauty M Glow ponovo?"
+- Ako korisnik potvrdi, popuni uslugu/grad/salon iz te epizode i nastavi normalan booking tok.
+- Ako navede nešto novo, prati novo — nikada ne forsiraj staru epizodu.
+NIKADA ne pominji telefon, email ni privatne podatke iz prošlosti — epizode su samo usluga/grad/salon/datum.
 
 --------------------------------------------------
 # SMART UX RULES
@@ -1923,7 +1937,27 @@ export async function askAgent(
   /** The user's known city (header/profile/GPS). Used as a soft default for
    * "nearest salon" so Claudia answers directly instead of re-asking. */
   userCity?: string,
+  /** Faza 6 — episode identity for structured recall + server-side writes. */
+  episodeContext?: EpisodeRecallKey,
 ): Promise<ReadableStream> {
+  // Faza 6 — server-resolved episode write (prices, no_slots, conflict).
+  // Awaited so the row lands before the serverless invocation can be torn
+  // down; recordAgentEpisode itself never throws.
+  const writeServerEpisode = async (
+    input: Omit<
+      Parameters<typeof recordAgentEpisode>[0],
+      "conversationId" | "userId" | "guestSessionId"
+    >,
+  ): Promise<void> => {
+    if (!episodeContext?.conversationId) return;
+    await recordAgentEpisode({
+      conversationId: episodeContext.conversationId,
+      userId: episodeContext.userId,
+      guestSessionId: episodeContext.guestSessionId,
+      ...input,
+    });
+  };
+
   // Guard: if Maria sent an intent, it must be a known ClaudiaIntent.
   // Unknown intent = Maria-side bug (typo, model drift) — refuse LLM fallback.
   if (handoffPayload?.intent !== undefined) {
@@ -2198,6 +2232,7 @@ export async function askAgent(
           timeWindowEnd: corrected.timeWindowEnd,
         },
         userCity,
+        episodeContext,
       );
       return withIntentExtras(correctedStream, {
         cleared: correction.remove,
@@ -2244,6 +2279,8 @@ export async function askAgent(
         {
           intent: "appointments",
         },
+        userCity,
+        episodeContext,
       );
     }
 
@@ -2258,6 +2295,8 @@ export async function askAgent(
         {
           intent: "login",
         },
+        userCity,
+        episodeContext,
       );
     }
 
@@ -2332,6 +2371,19 @@ export async function askAgent(
             id: salon.salonId,
             name: salon.salonName,
           }));
+
+      // PRICE_VIEWED epizoda — korisnik je pregledao cenovnik za uslugu/salon.
+      await writeServerEpisode({
+        type: "price",
+        outcome: "viewed",
+        city,
+        service,
+        category: collectedBookingFields?.category,
+        salonId: matchedSalon
+          ? String(matchedSalon._id ?? matchedSalon.id ?? "")
+          : priceSalons[0]?.id,
+        salonName: matchedSalon?.name ?? priceSalons[0]?.name,
+      });
 
       return streamClaudiaContract(
         makeClaudiaContract({
@@ -2482,6 +2534,8 @@ export async function askAgent(
         isBlockInteraction,
         collectedBookingFields,
         bookingPayload,
+        userCity,
+        episodeContext,
       );
     }
   }
@@ -3013,6 +3067,8 @@ export async function askAgent(
         isBlockInteraction,
         nextCollected,
         { intent: "select_city", city },
+        userCity,
+        episodeContext,
       );
     }
   }
@@ -3778,6 +3834,19 @@ export async function askAgent(
           ]
         : [];
 
+    // BOOKING_CONFLICT epizoda (recovery korišćen); ako nema alternativa,
+    // to je ujedno NO_SLOTS ishod.
+    await writeServerEpisode({
+      type: "booking",
+      outcome: alternatives.length > 0 ? "slot_taken" : "no_slots",
+      city,
+      service,
+      salonId: originalSalonId,
+      salonName: originalSalonName,
+      date: conflictDate,
+      recoveryUsed: true,
+    });
+
     return streamClaudiaContract(
       makeRecoveryContract({
         message,
@@ -3832,6 +3901,14 @@ export async function askAgent(
     handoffIntent === "no_slots"
       ? handoffIntent
       : undefined;
+  // Faza 6 — strukturisana epizodna memorija iz baze (NE klijentski
+  // in-memory snapshot, koji je server-side prazan). Ovo daje Claudii "prošli
+  // put ste tražili ... — da proverim ponovo?". Best-effort: ako padne,
+  // prompt nastavlja bez epizoda.
+  const episodicMemory = episodeContext
+    ? await fetchEpisodicMemory(episodeContext).catch(() => undefined)
+    : undefined;
+
   const memoryContext = formatAgentMemoryForPrompt(
     buildAgentMemoryContext({
       activeAgent: "claudia",
@@ -3848,6 +3925,7 @@ export async function askAgent(
         handoffIntent === "create_booking" ||
         handoffIntent === "booking_success",
       semanticMemory,
+      episodicMemory,
     }),
   );
 

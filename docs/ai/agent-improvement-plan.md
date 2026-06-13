@@ -98,22 +98,36 @@ Testovi: `src/tests/correctionFlow.test.ts` (13). Suite zelen: 843/843.
 Test sync: 7 asertacija ažurirano na Vi forme. Regression: `src/tests/personaVoice.test.ts`
 (voice guide u oba prompta, kanonski FAQ u Vi formi). Suite zelen: 848/848.
 
-## FAZA 6 — Episodic DB memory
+## FAZA 6 — Episodic DB memory ✅ urađeno
 
-| # | Task | Fajl | Pristup |
-|---|------|------|---------|
-| 6.1 | `conversationId` | klijent + oba API-ja | UUID po sesiji u svakom pozivu |
-| 6.2 | Mongo kolekcija | novi `src/models/AgentEpisode.ts` (obrazac: `AvailabilityWatch.ts`) | Polja po `agent-memory-types.ts:108-116`; clientId/email, poslednji booking, failed razlog, preferencije, TTL index |
-| 6.3 | Upis epizoda | `/api/booking` tok + `booking_success`/`booking_conflict` | Server-side upsert po clientId |
-| 6.4 | Čitanje u prompt | `buildAgentMemoryContext.ts` | "Prošli put masaža u Beogradu — da ponovimo?" |
+Strukturisane booking/user epizode (NE raw chat, NE PII). Cilj: "Prošli put ste tražili
+maderoterapiju u Boru — da proverim Beauty M Glow ponovo?".
 
-## FAZA 7 — SSE status events ("Molimo vas sačekajte da proverimo…")
+| # | Task | Status | Realizacija |
+|---|------|--------|-------------|
+| 6.1 | `conversationId` | ✅ | `src/lib/ai/memory/conversation-session.ts`: conversationId (sessionStorage, po razgovoru) + guestSessionId (localStorage, stabilan guest identitet za cross-session recall). Šalju se u svaki /api/ai/conversation poziv (useAIQuery); userId server izvodi iz tokena. `resetConversationId()` na /clear (guest identitet ostaje) |
+| 6.2 | `AgentEpisode` Mongo model | ✅ | `src/lib/models/AgentEpisode.ts` (kolekcija `agent_episodes`, obrazac AvailabilityWatch): tačno polja iz spec-a (conversationId/userId/guestSessionId/type/outcome/city/service/category/salonId/salonName/date/time/recoveryUsed). Indeksi userId+createdAt, guestSessionId+createdAt; TTL 90 dana. NULA PII/raw poruka kolona |
+| 6.3 | Write trigeri (samo važni) | ✅ | Klijent-resolved (POST /api/ai/episodes preko `client-episode-writer` u `recordEpisodicSystemAction`): BOOKING_SUBMIT_SUCCESS, NOTIFY_ME_CREATED, APPOINTMENT_CANCELLED, APPOINTMENT_UPDATED. Server-resolved (askAgent in-process `recordAgentEpisode`, await pre stream-a): PRICE_VIEWED, BOOKING_CONFLICT, NO_SLOTS. Disjunktni skupovi → bez duplih upisa. Dedup prozor 10s, guard: bez recall ključa nema upisa |
+| 6.4 | Čitanje u prompt | ✅ | `fetchEpisodicMemory` (po userId, pa guestSessionId) → `episodesToEpisodicMemory` → `buildAgentMemoryContext({episodicMemory})` u glavnoj LLM putanji (zamenjuje server-side prazan in-memory snapshot). Claudia prompt: nova sekcija "PRETHODNE EPIZODE" — proaktivno ponudi nastavak prošlog puta kad memorija prazna; nikad PII |
 
-| # | Task | Fajl | Pristup |
-|---|------|------|---------|
-| 7.1 | Multi-event stream | `askAgent.ts` (`streamJson:336`) | `{type:"status"}` event pre spore operacije, pa finalni contract |
-| 7.2 | Klijent: status = typing indicator | klijentski stream parser | Privremena poruka, ne ostaje u istoriji |
-| 7.3 | Timeout svestan statusa | `ai-orchestrator.ts:38` | Status event resetuje 18s budžet |
+Arhitektura: epizode su best-effort obogaćivanje — write/read padovi nikad ne ruše booking.
+PII bezbednost: model nema kontakt kolone, writer/ruta primaju samo strukturisana polja.
+Testovi: `src/tests/episodicDbMemory.test.ts` (8, mockovan Mongo: mapper, dedup, guard, PII). Suite zelen: 856/856.
+
+## FAZA 7 — SSE status events ("Molimo vas sačekajte da proverimo…") ✅ urađeno
+
+Framed SSE protokol izdvojen u `src/lib/ai/sse-frames.ts` (čist modul: encode/reader/status-poruke),
+dele ga ruta, klijentski hook i testovi. askAgent ostaje nepromenjen (i dalje vraća one-shot JSON);
+uokviravanje je na nivou rute, pa svi postojeći askAgent testovi ostaju validni.
+
+| # | Task | Status | Realizacija |
+|---|------|--------|-------------|
+| 7.1 | Multi-event stream | ✅ | `/api/ai/conversation` umota askAgent: odmah emituje `data:{type:"status",message}` (flush pre spore `await askAgent`), pa `data:{type:"final",response}`. `statusMessageForIntent` daje intent-aware tekst (termini/cenovnik/rezervacija/izbor/slobodni termini) |
+| 7.2 | Klijent: status = transient bubble | ✅ | `useAIQuery` koristi `createClaudiaFrameReader`: status → postojeći streaming bubble (mimo typewriter-a, NE upisuje se u istoriju), final → `fullRaw` za parse/extract. Fallback: neuokvireni JSON (rate-limit/error) ide kroz `rest()` |
+| 7.3 | Timeout svestan statusa | ✅ | `claudia-activity.ts` signal; orchestrator `withTimeout`→`withActivityTimeout` (okida tek posle 18s BEZ aktivnosti); klijent zove `markClaudiaActivity()` na svaki okvir → status resetuje budžet i spreči lažni "stuck" fallback |
+
+Test: `src/tests/sseStatusFrames.test.ts` (9: format, reader preko chunk granica, trailing okvir,
+fallback, intent poruke, activity signal). Suite zelen: 865/865.
 
 ## FAZA 8 — A/B test modela (DeepSeek vs Claude Sonnet 4.6 vs GPT-5.5)
 

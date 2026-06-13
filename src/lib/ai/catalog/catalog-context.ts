@@ -11,8 +11,9 @@
 //   - Price / Booking / NotifyMe tokovi (preko parsera)
 //   - Search query normalizacija (deli normalizator + semantičku mapu)
 //
-// Modul je čist i izomorfan: bez I/O, bez React-a. Server accessor je u
-// get-catalog-context.ts; klijentska hidracija u client-catalog.ts.
+// Modul je čist i izomorfan: bez I/O, bez React-a. Server gradi katalog iz
+// platform snapshot-a (intentCatalogFor u askAgent.ts); klijentska hidracija
+// je u client-catalog.ts.
 
 import { SERVICE_SEMANTIC_MAP } from "@/lib/search/serviceSemanticMap";
 
@@ -64,7 +65,7 @@ export interface CatalogContext {
 
 // ── Normalizacija — ista kao normalizeDirectText u askAgent-u ────────────────
 
-export function normalizeCatalogText(value: string): string {
+function normalizeCatalogText(value: string): string {
   return value
     .toLowerCase()
     .normalize("NFD")

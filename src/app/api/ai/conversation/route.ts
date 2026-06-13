@@ -9,11 +9,43 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { getUserFromToken } from "@/lib/auth/auth-utils";
 import { platformHeaders } from "@/lib/api/platformHeaders";
+import {
+  encodeSseFrame,
+  statusMessageForIntent,
+  type ClaudiaStreamFrame,
+} from "@/lib/ai/sse-frames";
 
 function readBearerToken(req: Request): string | null {
   const authHeader = req.headers.get("authorization") ?? "";
   if (!authHeader.toLowerCase().startsWith("bearer ")) return null;
   return authHeader.slice(7).trim() || null;
+}
+
+// Faza 7 — perceptivna latencija. Pre spore operacije (LLM/pretraga) klijentu
+// odmah šaljemo "status" okvir ("Molimo vas sačekajte, proveravamo…"), pa tek
+// onda "final" okvir sa kompletnim Claudia odgovorom. Format i status tekst
+// dele se sa klijentom kroz src/lib/ai/sse-frames.ts.
+
+const SSE_HEADERS = {
+  "Content-Type": "text/event-stream",
+  "Cache-Control": "no-cache, no-transform",
+  Connection: "keep-alive",
+} as const;
+
+function sseFrame(payload: ClaudiaStreamFrame): Uint8Array {
+  return new TextEncoder().encode(encodeSseFrame(payload));
+}
+
+async function readStreamToString(stream: ReadableStream): Promise<string> {
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  let out = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) return out;
+    out +=
+      typeof value === "string" ? value : decoder.decode(value, { stream: true });
+  }
 }
 
 function requiresVerifiedAuth(handoffPayload?: Record<string, unknown>): boolean {
@@ -96,6 +128,8 @@ export async function POST(req: Request) {
       bookingMemory,
       handoffPayload,
       userCity,
+      conversationId,
+      guestSessionId,
     } = body as {
       message: string;
       isAuthenticated: boolean;
@@ -105,6 +139,8 @@ export async function POST(req: Request) {
       bookingMemory?: CollectedBookingFields;
       handoffPayload?: Record<string, unknown>;
       userCity?: string;
+      conversationId?: string;
+      guestSessionId?: string;
     };
     const requestToken =
       readBearerToken(req) ?? (await cookies()).get("token")?.value ?? null;
@@ -125,25 +161,81 @@ export async function POST(req: Request) {
           }
         : handoffPayload;
 
-    const stream = await askAgent(
-      message,
-      effectiveIsAuthenticated,
-      history || [],
-      effectiveUserName,
-      isBlockInteraction ?? false,
-      bookingMemory,
+    // Faza 7 — framed SSE: status okvir odmah (perceptivna latencija), pa
+    // final okvir tek kada askAgent završi spore operacije. Status se flush-uje
+    // pre `await askAgent(...)` koji blokira dok traje pretraga/LLM.
+    const statusMessage = statusMessageForIntent(
       effectiveHandoffPayload,
-      typeof userCity === "string" ? userCity : undefined,
+      isBlockInteraction ?? false,
     );
-
-    // Vraćamo stream sa specijalnim headerima
-    return new Response(stream, {
-      headers: {
-        "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache",
-        Connection: "keep-alive",
+    const sseStream = new ReadableStream({
+      async start(controller) {
+        controller.enqueue(sseFrame({ type: "status", message: statusMessage }));
+        try {
+          const inner = await askAgent(
+            message,
+            effectiveIsAuthenticated,
+            history || [],
+            effectiveUserName,
+            isBlockInteraction ?? false,
+            bookingMemory,
+            effectiveHandoffPayload,
+            typeof userCity === "string" ? userCity : undefined,
+            {
+              conversationId:
+                typeof conversationId === "string" ? conversationId : undefined,
+              // Logged-in episodes key on userId; guest id only for guests.
+              userId: requestUser?.id,
+              guestSessionId: requestUser
+                ? undefined
+                : typeof guestSessionId === "string"
+                  ? guestSessionId
+                  : undefined,
+            },
+          );
+          const json = await readStreamToString(inner);
+          let response: unknown;
+          try {
+            response = JSON.parse(json);
+          } catch {
+            response = {
+              messages: [
+                {
+                  role: "assistant",
+                  content:
+                    "Izvinite, došlo je do kratkog zastoja. Pošaljite poruku još jednom.",
+                },
+              ],
+              layout: [],
+              intent: {},
+            };
+          }
+          controller.enqueue(sseFrame({ type: "final", response }));
+        } catch (error) {
+          console.error("[conversation] askAgent failed:", error);
+          controller.enqueue(
+            sseFrame({
+              type: "final",
+              response: {
+                messages: [
+                  {
+                    role: "assistant",
+                    content:
+                      "Nažalost, provera nije uspela. Pokušajte ponovo — vaši podaci su sačuvani.",
+                  },
+                ],
+                layout: [],
+                intent: {},
+              },
+            }),
+          );
+        } finally {
+          controller.close();
+        }
       },
     });
+
+    return new Response(sseStream, { headers: SSE_HEADERS });
   } catch (error: unknown) {
     console.error("SERVER ERROR:", error);
     return NextResponse.json(

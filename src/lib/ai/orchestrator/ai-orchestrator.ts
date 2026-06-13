@@ -27,6 +27,10 @@ import {
 import { bookingFlow } from "@/lib/ai/booking-flow-state";
 import { aiLog } from "@/lib/ai/debug-log";
 import { chatEvents } from "@/lib/ai/events/chatEvents";
+import {
+  getLastClaudiaActivityAt,
+  resetClaudiaActivity,
+} from "@/lib/ai/claudia-activity";
 
 const log = aiLog("AI_ORCHESTRATOR");
 const transitionLog = aiLog("AGENT_TRANSITION");
@@ -62,21 +66,32 @@ export interface OrchestrationResult {
   reason?: string;
 }
 
-/** Race a promise against a fixed budget. Resolves with `{ timedOut: true }`
- * if the budget expires first; otherwise resolves with `{ timedOut: false }`
- * once the original promise settles. Rejections from the original promise
- * propagate so the caller can still catch them. */
-function withTimeout<T>(
+/** Faza 7 — timeout svestan aktivnosti. Umesto tvrdog "završi za `idleMs`",
+ * okida fallback tek kada NEMA aktivnosti `idleMs`. Svaki stream okvir od
+ * Claudie (status/final) zove markClaudiaActivity() i tako gura rok unapred —
+ * pa proaktivni "proveravamo…" status spreči lažni "stuck" fallback dok
+ * Claudia očigledno radi. Odbijanja `task`-a propagiraju (kao i ranije). */
+function withActivityTimeout<T>(
   task: Promise<T>,
-  ms: number,
+  idleMs: number,
 ): Promise<{ timedOut: boolean }> {
-  let timeoutId: ReturnType<typeof setTimeout> | undefined;
-  const timer = new Promise<{ timedOut: boolean }>((resolve) => {
-    timeoutId = setTimeout(() => resolve({ timedOut: true }), ms);
+  resetClaudiaActivity();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const idleRace = new Promise<{ timedOut: boolean }>((resolve) => {
+    const tick = () => {
+      const idle = Date.now() - getLastClaudiaActivityAt();
+      if (idle >= idleMs) {
+        resolve({ timedOut: true });
+        return;
+      }
+      // Re-check exactly when the budget could next expire.
+      timer = setTimeout(tick, Math.max(250, idleMs - idle));
+    };
+    timer = setTimeout(tick, idleMs);
   });
   const work = task.then<{ timedOut: boolean }>(() => ({ timedOut: false }));
-  return Promise.race([work, timer]).finally(() => {
-    if (timeoutId) clearTimeout(timeoutId);
+  return Promise.race([work, idleRace]).finally(() => {
+    if (timer) clearTimeout(timer);
   });
 }
 
@@ -232,7 +247,7 @@ export async function handleMariaResponse(
       ctx.userMessage,
       safeResponse.payload,
     );
-    const raceResult = await withTimeout(
+    const raceResult = await withActivityTimeout(
       claudiaPromise,
       CLAUDIA_HANDOFF_TIMEOUT_MS,
     );

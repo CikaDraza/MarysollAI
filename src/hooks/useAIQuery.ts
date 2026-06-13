@@ -10,6 +10,12 @@ import { TextMessage } from "@/types/ai/ai.text-engine";
 import { BaseBlock } from "@/types/landing-block";
 import { ThreadItem } from "@/types/ai/chat-thread";
 import { bookingFlow } from "@/lib/ai/booking-flow-state";
+import { getEpisodeIdentity } from "@/lib/ai/memory/conversation-session";
+import { markClaudiaActivity } from "@/lib/ai/claudia-activity";
+import {
+  createClaudiaFrameReader,
+  type ClaudiaStreamFrame,
+} from "@/lib/ai/sse-frames";
 import {
   parseClaudiaResponse,
   extractStreamingText,
@@ -207,6 +213,10 @@ export function useAIQuery(user?: AuthUser | null) {
         // Phase 1.5: forward bookingFlow snapshot so Claudia inherits memory.
         const bookingMemory = bookingFlow.get().collected;
 
+        // Faza 6: episode identity so Claudia can recall past structured
+        // episodes ("prošli put ste tražili...") and write new ones server-side.
+        const { conversationId, guestSessionId } = getEpisodeIdentity();
+
         const response = await fetch("/api/ai/conversation", {
           method: "POST",
           headers: {
@@ -222,6 +232,8 @@ export function useAIQuery(user?: AuthUser | null) {
             bookingMemory,
             handoffPayload: options?.handoffPayload,
             userCity: options?.userCity,
+            conversationId,
+            guestSessionId,
           }),
         });
 
@@ -229,20 +241,44 @@ export function useAIQuery(user?: AuthUser | null) {
 
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
-        let fullRaw = "";
+
+        // Faza 7 — framed SSE: "status" okviri pre spore operacije, pa "final".
+        const frames = createClaudiaFrameReader();
+        let finalRaw = "";
+
+        const applyFrame = (frame: ClaudiaStreamFrame) => {
+          // Svaki okvir je dokaz da Claudia radi → resetuje timeout budžet.
+          markClaudiaActivity();
+          if (frame.type === "status") {
+            // Status ide u transient streaming bubble, mimo typewriter-a
+            // (targetTextRef ostaje prazan dok ne stigne final) i NE upisuje se
+            // u istoriju.
+            setIsTextLoading(false);
+            setStreamingText(frame.message);
+          } else {
+            finalRaw = JSON.stringify(frame.response ?? {});
+          }
+        };
 
         while (true) {
           const { value, done } = await reader.read();
           if (done) break;
-
-          const chunk = decoder.decode(value, { stream: true });
-          fullRaw += chunk;
-
-          // Streaming partial-text extraction — never throws.
-          if (!suppressStreamingText) {
-            targetTextRef.current = extractStreamingText(fullRaw);
+          for (const frame of frames.push(decoder.decode(value, { stream: true }))) {
+            applyFrame(frame);
           }
         }
+        for (const frame of frames.flush()) applyFrame(frame);
+
+        // Final source: framed `final` payload, else raw body (rate-limit /
+        // error responses are plain ClaudiaResponse JSON, not framed).
+        const fullRaw = frames.sawFrame() ? finalRaw : frames.rest();
+
+        // Now that the real answer is in, retype it cleanly from the status
+        // bubble. Suppressed handoffs skip the typewriter (targetTextRef "").
+        setStreamingText("");
+        targetTextRef.current = suppressStreamingText
+          ? ""
+          : extractStreamingText(fullRaw);
 
         // Hardened parse: always returns a valid ClaudiaResponse, even on
         // malformed JSON or empty stream. Caller doesn't need a try/catch.

@@ -1,6 +1,7 @@
 import type { SystemActionEvent } from "@/lib/ai/events/chat-event-types";
 import type { EpisodicMemory, SessionSummary } from "./agent-memory-types";
 import { buildEpisodicMemory } from "./buildEpisodicMemory";
+import { postClientEpisode } from "./client-episode-writer";
 
 const EMPTY_EPISODIC_MEMORY: EpisodicMemory = {
   sessionSummaries: [],
@@ -25,6 +26,9 @@ function isWritableEpisodeAction(action: SystemActionEvent["action"]): boolean {
 export function recordEpisodicSystemAction(event: SystemActionEvent): void {
   if (!isWritableEpisodeAction(event.action)) return;
   recentEvents = [...recentEvents, event].slice(-20);
+  // Faza 6 — persist client-resolved episodes to Mongo (no-op for the
+  // server-resolved subset, which askAgent writes in-process).
+  postClientEpisode(event);
 }
 
 export function getEpisodicMemorySnapshot(): EpisodicMemory {

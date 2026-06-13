@@ -20,6 +20,7 @@ import {
 } from "@/store/ai/agent-state";
 import { resetAgentState } from "@/lib/ai/orchestrator/ai-orchestrator";
 import { ensureClientCatalog } from "@/lib/ai/catalog/client-catalog";
+import { resetConversationId } from "@/lib/ai/memory/conversation-session";
 import {
   legacyActionTextToSystemAction,
 } from "@/lib/ai/events/systemActionDispatcher";
@@ -315,6 +316,9 @@ export function AIProvider({ children }: { children: ReactNode }) {
     claudia.clearChat();
     blockOrchestrator.clear();
     resetAgentState();
+    // Faza 6 — nova konverzacija = nova grupa epizoda. Guest identitet
+    // (localStorage) ostaje, pa "prošli put" prepoznavanje preživi clear.
+    resetConversationId();
   }, [maria, claudia]);
 
   const resetAgent = useCallback(() => {
