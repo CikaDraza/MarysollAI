@@ -48,6 +48,11 @@ export interface FallbackPolicy {
   allowServiceVariants: boolean;
   /** Whether slots outside the requested time window are allowed (L2). */
   allowRelaxedTime: boolean;
+  /** When true, origin gates (nearby_city / related_service) run BEFORE the
+   * trust gate. Used for explicit user intents: a user who asked for a
+   * specific service must not silently get a different category, even when
+   * that slot's availability is real. */
+  strictOrigins: boolean;
 }
 
 /** Minimum slot interface required by applyFallbackPolicy. */
@@ -95,8 +100,10 @@ export type { AvailabilityConfidence } from "./availabilityConfidence";
 //   - Never synthetic, never cross-city, never category drift.
 //   - Capped at L2 for every intent. Empty is better than misleading.
 //
-// BookingWidget: discovery surface. Wider net, cross-city and synthetic ok,
-// but synthetic must be visibly marked by the consumer UI.
+// BookingWidget: discovery surface, but still a BOOKING surface — a user can
+// click any row straight into a reservation, so synthetic projections are
+// never shown here and the fallback net is capped at L3. Cross-city slots are
+// fine (real availability, just elsewhere).
 //
 // ai_recovery: wider net. AI context signals recovery intent, but still capped
 // at L5 so fully synthetic L6 projections stay out of search results.
@@ -111,14 +118,16 @@ const STRATEGY_DEFAULTS: Record<SearchStrategy, FallbackPolicy> = {
     allowCategoryDrift: false,
     allowServiceVariants: true,
     allowRelaxedTime: true,
+    strictOrigins: false,
   },
   bookingwidget: {
-    maxFallbackLevel: 6,
-    allowSynthetic: true,
+    maxFallbackLevel: 3,
+    allowSynthetic: false,
     allowNearbyCities: true,
-    allowCategoryDrift: true,
+    allowCategoryDrift: false,
     allowServiceVariants: true,
     allowRelaxedTime: true,
+    strictOrigins: false,
   },
   ai_recovery: {
     maxFallbackLevel: 5,
@@ -127,6 +136,7 @@ const STRATEGY_DEFAULTS: Record<SearchStrategy, FallbackPolicy> = {
     allowCategoryDrift: true,
     allowServiceVariants: true,
     allowRelaxedTime: true,
+    strictOrigins: false,
   },
   searchpage: {
     maxFallbackLevel: 6,
@@ -135,6 +145,7 @@ const STRATEGY_DEFAULTS: Record<SearchStrategy, FallbackPolicy> = {
     allowCategoryDrift: true,
     allowServiceVariants: true,
     allowRelaxedTime: true,
+    strictOrigins: false,
   },
 };
 
@@ -190,6 +201,9 @@ export function resolveFallbackPolicy(
       allowRelaxedTime: true,
       allowServiceVariants: true,
       allowCategoryDrift: false,
+      // Explicit intent: the user named the service — never substitute a
+      // related-but-different category, even for trusted availability.
+      strictOrigins: true,
     };
   }
 
@@ -236,17 +250,28 @@ export function evaluateFallbackPolicy(
   if (!surfaceDecision.accepted) return surfaceDecision;
 
   const origins = slot.slotOrigins ?? [];
-  if (!policy.allowNearbyCities && origins.includes("nearby_city")) {
-    return { accepted: false, reason: "nearby_city" };
-  }
-  if (!policy.allowCategoryDrift && origins.includes("related_service")) {
-    return { accepted: false, reason: "category_drift" };
+  const nearbyBlocked =
+    !policy.allowNearbyCities && origins.includes("nearby_city");
+  const driftBlocked =
+    !policy.allowCategoryDrift && origins.includes("related_service");
+
+  // Explicit intents enforce origin gates BEFORE the trust gate — a user who
+  // asked for a specific service must never silently get another category,
+  // no matter how real that other slot is.
+  if (policy.strictOrigins) {
+    if (nearbyBlocked) return { accepted: false, reason: "nearby_city" };
+    if (driftBlocked) return { accepted: false, reason: "category_drift" };
   }
 
-  // Confidence is the primary MVP trust gate. Trusted availability stays
-  // displayable even when it came from a relaxed fallback level such as L4,
-  // but never bypasses explicit surface policy such as category-drift bans.
+  // Confidence is the primary MVP trust gate: REAL availability
+  // (calendar_verified / working_hours_only) stays displayable even when it
+  // arrived through a relaxed fallback level or a nearby-city/related-service
+  // origin. Synthetic projections never reach this point — the surface gate
+  // above already rejected them.
   if (hasTrustworthyAvailability(slot)) return { accepted: true, reason: "none" };
+
+  if (nearbyBlocked) return { accepted: false, reason: "nearby_city" };
+  if (driftBlocked) return { accepted: false, reason: "category_drift" };
 
   if (slot.fallbackLevel > policy.maxFallbackLevel) {
     return { accepted: false, reason: "fallback_level" };

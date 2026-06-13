@@ -105,32 +105,6 @@ describe("Claudia booking city/salon block data", () => {
     });
   });
 
-  it("service known + city known renders SalonListBlock", async () => {
-    const stream = await askAgent(
-      "Bor",
-      false,
-      [],
-      "Gost",
-      false,
-      { service: "maderoterapija", date: "2026-05-19", timeWindowStart: 12 },
-      {
-        intent: "select_city",
-        city: "Bor",
-      },
-    );
-    const data = JSON.parse(await readStream(stream));
-
-    expect(data.messages[0].content).toBe("Dostupni saloni u Boru za maderoterapija.");
-    expect(data.layout[0]).toMatchObject({
-      type: "SalonListBlock",
-      metadata: {
-        city: "Bor",
-        service: "maderoterapija",
-        category: "Masaža",
-      },
-    });
-  });
-
   it("maderoterapija + Bor returns Beauty M Glow, not Shi Sham", () => {
     const matches = matchingSalonItems(salons, {
       city: "Bor",

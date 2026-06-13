@@ -16,10 +16,14 @@ import { SparklesIcon } from "@heroicons/react/24/outline";
 import { BaseBlock, BlockTypes } from "@/types/landing-block";
 import { blockFactory } from "./blockFactory";
 import { blockOrchestrator } from "@/lib/ai/block-orchestrator";
-import { getBlockFollowUp } from "@/lib/ai/block-registry";
+import {
+  getBlockFollowUp,
+  recoveryReasonForInvalidBlock,
+} from "@/lib/ai/block-registry";
 import { aiLog } from "@/lib/ai/debug-log";
 import { resolveLayout } from "@/lib/ai/layout/resolveLayout";
 import type { LayoutIntent } from "@/lib/ai/layout/layout-types";
+import { handleRecoveryEvent } from "@/lib/ai/recovery/recovery-engine";
 import { executeUICommand } from "@/lib/ai/ui/ui-command-executor";
 
 const log = aiLog("LAYOUT_ENGINE");
@@ -84,6 +88,35 @@ export function LayoutEngine({
       skipped: resolvedLayout.skipped,
     });
   }
+
+  // An "invalid" skip means the assistant already announced a block that will
+  // never mount — silence in the workspace. Route the miss through the
+  // recovery engine so the user gets the next useful surface (salon list,
+  // clarification, drawer). Dedupe by type+metadata so one bad payload fires
+  // exactly one recovery, never a loop.
+  const reportedInvalidRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    for (const entry of resolvedLayout.skipped) {
+      if (entry.reason !== "invalid") continue;
+      const key = `${entry.type}:${JSON.stringify(entry.metadata ?? {})}`;
+      if (reportedInvalidRef.current.has(key)) continue;
+      reportedInvalidRef.current.add(key);
+      log("invalid_block.recovery", { type: entry.type });
+      handleRecoveryEvent({
+        type: "recovery",
+        reason: recoveryReasonForInvalidBlock(
+          entry.type as BlockTypes,
+          entry.metadata,
+        ),
+        severity: "recoverable",
+        source: "LayoutEngine",
+        payload: { ...(entry.metadata ?? {}), invalidBlockType: entry.type },
+        notifyAgent: true,
+        visibleInThread: false,
+        timestamp: Date.now(),
+      });
+    }
+  }, [resolvedLayout.skipped]);
 
   // Tracks the block types this LayoutEngine instance has claimed.
   // We keep this in a ref so that the dedupe filter computed on every render

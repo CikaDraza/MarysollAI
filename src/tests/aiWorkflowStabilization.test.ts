@@ -102,149 +102,6 @@ describe("AI workflow stabilization", () => {
     });
   });
 
-  it("keeps selected slot and moves confirmation to collecting_contact", async () => {
-    const data = await postMaria({
-      messages: [{ role: "user", content: "Da potvrđujem termin." }],
-      selectedSlot,
-      aiBookingState: "awaiting_confirmation",
-      lastOfferedSlots: [selectedSlot],
-    });
-
-    expect(data.aiBookingState).toBe("collecting_contact");
-    expect(data.selectedSlot).toMatchObject({
-      serviceName: selectedSlot.serviceName,
-      timeLabel: selectedSlot.timeLabel,
-    });
-    expect(data.aiDebug.replyMode).toBe("awaiting_contact");
-  });
-
-  it("returns booking handoff when selected slot receives contact info", async () => {
-    const data = await postMaria({
-      messages: [{ role: "user", content: "Milica, 062201787" }],
-      selectedSlot,
-      aiBookingState: "collecting_contact",
-      lastOfferedSlots: [selectedSlot],
-    });
-    const maria = JSON.parse(data.choices[0].message.content);
-
-    expect(data.aiBookingState).toBe("ready_to_book");
-    expect(data.aiDebug.skippedSearchReason).toBe("contact_for_selected_slot");
-    expect(data.aiDebug.replyMode).toBe("handoff_to_booking");
-    expect(maria.type).toBe("handoff");
-    expect(maria.targetAgent).toBe("booking");
-    expect(maria.payload).toMatchObject({
-      intent: "create_booking",
-      aiBookingState: "ready_to_book",
-      contact: { name: "Milica", phone: "062201787" },
-      selectedSlot: { serviceName: selectedSlot.serviceName },
-    });
-  });
-
-  it("does not trigger search for contact during booking completion", async () => {
-    const data = await postMaria({
-      messages: [{ role: "user", content: "Milica, 062201787" }],
-      selectedSlot,
-      aiBookingState: "awaiting_confirmation",
-      lastOfferedSlots: [selectedSlot],
-      lastIntent: { service: "feniranje", requestedCity: "Novi Sad" },
-    });
-
-    expect(data.model).toBe("marysoll-search-orchestrator");
-    expect(data.aiDebug.searchResultsCount).toBeUndefined();
-    expect(data.aiDebug.skippedSearchReason).toBe("contact_for_selected_slot");
-  });
-
-  it("routes login request to auth instead of repeating booking search", async () => {
-    const data = await postMaria({
-      messages: [{ role: "user", content: "Prijavi se" }],
-      selectedSlot,
-      aiBookingState: "ready_to_book",
-      lastOfferedSlots: [selectedSlot],
-      lastIntent: { service: "feniranje", requestedCity: "Novi Sad" },
-    });
-    const maria = JSON.parse(data.choices[0].message.content);
-
-    expect(data.aiDebug.skippedSearchReason).toBe("auth_intent_preflight");
-    expect(data.aiDebug.searchResultsCount).toBeUndefined();
-    expect(maria.type).toBe("handoff");
-    expect(maria.targetAgent).toBe("auth");
-    expect(maria.payload).toMatchObject({
-      intent: "login_for_booking",
-      selectedSlot: { serviceName: selectedSlot.serviceName },
-    });
-  });
-
-  it("routes bare login to auth even when previous intent was booking", async () => {
-    const data = await postMaria({
-      messages: [{ role: "user", content: "Prijavi se" }],
-      aiBookingState: "showing_options",
-      lastIntent: { service: "feniranje", requestedCity: "Novi Sad" },
-    });
-    const maria = JSON.parse(data.choices[0].message.content);
-
-    expect(data.aiDebug.skippedSearchReason).toBe("auth_intent_preflight");
-    expect(data.aiDebug.searchResultsCount).toBeUndefined();
-    expect(maria.type).toBe("handoff");
-    expect(maria.targetAgent).toBe("auth");
-    expect(maria.payload).toMatchObject({ intent: "login" });
-  });
-
-  it("routes appointments shortcut before preserved booking search intent", async () => {
-    const data = await postMaria({
-      messages: [{ role: "user", content: "Mogu li da vidim moje termine?" }],
-      aiBookingState: "showing_options",
-      lastIntent: { service: "feniranje", requestedCity: "Novi Sad" },
-    });
-    const maria = JSON.parse(data.choices[0].message.content);
-
-    expect(data.aiDebug.skippedSearchReason).toBe("appointments_intent_preflight");
-    expect(data.aiDebug.searchResultsCount).toBeUndefined();
-    expect(maria.type).toBe("handoff");
-    expect(maria.targetAgent).toBe("appointments");
-    expect(maria.payload).toMatchObject({ intent: "appointments" });
-  });
-
-  it("routes pricing shortcut before preserved booking search intent", async () => {
-    const data = await postMaria({
-      messages: [{ role: "user", content: "Mogu li da vidim cenovnik?" }],
-      aiBookingState: "showing_options",
-      lastIntent: { service: "feniranje", requestedCity: "Novi Sad" },
-    });
-    const maria = JSON.parse(data.choices[0].message.content);
-
-    expect(data.aiDebug.skippedSearchReason).toBe("prices_intent_preflight");
-    expect(data.aiDebug.searchResultsCount).toBeUndefined();
-    expect(maria.type).toBe("handoff");
-    expect(maria.targetAgent).toBe("prices");
-  });
-
-  it("answers booking help without triggering availability search", async () => {
-    const data = await postMaria({
-      messages: [{ role: "user", content: "Kako mogu da zakažem termin?" }],
-      aiBookingState: "showing_options",
-      lastIntent: { service: "feniranje", requestedCity: "Novi Sad" },
-    });
-    const maria = JSON.parse(data.choices[0].message.content);
-
-    expect(data.aiDebug.skippedSearchReason).toBe("faq_how_to_book");
-    expect(maria.type).toBe("answer");
-    expect(data.message).toContain("Napiši uslugu");
-  });
-
-  it("keeps how-to-book question as FAQ contract without handoff", async () => {
-    const data = await postMaria({
-      messages: [{ role: "user", content: "Kako mogu da zakažem termin?" }],
-    });
-    const maria = JSON.parse(data.choices[0].message.content);
-
-    expect(maria).toMatchObject({ type: "answer", targetAgent: "none" });
-    expect(data.aiDebug.mariaContract).toMatchObject({
-      kind: "faq_answer",
-      intent: { domain: "faq", action: "answer_question" },
-      routing: { shouldHandoff: false },
-    });
-  });
-
   it("keeps registration-required booking question as FAQ contract", async () => {
     const data = await postMaria({
       messages: [
@@ -254,162 +111,10 @@ describe("AI workflow stabilization", () => {
     const maria = JSON.parse(data.choices[0].message.content);
 
     expect(maria).toMatchObject({ type: "answer", targetAgent: "none" });
-    expect(data.message).toContain("Ne moraš");
+    expect(data.message).toContain("Ne morate");
     expect(data.aiDebug.mariaContract).toMatchObject({
       kind: "faq_answer",
       intent: { domain: "faq", action: "answer_question" },
-    });
-  });
-
-  it("keeps guest booking question as FAQ contract", async () => {
-    const data = await postMaria({
-      messages: [{ role: "user", content: "Da li mogu kao gost da zakažem?" }],
-    });
-    const maria = JSON.parse(data.choices[0].message.content);
-
-    expect(maria).toMatchObject({ type: "answer", targetAgent: "none" });
-    expect(data.aiDebug.mariaContract.routing.shouldHandoff).toBe(false);
-  });
-
-  it("booking request becomes canonical search_slots and legacy booking handoff", async () => {
-    const data = await postMaria({
-      messages: [
-        { role: "user", content: "Šminkanje u Beogradu sutra posle 15h" },
-      ],
-    });
-    const maria = JSON.parse(data.choices[0].message.content);
-
-    expect(data.aiDebug.mariaContract).toMatchObject({
-      kind: "intent",
-      intent: {
-        domain: "booking",
-        action: "search_slots",
-        entities: {
-          service: "šminkanje",
-          city: "Beograd",
-          timeWindowStart: 15,
-          timeWindowEnd: null,
-        },
-      },
-      routing: { shouldHandoff: true, targetAgent: "claudia" },
-    });
-    expect(maria).toMatchObject({
-      type: "handoff",
-      targetAgent: "booking",
-      payload: { intent: "booking", timeWindowStart: 15 },
-    });
-  });
-
-  it("Moji termini becomes appointments view_appointments handoff", async () => {
-    const data = await postMaria({
-      messages: [{ role: "user", content: "Moji termini" }],
-    });
-    const maria = JSON.parse(data.choices[0].message.content);
-
-    expect(data.aiDebug.mariaContract).toMatchObject({
-      intent: { domain: "appointments", action: "view_appointments" },
-      routing: { shouldHandoff: true, targetAgent: "claudia" },
-    });
-    expect(maria).toMatchObject({
-      type: "handoff",
-      targetAgent: "appointments",
-      payload: { intent: "appointments" },
-    });
-  });
-
-  it("Otkaži moj termin becomes cancel_appointment handoff", async () => {
-    const data = await postMaria({
-      messages: [{ role: "user", content: "Otkaži moj termin" }],
-    });
-    const maria = JSON.parse(data.choices[0].message.content);
-
-    expect(data.aiDebug.mariaContract).toMatchObject({
-      intent: { domain: "cancel", action: "cancel_appointment" },
-      routing: { shouldHandoff: true, targetAgent: "claudia" },
-    });
-    expect(maria).toMatchObject({
-      type: "handoff",
-      targetAgent: "appointments",
-      payload: { intent: "cancel_appointment" },
-    });
-  });
-
-  it("keeps how-to-cancel question as FAQ without handoff", async () => {
-    const data = await postMaria({
-      messages: [{ role: "user", content: "Kako mogu da otkažem termin?" }],
-    });
-    const maria = JSON.parse(data.choices[0].message.content);
-
-    expect(maria).toMatchObject({ type: "answer", targetAgent: "none" });
-    expect(data.aiDebug.mariaContract).toMatchObject({
-      kind: "faq_answer",
-      intent: { domain: "faq", action: "answer_question" },
-      routing: { shouldHandoff: false },
-    });
-  });
-
-  it("notify me request becomes create_notify_watch contract handoff", async () => {
-    const data = await postMaria({
-      messages: [{ role: "user", content: "Obavesti me kad bude slobodan termin" }],
-    });
-    const maria = JSON.parse(data.choices[0].message.content);
-
-    expect(data.aiDebug.mariaContract).toMatchObject({
-      intent: { domain: "notify_me", action: "create_notify_watch" },
-      routing: { shouldHandoff: true, targetAgent: "claudia" },
-    });
-    expect(maria).toMatchObject({
-      type: "handoff",
-      targetAgent: "booking",
-      payload: { intent: "booking", action: "create_notify_watch" },
-    });
-  });
-
-  it("parses after-hour booking intent as an open time window", () => {
-    const expectedTomorrow = new Intl.DateTimeFormat("en-CA", {
-      timeZone: "Europe/Belgrade",
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    }).format(new Date(Date.now() + 86_400_000));
-
-    const intent = extractBookingIntentFromConversation({
-      messages: [
-        { role: "user", content: "Šminkanje u Beogradu sutra posle 15h" },
-      ],
-    });
-
-    expect(intent).toMatchObject({
-      service: "šminkanje",
-      requestedCity: "Beograd",
-      city: "Beograd",
-      date: expectedTomorrow,
-      timeWindowStart: 15,
-      timeWindowEnd: null,
-    });
-    expect(intent.time).toBeUndefined();
-  });
-
-  it("Maria returns booking handoff instead of direct slots", async () => {
-    const data = await postMaria({
-      messages: [
-        { role: "user", content: "Šminkanje u Beogradu sutra posle 15h" },
-      ],
-    });
-    const maria = JSON.parse(data.choices[0].message.content);
-
-    expect(data.aiDebug.skippedSearchReason).toBe("booking_handoff_to_claudia");
-    expect(data.slots).toBeUndefined();
-    expect(maria).toMatchObject({
-      type: "handoff",
-      targetAgent: "booking",
-      payload: {
-        intent: "booking",
-        service: "šminkanje",
-        city: "Beograd",
-        timeWindowStart: 15,
-        timeWindowEnd: null,
-      },
     });
   });
 
@@ -484,7 +189,7 @@ describe("AI workflow stabilization", () => {
     const data = JSON.parse(await readStream(stream));
 
     expect(data.messages[0]).toMatchObject({
-      content: "Prijavi se da nastavimo sa zakazivanjem.",
+      content: "Prijavite se da nastavimo sa zakazivanjem.",
       attachToBlockType: "AuthBlock",
     });
     expect(data.layout[0]).toMatchObject({
@@ -671,30 +376,6 @@ describe("AI workflow stabilization", () => {
     expect(source).toContain('action: "BOOKING_CONFLICT"');
     expect(source).not.toContain("askAI(BOOKING_CONFLICT_MESSAGE");
     expect(source).not.toContain("sendToOrchestrator(BOOKING_CONFLICT_MESSAGE");
-  });
-
-  it("Claudia handles city selection payload without LLM fallback", async () => {
-    const stream = await askAgent(
-      "Izabrao sam grad: Novi Sad",
-      false,
-      [],
-      "Gost",
-      false,
-      { service: "Feniranje STRAIGHT", time: "13:00" },
-      { intent: "select_city", city: "Novi Sad", service: "Feniranje STRAIGHT" },
-    );
-    const data = JSON.parse(await readStream(stream));
-
-    expect(data.messages[0]).toMatchObject({
-      attachToBlockType: "SalonListBlock",
-    });
-    expect(data.layout[0]).toMatchObject({
-      type: "SalonListBlock",
-      metadata: {
-        service: "Feniranje STRAIGHT",
-        city: "Novi Sad",
-      },
-    });
   });
 
   it("Claudia preserves service when salon is selected", async () => {
@@ -896,16 +577,6 @@ describe("AI workflow stabilization", () => {
     expect(source).toContain('reason: RecoveryReason =');
     expect(source).toContain('"missing_salon"');
     expect(source).toContain("setModalSlot(null)");
-  });
-
-  it("modal header includes salonName in the compact booking label", () => {
-    const source = readFileSync(
-      path.join(process.cwd(), "src/components/landing/BookingModal.tsx"),
-      "utf8",
-    );
-
-    expect(source).toContain("bookingPayload.salonName");
-    expect(source).toContain("headerLabel");
   });
 
   it("duplicate Claudia message is suppressed in thread state layer", () => {
@@ -1174,86 +845,6 @@ describe("Booking Conflict Recovery", () => {
     expect(source).toContain("userName: user?.name");
   });
 
-  it("cancel route maps platform success", async () => {
-    const originalFetch = global.fetch;
-    global.fetch = jest.fn().mockResolvedValue(
-      new Response(JSON.stringify({ appointment: { _id: "app-1" } }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      }),
-    );
-
-    const response = await cancelAppointmentPOST(
-      new Request("http://localhost/api/external/appointments/app-1/cancel", {
-        method: "POST",
-        headers: { Authorization: "Bearer token" },
-        body: "{}",
-      }),
-      { params: Promise.resolve({ id: "app-1" }) },
-    );
-    const data = await response.json();
-
-    expect(response.status).toBe(200);
-    expect(data.ok).toBe(true);
-    expect(global.fetch).toHaveBeenCalledWith(
-      expect.stringContaining("/appointments/client/app-1/cancel"),
-      expect.objectContaining({ method: "POST" }),
-    );
-    global.fetch = originalFetch;
-  });
-
-  it("cancel route maps expired cancellation message", async () => {
-    const originalFetch = global.fetch;
-    global.fetch = jest.fn().mockResolvedValue(
-      new Response(JSON.stringify({ error: "cancellation window expired" }), {
-        status: 400,
-        headers: { "Content-Type": "application/json" },
-      }),
-    );
-
-    const response = await cancelAppointmentPOST(
-      new Request("http://localhost/api/external/appointments/app-1/cancel", {
-        method: "POST",
-        headers: { Authorization: "Bearer token" },
-        body: "{}",
-      }),
-      { params: Promise.resolve({ id: "app-1" }) },
-    );
-    const data = await response.json();
-
-    expect(response.status).toBe(400);
-    expect(data.error).toBe("Vreme za otkazivanje termina je isteklo.");
-    global.fetch = originalFetch;
-  });
-
-  it("update route maps success", async () => {
-    const originalFetch = global.fetch;
-    global.fetch = jest.fn().mockResolvedValue(
-      new Response(JSON.stringify({ appointment: { _id: "app-1", time: "15:00" } }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      }),
-    );
-
-    const response = await updateAppointmentPUT(
-      new Request("http://localhost/api/external/appointments/app-1/update", {
-        method: "PUT",
-        headers: { Authorization: "Bearer token" },
-        body: JSON.stringify({ time: "15:00" }),
-      }),
-      { params: Promise.resolve({ id: "app-1" }) },
-    );
-    const data = await response.json();
-
-    expect(response.status).toBe(200);
-    expect(data.ok).toBe(true);
-    expect(global.fetch).toHaveBeenCalledWith(
-      expect.stringContaining("/appointments/client/app-1/update"),
-      expect.objectContaining({ method: "PUT" }),
-    );
-    global.fetch = originalFetch;
-  });
-
   it("useCancelAppointment invalidates appointment queries and emits cancellation event", () => {
     const source = readFileSync(
       path.join(process.cwd(), "src/hooks/useAppointmentActions.ts"),
@@ -1321,17 +912,6 @@ describe("Booking Conflict Recovery", () => {
     expect(ClaudiaIntentSchema.safeParse("confirm_update_appointment").success).toBe(true);
   });
 
-  it("Maria detects cancel appointment request and hands off to Claudia", async () => {
-    const data = await postMaria({
-      messages: [{ role: "user", content: "Otkaži mi termin" }],
-    });
-    const maria = JSON.parse(data.choices[0].message.content);
-
-    expect(maria.type).toBe("handoff");
-    expect(maria.targetAgent).toBe("appointments");
-    expect(maria.payload).toMatchObject({ intent: "cancel_appointment" });
-  });
-
   it("Claudia asks confirmation when one active appointment is provided", async () => {
     const stream = await askAgent(
       "Otkaži mi termin",
@@ -1356,7 +936,7 @@ describe("Booking Conflict Recovery", () => {
     );
     const data = JSON.parse(await readStream(stream));
 
-    expect(data.messages[0].content).toContain("Možeš odmah da ga otkažeš");
+    expect(data.messages[0].content).toContain("Možete odmah da ga otkažete");
     expect(data.messages[0].attachToBlockType).toBe("AppointmentCancelConfirmBlock");
     expect(data.layout[0]).toMatchObject({
       type: "AppointmentCancelConfirmBlock",

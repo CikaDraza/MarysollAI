@@ -329,6 +329,22 @@ function handleMissingContact(event: RecoveryEvent): void {
     variant: "error",
     reason: "missing_contact",
   });
+  // A toast alone is a dead end — the booking modal carries the contact form,
+  // so reopen it for the selected slot. When the event already came from the
+  // modal the form is on screen (reopening would wipe typed fields) — skip.
+  if (event.source !== "BookingModal") {
+    const slot = asSlot(event.payload);
+    const normalized = slot ? normalizeBookingPayload(slot) : null;
+    if (normalized && validateBookingPayload(normalized).ok) {
+      emitCommand(event, {
+        type: "OPEN_BOOKING_MODAL",
+        payload: normalized.originalSlot,
+        reason: "missing_contact",
+      });
+      return;
+    }
+    emitClarification(event, "missing_contact");
+  }
 }
 
 function handleAuthRequired(event: RecoveryEvent): void {
@@ -408,6 +424,9 @@ function handleUnknown(event: RecoveryEvent): void {
     variant: "error",
     reason: "unknown_recovery",
   });
+  // A toast alone is a dead end — open the assistant with the context we
+  // have so the conversation continues instead of stopping at an error.
+  emitClarification(event, "booking");
 }
 
 const handlers: Record<RecoveryReason, (event: RecoveryEvent) => void> = {

@@ -80,7 +80,9 @@ describe("BookingWidget discovery recovery", () => {
     expect(copy?.title).toBe("Nismo prepoznali tačno ovu uslugu.");
   });
 
-  it("BookingWidget accepts L5 nearby and L6 synthetic discovery slots", () => {
+  it("BookingWidget accepts L5 nearby but never synthetic discovery slots", () => {
+    // BookingWidget is a booking surface — a user can click any row straight
+    // into a reservation, so synthetic projections must never appear here.
     const policy = resolveFallbackPolicy("bookingwidget", { kind: "discovery" });
     const accepted = applyFallbackPolicy(
       [
@@ -95,7 +97,8 @@ describe("BookingWidget discovery recovery", () => {
       policy,
     );
 
-    expect(accepted).toHaveLength(2);
+    expect(accepted).toHaveLength(1);
+    expect(accepted[0]?.slotOrigins).toContain("nearby_city");
   });
 
   it("BookingWidget uses discovery fallback and marks synthetic slots", () => {
@@ -134,39 +137,6 @@ describe("BookingWidget discovery recovery", () => {
     expect(source).toContain("const discoveryGeoResults = enrichGeoSignals");
     expect(source).toContain("slots: strictGeoResults");
     expect(source).toContain("discovery: discoveryGeoResults");
-  });
-
-  it("no-city recovery fills nearest discovery rows from nearby slots", () => {
-    const slots = [
-      slot({ salonId: "ns-1", city: "Novi Sad", serviceName: "Botox kose", fallbackLevel: 5 }),
-      slot({ salonId: "ns-2", city: "Novi Sad", serviceName: "Feniranje", fallbackLevel: 5 }),
-      slot({ salonId: "bg-1", city: "Beograd", serviceName: "Šišanje", fallbackLevel: 5 }),
-      slot({ salonId: "bg-2", city: "Beograd", serviceName: "Farbanje", fallbackLevel: 5 }),
-      slot({ salonId: "bor-1", city: "Bor", serviceName: "Tretman kose", fallbackLevel: 6, isSynthetic: true, availabilityConfidence: "synthetic_projection", slotOrigins: ["synthetic"] }),
-    ];
-
-    const built = buildBookingDiscoveryGroups({
-      slots: slots as never,
-      quickAccessSlotIds: [],
-      query: { city: "Sremska Mitrovica" },
-      userCity: "Sremska Mitrovica",
-      fallbackLevel: 5,
-      mode: "geo_load",
-      recoveryState: {
-        requestedCity: "Sremska Mitrovica",
-        effectiveCity: "Sremska Mitrovica",
-        reason: "no_city_salons",
-        selectedCityHasSalons: false,
-        selectedCityHasSlots: false,
-        expandedToCities: ["Novi Sad", "Beograd", "Bor"],
-      },
-    });
-
-    expect(built.groups[0]).toMatchObject({
-      title: "Najbliži slobodni termini",
-    });
-    expect(built.groups[0].slots.length).toBeGreaterThan(0);
-    expect(built.groups.some((group) => group.slots.length > 0)).toBe(true);
   });
 
   it("QuickAccess still owns strict RecoveryCTA", () => {

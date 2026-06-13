@@ -50,6 +50,10 @@ interface BookingFlowActions {
   setState: (state: BookingFlowState) => void;
   /** Merge new fields into collected; never overwrites with undefined. */
   collect: (fields: Partial<CollectedBookingFields>) => void;
+  /** Faza 4 — korekcije: briše navedena polja iz collected. `collect` nikad
+   * ne briše, pa "nisam to želeo" bez ovoga ne može da PONIŠTI staru vrednost
+   * (revoke) — samo da je pregazi novom. */
+  clearFields: (keys: Array<keyof CollectedBookingFields>) => void;
   bumpFlowVersion: (reason?: string) => number;
   startPendingSelectionFlow: () => number;
   cancelPendingSelectionFlow: () => number;
@@ -92,6 +96,15 @@ export const useBookingFlow = create<BookingFlowValue & BookingFlowActions>()(
             if (v !== undefined && v !== "") {
               (next as Record<string, string | number | null | undefined>)[k] = v;
             }
+          }
+          return touch({ collected: next });
+        }),
+
+      clearFields: (keys) =>
+        set((prev) => {
+          const next: CollectedBookingFields = { ...prev.collected };
+          for (const key of keys) {
+            delete next[key];
           }
           return touch({ collected: next });
         }),

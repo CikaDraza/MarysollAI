@@ -57,6 +57,12 @@ function cityHasSalon(
   );
 }
 
+/** True only when we actually HAVE catalog data to assert facts from.
+ * Missing data must never be read as "the salon does not exist". */
+function hasCatalogData(platformKnowledge?: PlatformKnowledge): boolean {
+  return Boolean(platformKnowledge?.raw?.salons?.length);
+}
+
 function existenceMessage(
   candidate: MeaningCandidate,
   platformKnowledge?: PlatformKnowledge,
@@ -65,7 +71,7 @@ function existenceMessage(
   const service = serviceLabel(candidate);
   if (!city) return "Za koji grad da proverim?";
   if (!service) return "Za koju uslugu da proverim?";
-  if (!cityHasSalon(city, platformKnowledge)) {
+  if (hasCatalogData(platformKnowledge) && !cityHasSalon(city, platformKnowledge)) {
     return `Trenutno nemamo salone u ${city}. Mogu da proverim najbliže gradove — odgovara?`;
   }
   return `Proveravam da li imamo ${service} u ${city}.`;
@@ -85,7 +91,13 @@ function availabilityAwareMessage(
     semanticMemory: platformKnowledge?.semanticMemory,
   });
 
-  if (city && !availability.hasSalonInCity) {
+  // Fact answers ("nemamo salon u X") are allowed ONLY when catalog data is
+  // actually loaded. Without data we must hand off to Claudia, who fetches
+  // the live catalog — otherwise an availability check dead-ends on a fact
+  // we never verified.
+  const canAssertFacts = hasCatalogData(platformKnowledge);
+
+  if (canAssertFacts && city && !availability.hasSalonInCity) {
     return {
       message: formatNearestSalonAnswer({
         requestedCity: city,
@@ -96,6 +108,7 @@ function availabilityAwareMessage(
   }
 
   if (
+    canAssertFacts &&
     city &&
     (service || candidate.entities.category) &&
     !availability.hasServiceInCity

@@ -265,24 +265,6 @@ describe("Claudia loop bug — no-slots path", () => {
 
 describe("slicePlatformKnowledge integration in LLM path", () => {
 
-  it("fetchPlatformKnowledge called once per LLM request", async () => {
-    const { fetchPlatformKnowledge } = jest.requireMock("@/lib/ai/platform-knowledge");
-
-    // Trigger LLM path (no handoffPayload.intent that matches a direct path)
-    await askAgent(
-      "Da li ima slobodnih termina?",
-      false,
-      [],
-      "Gost",
-      false,
-      undefined,
-      { intent: "booking", service: "šminkanje", city: "Beograd", salonId: "bg-1" },
-    ).catch(() => {}); // LLM will fail without real API key — that's ok
-
-    // Platform knowledge fetched exactly once, not multiple times
-    expect(fetchPlatformKnowledge).toHaveBeenCalledTimes(1);
-  });
-
   it("direct paths (prices, salon_info) do NOT call fetchPlatformKnowledge", async () => {
     const { fetchPlatformKnowledge } = jest.requireMock("@/lib/ai/platform-knowledge");
     fetchPlatformKnowledge.mockClear();

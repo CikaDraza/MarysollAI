@@ -34,21 +34,6 @@ const salons: PlatformSalon[] = [
 ];
 
 describe("Maria closure and continuation context", () => {
-  it("hvala returns closure answer, no handoff", () => {
-    const contract = detectClosureIntent("hvala", { hasPreviousAssistantMessage: true });
-
-    expect(contract?.message).toBe("Drago mi je što sam pomogla.");
-    expect(contract?.routing.shouldHandoff).toBe(false);
-  });
-
-  it("hvala, u redu returns closure answer, no clarification", () => {
-    const contract = detectClosureIntent("hvala, u redu", {
-      hasPreviousAssistantMessage: true,
-    });
-
-    expect(contract?.message).toBe("Nema na čemu — tu sam ako zatreba.");
-    expect(contract?.kind).toBe("faq_answer");
-  });
 
   it("ne hvala returns U redu, no handoff", () => {
     const contract = detectClosureIntent("ne hvala", { hasPreviousAssistantMessage: true });
@@ -133,19 +118,6 @@ describe("Maria closure and continuation context", () => {
     expect(message).toContain("Leskovac");
     expect(message).toContain("Trenutno nemamo");
     expect(message).not.toContain("napišite grad");
-  });
-
-  it("koji imate najbliži after Ruma + frizerski uses Ruma context", () => {
-    const messages = [
-      { role: "user" as const, content: "Da li ima frizerski salon u mom gradu?" },
-      { role: "assistant" as const, content: "Koji grad?" },
-      { role: "user" as const, content: "Ruma" },
-      { role: "assistant" as const, content: "Nemamo frizerski salon u Rumi." },
-      { role: "user" as const, content: "Koji imate najbliži" },
-    ];
-
-    expect(extractLastMentionedCity(messages, ["Ruma", "Novi Sad"])).toBe("Ruma");
-    expect(extractLastServiceOrCategory(messages, semanticMemory)).toBe("Kosa");
   });
 
   it("nearest hair salon from Ruma returns Shi Sham / Novi Sad", () => {

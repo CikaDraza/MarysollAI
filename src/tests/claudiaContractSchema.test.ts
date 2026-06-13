@@ -167,7 +167,7 @@ describe("ClaudiaContract schema", () => {
     const legacy = claudiaContractToLegacyResponse({
       ...baseContract,
       kind: "auth",
-      message: "Prijavi se da nastavimo.",
+      message: "Prijavite se da nastavimo.",
       workflow: { domain: "auth", step: "login", status: "waiting_for_user" },
       nextAction: { type: "SHOW_AUTH", reason: "login_required" },
       intent: {

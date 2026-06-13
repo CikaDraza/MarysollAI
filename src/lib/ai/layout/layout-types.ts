@@ -17,5 +17,8 @@ export interface ResolvedLayout {
   skipped: {
     type: string;
     reason: "duplicate" | "unsupported" | "invalid";
+    /** Present for "invalid" skips so callers can route the miss into the
+     * recovery engine instead of silently dropping the block. */
+    metadata?: Record<string, unknown>;
   }[];
 }

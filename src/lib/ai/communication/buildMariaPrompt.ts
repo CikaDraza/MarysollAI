@@ -36,6 +36,10 @@ function formatSalonFacts(
     .join("\n");
 }
 
+// Faza 3.1 — Maria prompt na dijeti. Maria RUTIRA: pun katalog usluga sa
+// cenama joj ne treba (cenovnik vodi Claudia) i samo je navodio na
+// halucinacije. Kada je usluga pomenuta, dovoljno je top-N poklapanja
+// (ime | salon | grad) da potvrdi da usluga postoji; inače kratka napomena.
 function formatServiceFacts(
   platform: PlatformKnowledge,
   queryService?: string,
@@ -43,29 +47,27 @@ function formatServiceFacts(
   const services = platform.raw?.services ?? [];
   if (!services.length) return "Nema dostupnih usluga.";
 
-  // Ako ima konkretna usluga, filtriraj samo relevantne
-  const filtered = queryService
-    ? services.filter((s) => {
-        const name = (s.name ?? "").toLowerCase();
-        const cat = (s.category ?? "").toLowerCase();
-        const q = queryService.toLowerCase();
-        return name.includes(q) || cat.includes(q) || q.includes(name.split(" ")[0]);
-      })
-    : services;
+  if (!queryService) {
+    return "(Katalog usluga i cene vodi booking concierge — ne nabrajaj i ne izmišljaj usluge ni cene.)";
+  }
 
-  const toShow = filtered.length ? filtered : services;
+  const q = queryService.toLowerCase();
+  const filtered = services.filter((s) => {
+    const name = (s.name ?? "").toLowerCase();
+    const cat = (s.category ?? "").toLowerCase();
+    return name.includes(q) || cat.includes(q) || q.includes(name.split(" ")[0]);
+  });
 
-  return toShow
-    .slice(0, 40)
+  if (!filtered.length) {
+    return `(Nema direktnog poklapanja za "${queryService}" — booking concierge proverava uslugu.)`;
+  }
+
+  return filtered
+    .slice(0, 10)
     .map((s) => {
-      const price = s.basePrice ?? s.price;
-      const duration = s.duration;
       const salonName = (s as Record<string, unknown>).salonName as string | undefined;
       const city = (s as Record<string, unknown>).city as string | undefined;
-      const parts = [s.name, salonName, city, price ? `${price} RSD` : null, duration ? `${duration} min` : null]
-        .filter(Boolean)
-        .join(" | ");
-      return `• ${parts}`;
+      return `• ${[s.name, salonName, city].filter(Boolean).join(" | ")}`;
     })
     .join("\n");
 }
@@ -143,7 +145,8 @@ export function buildMariaPrompt(input: {
 # KO SI TI
 
 Ti si Maria, Marysoll business i promotion concierge.
-Govoriš u ženskom rodu, prirodno, toplo i kratko.
+O sebi govoriš u ženskom rodu, prirodno, toplo i kratko — kao srdačna recepcionerka poznatog hotela.
+Korisniku se UVEK obraćaš sa Vi (persiranje): "želite", "izvolite", "možete" — nikada "ti" forme.
 Pomažeš vlasnicima salona, partnerima, saradnji sa Marysoll, promocijama, kampanjama i poslovnim pitanjima o platformi.
 Ne vodiš booking, termine, cenovnik, korisničke naloge, otkazivanje, pomeranje ili NotifyMe.
 Nikad ne pominjеš: agente, handoff, workflow, sistem, JSON, blokove, Claudiu.
@@ -238,7 +241,7 @@ Korisnik: "Hoću šišanje u NS sutra"
 {"kind":"intent","message":"Proveravam slobodne termine za šišanje u Novom Sadu sutra.","intent":{"domain":"booking","action":"search_slots","confidence":0.96,"entities":{"city":"Novi Sad","service":"šišanje","dateMode":"tomorrow"},"missingFields":[]},"routing":{"shouldHandoff":true,"targetAgent":"claudia","reason":"booking_search"}}
 
 Korisnik: "Da li mogu da vidim cenovnik za feniranje?"
-{"kind":"faq_answer","message":"Feniranje u Shi Sham NS — 1500 RSD, 45 min. Kiki Kiss BG — 1800 RSD, 60 min.","intent":{"domain":"prices","action":"show_prices","confidence":0.94,"entities":{"service":"feniranje"},"missingFields":[]},"routing":{"shouldHandoff":false,"targetAgent":"maria","reason":"prices_direct_answer"}}
+{"kind":"intent","message":"Otvaram cenovnik za feniranje.","intent":{"domain":"prices","action":"show_prices","confidence":0.94,"entities":{"service":"feniranje"},"missingFields":[]},"routing":{"shouldHandoff":true,"targetAgent":"claudia","reason":"prices_handoff"}}
 
 Korisnik: "hvala"
 {"kind":"faq_answer","message":"Drago mi je što sam pomogla.","intent":{"domain":"faq","action":"none","confidence":0.99,"entities":{},"missingFields":[]},"routing":{"shouldHandoff":false,"targetAgent":"none","reason":"closure"}}

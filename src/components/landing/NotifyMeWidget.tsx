@@ -1110,7 +1110,7 @@ function WatchStatusPanel({
           Nismo uspeli da proverimo status. Pokušajte ponovo.
         </p>
         <button type="button" onClick={onRetry} className="ms-nmw-submit">
-          Pokušaj ponovo
+          Pokušajte ponovo
         </button>
       </div>
     );

@@ -29,8 +29,15 @@ import {
 } from "@/lib/ai/booking/booking-block-data";
 import {
   bookingFlow,
+  getMissingBookingFields,
   type CollectedBookingFields,
 } from "@/lib/ai/booking-flow-state";
+import { chooseBlockForMissingField } from "@/lib/ai/block-registry";
+import {
+  buildCatalogContext,
+  catalogDataFromPlatformKnowledge,
+  type CatalogContext as IntentCatalog,
+} from "@/lib/ai/catalog/catalog-context";
 import type { AiBookingContact } from "@/types/aiBooking";
 import { runBookingSearch } from "@/lib/search/runBookingSearch";
 import { normalizeSemanticTerm } from "@/lib/search/serviceSemanticMap";
@@ -159,8 +166,9 @@ export function buildClaudiaSystemPrompt(
 # IDENTITY
 
 Ti si **Claudia**, AI booking orchestrator za Marysoll Booking platformu.
-Obraćaj se korisniku u ženskom rodu.
-Ton: profesionalan, brz, jasan, moderan UX stil, kao recepcionarka poznatog hotela sa 5 zvezdica. Bez emojia.
+O sebi govoriš u ženskom rodu ("proverila sam", "pronašla sam").
+Korisniku se UVEK obraćaš sa Vi (persiranje): "želite", "izvolite", "možete" — nikada "ti" forme.
+Ton: topla, srdačna i sigurna recepcionerka hotela sa 5 zvezdica — jasno, kratko, bez tehničkog žargona. Bez emojija.
 
 Claudia je podrazumevani korisnički concierge za Marysoll booking app.
 Ti pokrivaš booking FAQ, cenovnik, salone, gradove, usluge, registraciju, moje termine, otkazivanje, pomeranje, konflikt termina, NotifyMe i recovery.
@@ -199,21 +207,12 @@ ServicePriceBlock:
   metadata: { "service": "string", "salonId": "id salona ako je poznat", "salonName": "naziv salona ako je poznat" }
 
 CityListBlock:
-  metadata: {
-    "service": "naziv usluge",
-    "category": "kategorija usluge",
-    "cities": [ { "name": "Beograd" }, { "name": "Novi Sad" } ]
-  }
-  ⚠ Popuni "cities" iz GRADOVI sekcije. Svaki element MORA imati polje "name".
+  metadata: { "service": "naziv usluge", "category": "kategorija usluge" }
+  ⚠ Listu gradova ("cities") popunjava SERVER iz baze — NIKADA ne navodi gradove sam.
 
 SalonListBlock:
-  metadata: {
-    "city": "naziv grada",
-    "service": "naziv usluge",
-    "category": "kategorija usluge",
-    "salons": [ { "id": "id_iz_SALONI_sekcije", "name": "naziv salona" } ]
-  }
-  ⚠ Popuni "salons" iz SALONI sekcije, filtriraj po gradu. Svaki element MORA imati "id" i "name".
+  metadata: { "city": "naziv grada", "service": "naziv usluge", "category": "kategorija usluge" }
+  ⚠ Listu salona ("salons") popunjava SERVER iz baze — NIKADA ne izmišljaj salone ni ID-jeve.
 
 CalendarBlock:
   metadata: { "mode": "list" }
@@ -287,7 +286,7 @@ Kada korisnik pita "moji termini", "šta sam zakazala", "zakazano", "reservation
   Poruka mora početi sa: "Pozdrav, izvolite vaše termine."
   Primer: {"messages":[{"role":"assistant","content":"Pozdrav, izvolite vaše termine.","attachToBlockType":"CalendarBlock"}],"layout":[{"type":"CalendarBlock","priority":1,"metadata":{"mode":"list"}}],"intent":{}}
 - Ako je GOST → vrati AuthBlock, metadata: { "mode": "login" }
-  Primer: {"messages":[{"role":"assistant","content":"Prijavi se da vidiš svoje termine.","attachToBlockType":"AuthBlock"}],"layout":[{"type":"AuthBlock","priority":1,"metadata":{"mode":"login"}}],"intent":{}}
+  Primer: {"messages":[{"role":"assistant","content":"Prijavite se da vidite svoje termine.","attachToBlockType":"AuthBlock"}],"layout":[{"type":"AuthBlock","priority":1,"metadata":{"mode":"login"}}],"intent":{}}
 
 ## CENOVNIK FLOW
 
@@ -314,8 +313,8 @@ NE traži login za browsing.
 - AppointmentCalendarBlock: slobodni termini — zahteva i grad i uslugu
 - CalendarBlock: moji zakazani termini (mode: list) — samo prijavljeni korisnici
 - ServicePriceBlock: cenovnik usluga
-- SalonListBlock: lista salona u gradu — metadata.salons popuni iz SALONI sekcije
-- CityListBlock: izbor grada — metadata.cities popuni iz GRADOVI sekcije (niz objekata sa poljem "name")
+- SalonListBlock: lista salona u gradu — listu salona popunjava server
+- CityListBlock: izbor grada — listu gradova popunjava server
 - AuthBlock: prijava/registracija (mode: login|register|forgot|reset)
 - TestimonialBlock: utisci klijenata
 
@@ -387,36 +386,192 @@ function isUsableClaudiaJson(raw: string): boolean {
  * (service/city) and ask only for the single next field. The known fields are
  * also placed in `intent` so the client writes them back into memory.
  */
-function buildContextPreservingClarification(
+function buildContextPreservingMessage(
   collected: CollectedBookingFields | undefined,
 ): string {
   const service = collected?.service ?? collected?.serviceName;
   const city = collected?.city;
-  let message: string;
   if (service && city) {
-    message = `Imam ${service} u ${inCity(city)}. Reci mi samo dan ili vreme koje ti odgovara i odmah tražim termine.`;
-  } else if (service) {
-    message = `Imam uslugu ${service}. U kom gradu želiš termin?`;
-  } else if (city) {
-    message = `Imam grad ${city}. Koju uslugu želiš?`;
-  } else {
-    message =
-      "Reci mi koju uslugu želiš i u kom gradu, pa tražim slobodne termine.";
+    return `Imam ${service} u ${inCity(city)}. Recite mi samo dan ili vreme koje vam odgovara i odmah tražim termine.`;
   }
-  const intent: Record<string, unknown> = {
-    type: "clarification",
+  if (service) {
+    return `Imam uslugu ${service}. U kom gradu želite termin?`;
+  }
+  if (city) {
+    return `Imam grad ${city}. Koju uslugu želite?`;
+  }
+  return "Recite mi koju uslugu želite i u kom gradu, pa tražim slobodne termine.";
+}
+
+function contextEntitiesFromCollected(
+  collected: CollectedBookingFields | undefined,
+): Record<string, unknown> {
+  const service = collected?.service ?? collected?.serviceName;
+  return {
     ...(service ? { service } : {}),
-    ...(city ? { city } : {}),
+    ...(collected?.city ? { city: collected.city } : {}),
     ...(collected?.category ? { category: collected.category } : {}),
     ...(collected?.date ? { date: collected.date } : {}),
     ...(collected?.time ? { time: collected.time } : {}),
     ...(collected?.salonName ? { salonName: collected.salonName } : {}),
   };
+}
+
+function buildContextPreservingClarification(
+  collected: CollectedBookingFields | undefined,
+): string {
+  const intent: Record<string, unknown> = {
+    type: "clarification",
+    ...contextEntitiesFromCollected(collected),
+  };
   return JSON.stringify({
-    messages: [{ role: "assistant", content: message }],
+    messages: [
+      { role: "assistant", content: buildContextPreservingMessage(collected) },
+    ],
     layout: [],
     intent,
   });
+}
+
+// ── Faza 3.3 — server popunjava liste u blokovima, ne LLM ────────────────────
+// LLM bira TIP bloka i poruku; cities/salons nizove ubacuje server iz
+// platform snapshot-a. Time blok uvek prikazuje stvarne podatke (nema
+// halucinacija ID-jeva/gradova), a prompt ostaje bez kataloških instrukcija.
+
+function stripClaudiaJsonEnvelope(raw: string): string {
+  let s = raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "");
+  const open = s.indexOf("{");
+  const close = s.lastIndexOf("}");
+  if (open >= 0 && close > open) s = s.slice(open, close + 1);
+  return s;
+}
+
+function allCityItems(
+  salons: Awaited<ReturnType<typeof fetchBookingSalons>>,
+): Array<{ name: string; salonCount: number }> {
+  const counts = new Map<string, number>();
+  for (const salon of salons) {
+    if (!salon.city) continue;
+    counts.set(salon.city, (counts.get(salon.city) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .sort(([a], [b]) => a.localeCompare(b, "sr"))
+    .map(([name, salonCount]) => ({ name, salonCount }));
+}
+
+export function enrichClaudiaLayoutBlocks(
+  raw: string,
+  ctx: {
+    platform: Awaited<ReturnType<typeof fetchPlatformKnowledge>>;
+    collected?: CollectedBookingFields;
+  },
+): string {
+  const salons = ctx.platform.raw?.salons ?? [];
+  if (salons.length === 0) return raw;
+  try {
+    const parsed = JSON.parse(stripClaudiaJsonEnvelope(raw)) as {
+      layout?: Array<{
+        type?: string;
+        metadata?: Record<string, unknown>;
+      }>;
+    };
+    const layout = Array.isArray(parsed.layout) ? parsed.layout : [];
+    if (layout.length === 0) return raw;
+
+    const servicesBySalon: Record<
+      string,
+      NonNullable<
+        Awaited<ReturnType<typeof fetchPlatformKnowledge>>["raw"]
+      >["services"]
+    > = {};
+    for (const service of ctx.platform.raw?.services ?? []) {
+      const salonId = String(
+        (service as Record<string, unknown>).salonId ?? "",
+      );
+      if (!salonId) continue;
+      (servicesBySalon[salonId] ??= []).push(service);
+    }
+    // matchingCityItems čita EMBEDDED salon.services — snapshot ih drži
+    // odvojeno (raw.services sa salonId), pa ih ovde spajamo.
+    const salonsWithServices = salons.map((salon) => {
+      if (Array.isArray(salon.services) && salon.services.length > 0) {
+        return salon;
+      }
+      const id = String(salon._id ?? salon.id ?? "");
+      return { ...salon, services: servicesBySalon[id] ?? [] };
+    });
+
+    let changed = false;
+    for (const block of layout) {
+      if (!block || typeof block !== "object") continue;
+      const metadata = (block.metadata ?? {}) as Record<string, unknown>;
+
+      if (block.type === "CityListBlock") {
+        const service =
+          asString(metadata.service) ??
+          asString(metadata.serviceName) ??
+          ctx.collected?.service;
+        const category = asString(metadata.category) ?? ctx.collected?.category;
+        const cities = service || category
+          ? matchingCityItems(salonsWithServices, { service, category })
+          : allCityItems(salons);
+        block.metadata = {
+          ...metadata,
+          cities: cities.length > 0 ? cities : allCityItems(salons),
+        };
+        changed = true;
+      }
+
+      if (block.type === "SalonListBlock") {
+        const city = asString(metadata.city) ?? ctx.collected?.city;
+        const service =
+          asString(metadata.service) ??
+          asString(metadata.serviceName) ??
+          ctx.collected?.service;
+        const resolvedSalons = service
+          ? resolveSalonsForService({
+              serviceQuery: service,
+              city,
+              semanticMemory: ctx.platform.semanticMemory,
+              salons: salonsWithServices,
+              servicesBySalon,
+            }).salons.map((salon) => ({
+              id: salon.salonId,
+              name: salon.salonName,
+              address: salon.address,
+              rating: salon.rating,
+              reviewCount: salon.reviewCount,
+              verified: salon.verified,
+              matchingServices: salon.matchingServices,
+            }))
+          : salons
+              .filter(
+                (salon) =>
+                  !city ||
+                  (salon.city ?? "").localeCompare(city, "sr", {
+                    sensitivity: "base",
+                  }) === 0,
+              )
+              .map((salon) => ({
+                id: String(salon._id ?? salon.id ?? ""),
+                name: salon.name,
+              }))
+              .filter((salon) => Boolean(salon.id && salon.name));
+        if (resolvedSalons.length > 0) {
+          block.metadata = { ...metadata, salons: resolvedSalons };
+          changed = true;
+        }
+      }
+    }
+
+    if (!changed) return raw;
+    console.debug("[CLAUDIA_BLOCK_ENRICH]", {
+      types: layout.map((block) => block.type),
+    });
+    return JSON.stringify(parsed);
+  } catch {
+    return raw;
+  }
 }
 
 function shouldLogClaudiaContract(): boolean {
@@ -553,6 +708,7 @@ function makeClarificationContract(input: {
   intentType?: string;
   entities?: Record<string, unknown>;
   missingFields?: string[];
+  blocks?: unknown[];
 }): ClaudiaContract {
   return makeClaudiaContract({
     kind: "clarification",
@@ -562,6 +718,7 @@ function makeClarificationContract(input: {
     nextAction: "ASK_CLARIFICATION",
     intentType: input.intentType,
     entities: input.entities,
+    blocks: input.blocks,
     status: "waiting_for_user",
     reason: input.step,
     confidence: 0.8,
@@ -875,59 +1032,71 @@ function normalizeDirectText(value: string): string {
     .trim();
 }
 
+// ── Faza 2: jedan intent leksikon ────────────────────────────────────────────
+// Katalog (gradovi/saloni/usluge/sinonimi) se gradi iz platform snapshot-a i
+// kešira po identitetu objekta. Fallback katalog (podrazumevani gradovi) čuva
+// ponašanje kada platforma nije dostupna; uvek se unira sa živim gradovima.
+
+const FALLBACK_CATALOG_CITIES = [
+  "Beograd",
+  "Novi Sad",
+  "Bor",
+  "Ruma",
+  "Leskovac",
+  "Niš",
+].map((name) => ({ name }));
+
+const intentCatalogCache = new WeakMap<object, IntentCatalog>();
+let fallbackIntentCatalog: IntentCatalog | null = null;
+
+function intentCatalogFor(
+  platform?: Awaited<ReturnType<typeof fetchPlatformKnowledge>>,
+): IntentCatalog {
+  if (!platform) {
+    fallbackIntentCatalog ??= buildCatalogContext({
+      cities: FALLBACK_CATALOG_CITIES,
+      salons: [],
+      services: [],
+      categories: [],
+    });
+    return fallbackIntentCatalog;
+  }
+  const cached = intentCatalogCache.get(platform as object);
+  if (cached) return cached;
+  const data = catalogDataFromPlatformKnowledge(platform);
+  const known = new Set(data.cities.map((city) => city.name));
+  for (const city of FALLBACK_CATALOG_CITIES) {
+    if (!known.has(city.name)) data.cities.push(city);
+  }
+  const catalog = buildCatalogContext(data);
+  intentCatalogCache.set(platform as object, catalog);
+  return catalog;
+}
+
 function detectDirectCity(
   text: string,
   platform?: Awaited<ReturnType<typeof fetchPlatformKnowledge>>,
 ): string | undefined {
-  const normalized = normalizeDirectText(text);
-  const cityNames = [
-    ...new Set([
-      ...(platform?.citiesText
-        .split(",")
-        .map((city) => city.trim())
-        .filter(Boolean) ?? []),
-      "Beograd",
-      "Novi Sad",
-      "Bor",
-      "Ruma",
-      "Leskovac",
-      "Niš",
-    ]),
-  ];
-  return cityNames.find((city) => {
-    const n = normalizeDirectText(city);
-    const variants = [n];
-    if (n.endsWith("ac")) variants.push(`${n.slice(0, -2)}cu`);
-    if (n.endsWith("a")) variants.push(`${n.slice(0, -1)}i`);
-    if (n === "novi sad") variants.push("novom sadu");
-    return variants.some((variant) =>
-      new RegExp(`(^|\\s)${variant}(?=$|\\s|[,.!?])`).test(normalized),
-    );
-  });
+  return intentCatalogFor(platform).matchCity(text);
 }
 
 function detectDirectSalonName(
   text: string,
   platform?: Awaited<ReturnType<typeof fetchPlatformKnowledge>>,
 ): string | undefined {
-  const normalized = normalizeDirectText(text);
-  return platform?.raw?.salons.find((salon) => {
-    const name = salon.name ? normalizeDirectText(salon.name) : "";
-    if (!name) return false;
-    return (
-      normalized.includes(name) ||
-      name
-        .split(" ")
-        .some((part) => part.length >= 4 && normalized.includes(part))
-    );
-  })?.name;
+  if (!platform) return undefined;
+  return intentCatalogFor(platform).matchSalon(text)?.name;
 }
 
-function detectDirectService(text: string): {
+function detectDirectService(
+  text: string,
+  catalog?: IntentCatalog,
+): {
   service?: string;
   category?: string;
 } {
   const normalized = normalizeDirectText(text);
+  // Statične porodice prve — daju stabilne kanonske labele za poruke.
   if (/\b(smink\w*|makeup)\b/.test(normalized))
     return { service: "šminkanje", category: "Šminka" };
   if (/\b(fenir\w*)\b/.test(normalized))
@@ -938,6 +1107,11 @@ function detectDirectService(text: string): {
     return { service: "masaža", category: "Masaža" };
   if (/\b(nokt\w*|manikir|pedikir)\b/.test(normalized))
     return { service: "nokti", category: "Nokti" };
+  // Živi leksikon: usluge/kategorije/sinonimi iz DB koje statična mapa ne zna.
+  const fromCatalog = catalog?.matchService(text);
+  if (fromCatalog) {
+    return { service: fromCatalog.service, category: fromCatalog.category };
+  }
   return {};
 }
 
@@ -999,15 +1173,313 @@ function hasRefineSignal(normalizedText: string): boolean {
   );
 }
 
+// ── Faza 4: correction flow ──────────────────────────────────────────────────
+// "Nisam to želeo" / "ne u Beogradu nego u Novom Sadu" / "promeni uslugu" mora
+// da ISPRAVI prikupljeno, nikad da blokira:
+//   - nova vrednost PONIŠTAVA staru (revoke na ponovni intent),
+//   - negirana vrednost se briše (cleared → klijent stvarno briše iz memorije),
+//   - neodređena korekcija dobija rezime + "šta menjamo?".
+
+export interface DirectCorrection {
+  isCorrection: boolean;
+  vague: boolean;
+  replace: Partial<CollectedBookingFields>;
+  remove: Array<keyof CollectedBookingFields>;
+}
+
+const CORRECTION_MARKER_RE =
+  /\b(nisam (to |tako )?(zeleo|zelela|hteo|htela|mislio|mislila)|nije to\b|ne to\b|to nije to\b|pogresn\w*|gresk\w*|umesto\b|promeni\w*|zameni\w*|izmeni\w*|ipak ne\b|ipak necu\b|necu (to|tako)\b|ne zelim to\b|ne u \w+[\s\S]{0,40}\b(nego|vec)\b)/;
+
+// Otkazivanje/pomeranje POSTOJEĆEG termina nije korekcija booking toka.
+const APPOINTMENT_OP_RE = /\b(otkaz\w*|pomeri\w*)\b/;
+
+const NO_CORRECTION: DirectCorrection = {
+  isCorrection: false,
+  vague: false,
+  replace: {},
+  remove: [],
+};
+
+export function detectDirectCorrection(input: {
+  text: string;
+  catalog: IntentCatalog;
+  collected?: CollectedBookingFields;
+}): DirectCorrection {
+  const collected = input.collected;
+  const hasContext = Boolean(
+    collected?.service ||
+      collected?.serviceName ||
+      collected?.city ||
+      collected?.salonName ||
+      collected?.date,
+  );
+  if (!hasContext) return NO_CORRECTION;
+
+  const normalized = normalizeDirectText(input.text);
+  if (APPOINTMENT_OP_RE.test(normalized)) return NO_CORRECTION;
+  if (!CORRECTION_MARKER_RE.test(normalized)) return NO_CORRECTION;
+
+  const replace: Partial<CollectedBookingFields> = {};
+  const remove = new Set<keyof CollectedBookingFields>();
+
+  // GRAD — poslednji pomenuti grad je cilj ("ne u Beogradu nego u Novom Sadu").
+  const newCity = input.catalog.matchLastCity(input.text);
+  if (newCity) {
+    if (collected?.city && newCity === collected.city) {
+      // Negiran trenutni grad bez zamene ("ipak ne u Beogradu").
+      remove.add("city");
+    } else if (newCity !== collected?.city) {
+      replace.city = newCity;
+    }
+  }
+
+  // USLUGA — "umesto feniranja hoću masažu" pominje I staru I novu uslugu:
+  // rep teksta posle pivota (nego/umesto/hoću...) ima prednost, a bira se
+  // kandidat koji se RAZLIKUJE od trenutne vrednosti (to je nova). Ako je
+  // pomenuta samo trenutna usluga uz marker → poništavanje.
+  const currentService = normalizeDirectText(
+    collected?.service ?? collected?.serviceName ?? "",
+  );
+  const sameAsCurrent = (service: string): boolean => {
+    const candidate = normalizeDirectText(service);
+    return (
+      currentService.length > 0 &&
+      (currentService === candidate ||
+        currentService.includes(candidate) ||
+        candidate.includes(currentService))
+    );
+  };
+  const serviceCandidates: Array<{ service: string; category?: string }> = [];
+  const pushServiceCandidate = (match: {
+    service?: string;
+    category?: string;
+  }): void => {
+    if (
+      match.service &&
+      !serviceCandidates.some((c) => c.service === match.service)
+    ) {
+      serviceCandidates.push({
+        service: match.service,
+        category: match.category,
+      });
+    }
+  };
+  const pivotTail =
+    normalized.split(/\b(?:nego|vec|umesto|hocu|hoces|zelim|moze)\b/).pop() ??
+    "";
+  pushServiceCandidate(detectDirectService(pivotTail, input.catalog));
+  pushServiceCandidate(detectDirectService(input.text, input.catalog));
+  const newService = serviceCandidates.find((c) => !sameAsCurrent(c.service));
+  if (newService) {
+    replace.service = newService.service;
+    if (newService.category) replace.category = newService.category;
+  } else if (serviceCandidates.length > 0 && currentService) {
+    remove.add("service");
+    remove.add("serviceId");
+    remove.add("serviceName");
+  }
+
+  // DATUM — "ipak ne sutra" briše; "može sutra" (uz marker) menja.
+  const date = detectDirectDate(input.text);
+  if (date.dateMode) {
+    const resolvedDate =
+      date.dateMode === "today"
+        ? new Date().toISOString().split("T")[0]
+        : date.dateMode === "tomorrow"
+          ? new Date(Date.now() + 86_400_000).toISOString().split("T")[0]
+          : undefined;
+    const negatedDate =
+      /\b(ne|necu|nemoj|bez)\s+(sutra|danas|prekosutra|vikend\w*)\b/.test(
+        normalized,
+      );
+    if (negatedDate) {
+      remove.add("date");
+    } else if (resolvedDate && resolvedDate !== collected?.date) {
+      replace.date = resolvedDate;
+    }
+  }
+
+  // VREME
+  const time = detectDirectTime(input.text);
+  const negatedTime =
+    /\b(ne|necu|bez)\s+(popodne|poslepodne|prepodne|ujutru|ujutro|uvece|u \d{1,2})/.test(
+      normalized,
+    );
+  if (negatedTime) {
+    remove.add("time");
+    remove.add("timeWindowStart");
+    remove.add("timeWindowEnd");
+  } else if (time.time && time.time !== collected?.time) {
+    replace.time = time.time;
+  } else if (
+    (time.timeWindowStart != null || time.timeWindowEnd != null) &&
+    (time.timeWindowStart !== collected?.timeWindowStart ||
+      time.timeWindowEnd !== collected?.timeWindowEnd)
+  ) {
+    replace.timeWindowStart = time.timeWindowStart ?? null;
+    replace.timeWindowEnd = time.timeWindowEnd ?? null;
+    if (collected?.time) remove.add("time");
+  }
+
+  // SALON — imenovan drugi salon je zamena.
+  const newSalon = input.catalog.matchSalon(input.text);
+  if (
+    newSalon &&
+    collected?.salonName &&
+    normalizeDirectText(newSalon.name) !==
+      normalizeDirectText(collected.salonName)
+  ) {
+    replace.salonId = newSalon.id;
+    replace.salonName = newSalon.name;
+    if (newSalon.city && !replace.city) replace.city = newSalon.city;
+  }
+
+  // Reč-polje bez nove vrednosti → brisanje tog polja ("promeni grad",
+  // "hoću drugu uslugu", "ipak ne taj salon").
+  const fieldWord = normalized.match(
+    /\b(?:promeni\w*|zameni\w*|izmeni\w*|drug[iaou]\w*|ipak ne|necu|ne (?:taj|ta|to|ovaj|ova|ovo))\b[\s\S]{0,16}?\b(grad\w*|uslug\w*|tretman\w*|salon\w*|datum\w*|dan\b|vreme\w*|termin\w*)/,
+  );
+  if (fieldWord) {
+    const word = fieldWord[1];
+    if (word.startsWith("grad") && !replace.city) remove.add("city");
+    if (
+      (word.startsWith("uslug") || word.startsWith("tretman")) &&
+      !replace.service
+    ) {
+      remove.add("service");
+      remove.add("serviceId");
+      remove.add("serviceName");
+      remove.add("category");
+      remove.add("subcategory");
+    }
+    if (word.startsWith("salon") && !replace.salonId) {
+      remove.add("salonId");
+      remove.add("salonName");
+    }
+    if ((word.startsWith("datum") || word === "dan") && !replace.date) {
+      remove.add("date");
+    }
+    if (
+      (word.startsWith("vreme") || word.startsWith("termin")) &&
+      !replace.time &&
+      replace.timeWindowStart === undefined
+    ) {
+      remove.add("time");
+      remove.add("timeWindowStart");
+      remove.add("timeWindowEnd");
+    }
+  }
+
+  // Implicitni revoke: promena grada/usluge poništava izabrani salon i
+  // serviceId — stari izbori pripadaju pogrešnom pokušaju.
+  if (replace.city && (collected?.salonId || collected?.salonName)) {
+    remove.add("salonId");
+    remove.add("salonName");
+  }
+  if (replace.service) {
+    remove.add("serviceId");
+    remove.add("serviceName");
+    if (!replace.salonId && (collected?.salonId || collected?.salonName)) {
+      remove.add("salonId");
+      remove.add("salonName");
+    }
+  }
+
+  const hasChange = Object.keys(replace).length > 0 || remove.size > 0;
+  return {
+    isCorrection: true,
+    vague: !hasChange,
+    replace,
+    remove: [...remove],
+  };
+}
+
+function buildCorrectionSummaryMessage(
+  collected?: CollectedBookingFields,
+): string {
+  const parts: string[] = [];
+  const service = collected?.service ?? collected?.serviceName;
+  if (service) parts.push(`usluga: ${service}`);
+  if (collected?.city) parts.push(`grad: ${collected.city}`);
+  if (collected?.salonName) parts.push(`salon: ${collected.salonName}`);
+  if (collected?.date) parts.push(`datum: ${collected.date}`);
+  if (collected?.time) parts.push(`vreme: ${collected.time}`);
+  if (parts.length === 0) {
+    return "Razumem. Recite mi uslugu i grad, pa krećemo iznova.";
+  }
+  return `Razumem. Trenutno imam — ${parts.join(", ")}. Šta od toga menjamo: uslugu, grad, salon, datum ili vreme?`;
+}
+
+function buildRemovalFollowUpMessage(
+  removed: Array<keyof CollectedBookingFields>,
+  corrected: CollectedBookingFields,
+): string {
+  if (removed.includes("city")) {
+    return "Važi, poništila sam grad. U kom gradu želite termin?";
+  }
+  if (removed.includes("service")) {
+    return "Važi, poništila sam uslugu. Koju uslugu želite?";
+  }
+  if (removed.includes("salonId") || removed.includes("salonName")) {
+    return corrected.city
+      ? `Važi, biramo drugi salon u ${inCity(corrected.city)}. Koji salon želite?`
+      : "Važi, biramo drugi salon. U kom gradu da tražim?";
+  }
+  if (removed.includes("date")) {
+    return "Važi, poništila sam datum. Za koji dan da tražim termine?";
+  }
+  return "Važi, poništila sam vreme. Koje vreme vam odgovara?";
+}
+
+/** Pročita one-shot stream nazad u string (legacy JSON odgovori su mali). */
+async function readClaudiaStream(stream: ReadableStream): Promise<string> {
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  let full = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) return full;
+    full +=
+      typeof value === "string"
+        ? value
+        : decoder.decode(value, { stream: true });
+  }
+}
+
+/** Ubacuje dodatna polja u `intent` odgovora (cleared/corrected) — tako
+ * korekcija stigne do klijenta i kroz dublje booking handlere. */
+async function withIntentExtras(
+  stream: ReadableStream,
+  extras: Record<string, unknown>,
+): Promise<ReadableStream> {
+  const raw = await readClaudiaStream(stream);
+  try {
+    const parsed = JSON.parse(stripClaudiaJsonEnvelope(raw)) as Record<
+      string,
+      unknown
+    >;
+    parsed.intent = {
+      ...(parsed.intent && typeof parsed.intent === "object"
+        ? (parsed.intent as Record<string, unknown>)
+        : {}),
+      ...extras,
+    };
+    return streamRawString(JSON.stringify(parsed));
+  } catch {
+    return streamRawString(raw);
+  }
+}
+
 export function parseClaudiaDirectIntent(input: {
   text: string;
   platformKnowledge?: Awaited<ReturnType<typeof fetchPlatformKnowledge>>;
   collectedBookingFields?: CollectedBookingFields;
 }): ClaudiaDirectIntent {
   const text = normalizeDirectText(input.text);
+  const catalog = intentCatalogFor(input.platformKnowledge);
   const city = detectDirectCity(input.text, input.platformKnowledge);
   const salonName = detectDirectSalonName(input.text, input.platformKnowledge);
-  const service = detectDirectService(input.text);
+  const service = detectDirectService(input.text, catalog);
   const date = detectDirectDate(input.text);
   const time = detectDirectTime(input.text);
   const hasContext = Boolean(
@@ -1251,7 +1723,12 @@ function isStaleSelectionHandoff(
   );
 }
 
-function isSalonCityExistenceFollowUp(input: string): boolean {
+// Faza 3: obe funkcije primaju keširani platform snapshot, pa prepoznaju
+// SVE marketplace gradove; bez snapshot-a rade nad fallback katalogom.
+function isSalonCityExistenceFollowUp(
+  input: string,
+  platform?: Awaited<ReturnType<typeof fetchPlatformKnowledge>>,
+): boolean {
   const normalized = input
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
@@ -1259,23 +1736,17 @@ function isSalonCityExistenceFollowUp(input: string): boolean {
   return (
     /\b(da li|jel|je l|postoji|ima li)\b/.test(normalized) &&
     /\b(taj salon|salon)\b/.test(normalized) &&
-    /\b(ruma|rumi|beograd|beogradu|novi sad|novom sadu|bor|boru|leskovac|leskovcu)\b/.test(
-      normalized,
-    )
+    intentCatalogFor(platform).matchCity(input) !== undefined
   );
 }
 
-function extractAskedCity(input: string): string | undefined {
-  const normalized = input
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase();
-  if (/\b(ruma|rumi)\b/.test(normalized)) return "Ruma";
-  if (/\b(beograd|beogradu)\b/.test(normalized)) return "Beograd";
-  if (/\b(novi sad|novom sadu)\b/.test(normalized)) return "Novi Sad";
-  if (/\b(bor|boru)\b/.test(normalized)) return "Bor";
-  if (/\b(leskovac|leskovcu)\b/.test(normalized)) return "Leskovac";
-  return undefined;
+function extractAskedCity(
+  input: string,
+  platform?: Awaited<ReturnType<typeof fetchPlatformKnowledge>>,
+): string | undefined {
+  // Poslednji pomenuti grad: "Piše da je salon u Beogradu, da li postoji i u
+  // Rumi?" → pita se za Rumu.
+  return intentCatalogFor(platform).matchLastCity(input);
 }
 
 export function filterSearchResultByStartHour(
@@ -1452,7 +1923,7 @@ export async function askAgent(
   /** The user's known city (header/profile/GPS). Used as a soft default for
    * "nearest salon" so Claudia answers directly instead of re-asking. */
   userCity?: string,
-) {
+): Promise<ReadableStream> {
   // Guard: if Maria sent an intent, it must be a known ClaudiaIntent.
   // Unknown intent = Maria-side bug (typo, model drift) — refuse LLM fallback.
   if (handoffPayload?.intent !== undefined) {
@@ -1462,12 +1933,45 @@ export async function askAgent(
         "[askAgent] Unknown intent from Maria, refusing LLM fallback:",
         handoffPayload.intent,
       );
+      // Never answer with a bare "ne razumem" — echo what is already
+      // collected and, when the city is still missing, attach a CityListBlock
+      // so the user can continue with one click instead of retyping.
+      const missing = getMissingBookingFields(collectedBookingFields ?? {});
+      const blocks: unknown[] = [];
+      if (
+        missing.includes("city") &&
+        chooseBlockForMissingField("booking", "city") === "CityListBlock"
+      ) {
+        const cities = await platformClient
+          .getMarketplaceCities()
+          .catch(() => []);
+        if (cities.length > 0) {
+          const service =
+            collectedBookingFields?.service ??
+            collectedBookingFields?.serviceName ??
+            "";
+          blocks.push({
+            type: "CityListBlock",
+            priority: 1,
+            metadata: {
+              serviceId: "",
+              serviceName: service,
+              variantName: "",
+              service,
+              cities: cities.map((city) => ({ name: city.name })),
+            },
+          });
+        }
+      }
       return streamClaudiaContract(
         makeClarificationContract({
-          message: "Ne razumem zahtev. Pokušajte ponovo.",
+          message: buildContextPreservingMessage(collectedBookingFields),
           workflowDomain: "unknown",
           step: "unknown_intent",
           intentType: "unknown",
+          entities: contextEntitiesFromCollected(collectedBookingFields),
+          missingFields: missing.map(String),
+          blocks,
         }),
       );
     }
@@ -1530,87 +2034,44 @@ export async function askAgent(
   });
 
   if (isStaleSelectionHandoff(handoffPayload)) {
-    console.debug("[CLAUDIA_STALE_HANDOFF_IGNORED]", {
+    console.debug("[CLAUDIA_STALE_HANDOFF_RECOVERED]", {
       intent: handoffPayload?.intent,
       handoffFlowVersion: handoffPayload?.flowVersion,
       currentFlowVersion: bookingFlow.get().flowVersion,
     });
+    // The click came from a block that belongs to an older flow version.
+    // A silent empty response looks like a dead chat — answer from the
+    // CURRENT collected state instead so the user can simply continue.
     return streamClaudiaContract(
-      makeClaudiaContract({
-        kind: "unknown",
-        message: "",
+      makeClarificationContract({
+        message: buildContextPreservingMessage(collectedBookingFields),
         workflowDomain: "booking",
-        step: "stale_handoff_ignored",
-        nextAction: "NONE",
+        step: "stale_handoff_recovered",
         intentType: String(handoffPayload?.intent ?? "stale_handoff"),
-        blocks: [],
-        status: "ready",
-        reason: "stale_handoff_ignored",
-      }),
-    );
-  }
-
-  if (
-    !handoffPayload?.intent &&
-    isSalonCityExistenceFollowUp(userInput) &&
-    (collectedBookingFields?.salonName ||
-      (collectedBookingFields as Record<string, unknown> | undefined)
-        ?.selectedSlot)
-  ) {
-    console.debug("[CLAUDIA_PINGPONG_BLOCKED]", {
-      message: userInput,
-      reason: "salon_city_existence_followup",
-    });
-    const selectedSlot = (
-      collectedBookingFields as Record<string, unknown> | undefined
-    )?.selectedSlot as SearchResult | undefined;
-    const requestedCity =
-      extractAskedCity(userInput) ?? mergedBookingContext.city;
-    const actualCity =
-      selectedSlot?.city ?? asString(handoffPayload?.salonCity);
-    const salonName =
-      selectedSlot?.salonName ??
-      mergedBookingContext.salonName ??
-      asString(handoffPayload?.salonName);
-    return streamClaudiaContract(
-      makeClaudiaContract({
-        kind: "booking_result",
-        message: formatSalonExistenceAnswer({
-          requestedCity,
-          actualCity,
-          salonName,
-        }),
-        workflowDomain: "booking",
-        step: "salon_city_existence_answer",
-        nextAction: "NONE",
-        intentType: "booking",
-        entities: {
-          city: requestedCity,
-          salonName,
-        },
-        status: "ready",
-        reason: "pingpong_blocked_city_fact",
+        entities: contextEntitiesFromCollected(collectedBookingFields),
       }),
     );
   }
 
   if (!handoffPayload?.intent) {
+    // Faza 3 — podaci POSLE intenta. Leksikon za parsiranje dolazi iz JEDNOG
+    // (fetch-keširanog) poziva — saloni nose embedded usluge. Skupi per-salon
+    // fetch (N poziva) ide tek u granu koja ga stvarno renderuje (prices).
+    // Namerno NE koristi fetchPlatformKnowledge — direct putanja ostaje na
+    // platformClient izvoru (vidi claudiaLoopAndSlice contract test).
     const salons = await fetchBookingSalons();
-    const servicesBySalon = await fetchServicesBySalon(salons);
-    const services = Object.entries(servicesBySalon).flatMap(
-      ([salonId, items]) => {
-        const salon = salons.find(
-          (item) => String(item._id ?? item.id ?? "") === salonId,
-        );
-        return items.map((service) => ({
+    const lexiconServices = salons.flatMap((salon) => {
+      const id = String(salon._id ?? salon.id ?? "");
+      return (Array.isArray(salon.services) ? salon.services : []).map(
+        (service) => ({
           ...service,
-          salonId,
-          salonName: salon?.name,
-          city: salon?.city,
-        }));
-      },
-    );
-    const directPlatform = {
+          salonId: id,
+          salonName: salon.name,
+          city: salon.city,
+        }),
+      );
+    });
+    const lexicon = {
       salonsText: "",
       servicesText: "",
       citiesText: [
@@ -1619,12 +2080,134 @@ export async function askAgent(
         ),
       ].join(", "),
       categoriesText: "",
-      raw: { salons, services, categories: [] },
+      raw: { salons, services: lexiconServices, categories: [] },
       semanticMemory: undefined,
     };
+
+    if (
+      isSalonCityExistenceFollowUp(userInput, lexicon) &&
+      (collectedBookingFields?.salonName ||
+        (collectedBookingFields as Record<string, unknown> | undefined)
+          ?.selectedSlot)
+    ) {
+      console.debug("[CLAUDIA_PINGPONG_BLOCKED]", {
+        message: userInput,
+        reason: "salon_city_existence_followup",
+      });
+      const selectedSlot = (
+        collectedBookingFields as Record<string, unknown> | undefined
+      )?.selectedSlot as SearchResult | undefined;
+      const requestedCity =
+        extractAskedCity(userInput, lexicon) ?? mergedBookingContext.city;
+      const actualCity =
+        selectedSlot?.city ?? asString(handoffPayload?.salonCity);
+      const salonName =
+        selectedSlot?.salonName ??
+        mergedBookingContext.salonName ??
+        asString(handoffPayload?.salonName);
+      return streamClaudiaContract(
+        makeClaudiaContract({
+          kind: "booking_result",
+          message: formatSalonExistenceAnswer({
+            requestedCity,
+            actualCity,
+            salonName,
+          }),
+          workflowDomain: "booking",
+          step: "salon_city_existence_answer",
+          nextAction: "NONE",
+          intentType: "booking",
+          entities: {
+            city: requestedCity,
+            salonName,
+          },
+          status: "ready",
+          reason: "pingpong_blocked_city_fact",
+        }),
+      );
+    }
+
+    // ── Faza 4: correction flow — ponovni intent PONIŠTAVA prethodni ────────
+    const correction = detectDirectCorrection({
+      text: userInput,
+      catalog: intentCatalogFor(lexicon),
+      collected: collectedBookingFields,
+    });
+    if (correction.isCorrection) {
+      console.debug("[CLAUDIA_CORRECTION]", {
+        vague: correction.vague,
+        replace: correction.replace,
+        remove: correction.remove,
+      });
+
+      if (correction.vague) {
+        // 4.3 — neodređena korekcija: rezime + "šta menjamo?", bez blokiranja.
+        return streamClaudiaContract(
+          makeClarificationContract({
+            message: buildCorrectionSummaryMessage(collectedBookingFields),
+            step: "correction_what_to_change",
+            intentType: "update_booking_selection",
+            entities: contextEntitiesFromCollected(collectedBookingFields),
+          }),
+        );
+      }
+
+      const corrected: CollectedBookingFields = { ...collectedBookingFields };
+      for (const key of correction.remove) delete corrected[key];
+      Object.assign(corrected, correction.replace);
+
+      if (Object.keys(correction.replace).length === 0) {
+        // Samo poništavanje → potvrdi i pitaj za obrisano polje; `cleared`
+        // putuje klijentu da STVARNO obriše vrednost iz memorije.
+        return streamClaudiaContract(
+          makeClarificationContract({
+            message: buildRemovalFollowUpMessage(correction.remove, corrected),
+            step: "correction_field_cleared",
+            intentType: "update_booking_selection",
+            entities: {
+              ...contextEntitiesFromCollected(corrected),
+              cleared: correction.remove,
+              corrected: true,
+            },
+            missingFields: correction.remove.map(String),
+          }),
+        );
+      }
+
+      // Zamena → ponovi korak sa ispravljenim podacima (re-run search /
+      // re-render bloka), bez ponovnih pitanja za nepromenjena polja.
+      const correctedStream = await askAgent(
+        userInput,
+        isAuthenticated,
+        history,
+        userName,
+        isBlockInteraction,
+        corrected,
+        {
+          intent: "booking",
+          city: corrected.city,
+          service: corrected.service ?? corrected.serviceName,
+          serviceId: corrected.serviceId,
+          serviceName: corrected.serviceName,
+          category: corrected.category,
+          salonId: corrected.salonId,
+          salonName: corrected.salonName,
+          date: corrected.date,
+          time: corrected.time,
+          timeWindowStart: corrected.timeWindowStart,
+          timeWindowEnd: corrected.timeWindowEnd,
+        },
+        userCity,
+      );
+      return withIntentExtras(correctedStream, {
+        cleared: correction.remove,
+        corrected: true,
+      });
+    }
+
     let direct = parseClaudiaDirectIntent({
       text: userInput,
-      platformKnowledge: directPlatform,
+      platformKnowledge: lexicon,
       collectedBookingFields,
     });
     const lastAssistantText = [...history]
@@ -1727,6 +2310,9 @@ export async function askAgent(
         );
       }
 
+      // Tek sada (intent = prices, subjekat poznat) dovlačimo pune per-salon
+      // usluge — jedina grana direct putanje kojoj trebaju.
+      const servicesBySalon = await fetchServicesBySalon(salons);
       const resolved = service
         ? resolveSalonsForService({
             serviceQuery: service,
@@ -1807,7 +2393,11 @@ export async function askAgent(
       );
     }
 
-    if (direct.type === "salon_info") {
+    // Činjenični salon-info odgovor SAMO uz učitan katalog — bez podataka
+    // nedostatak snapshot-a ne sme da postane "nemamo salon" (vidi i
+    // meaningToMariaDecision hasCatalogData guard). Bez podataka pada na
+    // LLM putanju koja sama dovlači platform knowledge.
+    if (direct.type === "salon_info" && salons.length > 0) {
       // "Najbliži salon" with no city in the message → fall back to the user's
       // known city (header/profile/GPS) and answer directly instead of asking.
       const usedKnownCity = !direct.entities.city && Boolean(userCity);
@@ -1816,7 +2406,7 @@ export async function askAgent(
         city: effectiveCity,
         service: direct.entities.service,
         category: direct.entities.category,
-        platformKnowledge: directPlatform,
+        platformKnowledge: lexicon,
       });
       const alternatives = availability.nearestAlternatives
         .map((item) => item.city)
@@ -1828,7 +2418,7 @@ export async function askAgent(
         .join(", ");
       const message = availability.hasSalonInCity
         ? usedKnownCity
-          ? `Najbliže tebi, u ${inCity(effectiveCity!)}: ${salonNames}. Koja usluga te zanima?`
+          ? `Najbliže vama, u ${inCity(effectiveCity!)}: ${salonNames}. Koja usluga vas zanima?`
           : `Da, imamo salon u ${effectiveCity}: ${salonNames}.`
         : effectiveCity
           ? alternatives.length > 0
@@ -1899,7 +2489,7 @@ export async function askAgent(
   if (handoffPayload?.intent === "appointments") {
     const message = isAuthenticated
       ? "Pozdrav, izvolite vaše termine."
-      : "Prijavi se da vidiš svoje termine.";
+      : "Prijavite se da vidite svoje termine.";
     const blocks = [
       isAuthenticated
         ? {
@@ -1945,7 +2535,7 @@ export async function askAgent(
     if (!isAuthenticated) {
       return streamClaudiaContract(
         makeAuthContract({
-          message: "Prijavi se da možeš da otkažeš termin.",
+          message: "Prijavite se da možete da otkažete termin.",
           intentType: "cancel_appointment",
           blocks: [
             {
@@ -1967,7 +2557,7 @@ export async function askAgent(
     if (cancellableAppointments.length === 1) {
       const appointment = cancellableAppointments[0];
       const service = String(appointment.serviceName ?? "termin");
-      const message = `Pronašla sam termin za ${service} ${appointmentDateTimeText(appointment)}. Možeš odmah da ga otkažeš.`;
+      const message = `Pronašla sam termin za ${service} ${appointmentDateTimeText(appointment)}. Možete odmah da ga otkažete.`;
       return streamClaudiaContract(
         makeClaudiaContract({
           kind: "confirmation",
@@ -1997,7 +2587,7 @@ export async function askAgent(
     if (cancellableAppointments.length > 1 || !handoffPayload?.appointments) {
       return streamClaudiaContract(
         makeAppointmentsContract({
-          message: "Izaberi termin koji želiš da otkažeš.",
+          message: "Izaberite termin koji želite da otkažete.",
           intentType: "cancel_appointment",
           step: "cancel_appointment",
           blocks: [
@@ -2049,7 +2639,7 @@ export async function askAgent(
     if (!isAuthenticated) {
       return streamClaudiaContract(
         makeAuthContract({
-          message: "Prijavi se da možeš da promeniš termin.",
+          message: "Prijavite se da možete da promenite termin.",
           intentType: "update_appointment",
           blocks: [
             {
@@ -2117,7 +2707,7 @@ export async function askAgent(
         message:
           activeAppointments.length === 1
             ? "Proveravam najbliže slobodne alternative za isti termin."
-            : "Izaberi termin koji želiš da promeniš.",
+            : "Izaberite termin koji želite da promenite.",
         intentType: "update_appointment",
         step: "update_appointment",
         blocks: [
@@ -2144,7 +2734,7 @@ export async function askAgent(
       return streamClaudiaContract(
         makeClaudiaContract({
           kind: "prices",
-          message: "Za koji grad želiš da vidiš cenovnik?",
+          message: "Za koji grad želite da vidite cenovnik?",
           workflowDomain: "prices",
           step: "missing_city",
           nextAction: "ASK_CLARIFICATION",
@@ -2381,8 +2971,8 @@ export async function askAgent(
     return streamClaudiaContract(
       makeClarificationContract({
         message: mergedBookingContext.service
-          ? "Može. U kom gradu želiš termin?"
-          : "Može. Koju uslugu želiš da zakažeš?",
+          ? "Može. U kom gradu želite termin?"
+          : "Može. Koju uslugu želite da zakažete?",
         step: "booking_missing_service",
         intentType: "booking",
         entities: {
@@ -2463,7 +3053,7 @@ export async function askAgent(
       return streamClaudiaContract(
         makeClaudiaContract({
           kind: "clarification",
-          message: `U kom gradu želiš termin za ${intent.service}?`,
+          message: `U kom gradu želite termin za ${intent.service}?`,
           workflowDomain: "booking",
           step: "booking_missing_city",
           nextAction: "ASK_CLARIFICATION",
@@ -2749,7 +3339,7 @@ export async function askAgent(
       collectedBookingFields?.time ??
       "";
     const statusText = isAuthenticated
-      ? "Status možeš da pratiš u tabu Moji termini, a potvrda stiže na email/kontakt sa naloga."
+      ? "Status možete da pratite u tabu Moji termini, a potvrda stiže na email/kontakt sa naloga."
       : "Salon će potvrdu poslati preko kontakta koji si ostavila/o.";
     bookingFlow.get().cancelPendingSelectionFlow();
     bookingFlow.get().setState("completed");
@@ -2806,7 +3396,7 @@ export async function askAgent(
         makeClarificationContract({
           message:
             displayMessage ??
-            `Odlično, proveravam dostupne termine u ${inCity(city)}. Koju uslugu želiš da zakažeš?`,
+            `Odlično, proveravam dostupne termine u ${inCity(city)}. Koju uslugu želite da zakažete?`,
           step: "select_city_missing_service",
           intentType: "select_city",
           entities: { city },
@@ -2905,7 +3495,7 @@ export async function askAgent(
         makeClarificationContract({
           message:
             displayMessage ??
-            `Odlično, ${salonName} je izabran. Koju uslugu želiš da zakažeš?`,
+            `Odlično, ${salonName} je izabran. Koju uslugu želite da zakažete?`,
           step: "select_salon_missing_service",
           intentType: "select_salon",
           entities: { city, salonId, salonName },
@@ -2965,8 +3555,8 @@ export async function askAgent(
       | undefined;
     const message =
       handoffPayload.intent === "login_for_booking"
-        ? "Prijavi se da nastavimo sa zakazivanjem."
-        : "Prijavi se da nastavimo.";
+        ? "Prijavite se da nastavimo sa zakazivanjem."
+        : "Prijavite se da nastavimo.";
 
     return streamClaudiaContract(
       makeAuthContract({
@@ -3168,7 +3758,7 @@ export async function askAgent(
           : first.dateLabel
       : "";
     const message = first
-      ? `Taj termin je u međuvremenu zauzet. Najbliži slobodan termin je ${dayLabel} u ${first.timeLabel} u ${first.salonName}. Želiš da ga rezervišem?`
+      ? `Taj termin je u međuvremenu zauzet. Najbliži slobodan termin je ${dayLabel} u ${first.timeLabel} u ${first.salonName}. Želite da ga rezervišem?`
       : "Taj termin je u međuvremenu zauzet. Nema više slobodnih termina za danas u ovom salonu. Mogu da proverim drugi dan ili drugu uslugu.";
 
     const blocks =
@@ -3333,6 +3923,13 @@ export async function askAgent(
         raw = buildContextPreservingClarification(collectedBookingFields);
       }
     }
+
+    // Faza 3.3 — LLM bira tip bloka; server iz snapshot-a puni cities/salons
+    // liste pre slanja klijentu, da blok uvek nosi stvarne podatke.
+    raw = enrichClaudiaLayoutBlocks(raw, {
+      platform,
+      collected: mergedBookingContext,
+    });
 
     return streamRawString(raw);
   } catch (error) {

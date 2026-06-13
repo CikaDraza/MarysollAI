@@ -223,19 +223,24 @@ export const platformClient = {
   },
 
   getSalonServices(salonId: string) {
+    // 30s: cena/trajanje usluge ulaze direktno u booking odgovore agenta —
+    // minut stare cene su bile dovoljne da AI citira pogrešan iznos.
     return request<PlatformService[]>(
       `/marketplace/services?salonId=${salonId}`,
       {
-        next: { revalidate: 60 },
+        next: { revalidate: 30 },
       } as RequestInit,
     );
   },
 
   getSalonWorkingHours(salonId: string) {
+    // 300s (ranije 1h): promena radnog vremena mora brzo da stigne do
+    // generisanja slotova — sat vremena stari raspored je nudio termine
+    // van novog radnog vremena.
     return request<PlatformWorkingHours>(
       `/marketplace/working-hours?salonId=${salonId}`,
       {
-        next: { revalidate: 3600 },
+        next: { revalidate: 300 },
       } as RequestInit,
     );
   },

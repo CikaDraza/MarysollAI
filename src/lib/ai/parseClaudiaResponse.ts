@@ -34,7 +34,7 @@ const SAFE_FALLBACK: ClaudiaResponse = {
   messages: [
     {
       content:
-        "Izvini, na trenutak je prekinuta veza. Pošalji poruku još jednom — pamtim našu prethodnu konverzaciju.",
+        "Izvinite, na trenutak je prekinuta veza. Pošaljite poruku još jednom — pamtim našu prethodnu konverzaciju.",
       role: "assistant",
     } as TextMessage,
   ],
@@ -136,7 +136,7 @@ export function parseClaudiaResponse(rawStream: string): ClaudiaResponse {
     return {
       messages: [
         {
-          content: "Razumem. Možeš li da pojasniš šta tražiš?",
+          content: "Razumem. Možete li da pojasnite šta tražite?",
           role: "assistant",
         } as TextMessage,
       ],
@@ -209,6 +209,42 @@ export function extractBookingMemory(
     if (fields[k] === undefined) delete fields[k];
   }
   return fields;
+}
+
+const CLEARABLE_KEYS: Array<keyof CollectedBookingFields> = [
+  "category",
+  "subcategory",
+  "service",
+  "serviceId",
+  "serviceName",
+  "city",
+  "date",
+  "time",
+  "timeWindowStart",
+  "timeWindowEnd",
+  "salonId",
+  "salonName",
+];
+
+/**
+ * Faza 4 — correction flow. Server u `intent.cleared` navodi polja koja je
+ * korisnik POVUKAO ("nisam to želeo", promena grada poništava salon...).
+ * `collect()` samo merge-uje, pa bez eksplicitnog brisanja stara vrednost
+ * preživi u localStorage i sledeća pretraga je ponovo koristi.
+ */
+export function extractClearedFields(
+  rawStream: string,
+): Array<keyof CollectedBookingFields> {
+  if (!rawStream || rawStream.trim().length === 0) return [];
+  const parsed = tryParse(stripCodeFences(rawStream));
+  if (!parsed || typeof parsed !== "object") return [];
+  const intent = (parsed as Record<string, unknown>).intent;
+  const cleared =
+    intent && typeof intent === "object"
+      ? (intent as Record<string, unknown>).cleared
+      : undefined;
+  if (!Array.isArray(cleared)) return [];
+  return CLEARABLE_KEYS.filter((key) => cleared.includes(key));
 }
 
 /**

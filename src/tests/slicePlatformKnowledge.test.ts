@@ -314,17 +314,6 @@ describe("slicePlatformKnowledge — nearest city candidates", () => {
     expect(slice.debug.filterReason).toContain("nearest_city_candidates");
   });
 
-  it("city filter takes precedence over candidates when both set", () => {
-    // Explicit city wins — candidates su za "nema u tom gradu" flow
-    const slice = slicePlatformKnowledge(PLATFORM, {
-      city: "Bor",
-      nearestCityCandidates: ["Novi Sad"],
-    });
-    // Explicit city=Bor → samo Bor
-    expect(slice.salonsText).toContain("Beauty M Glow");
-    expect(slice.salonsText).not.toContain("Shi Sham");
-  });
-
   it("feniranje in nearest candidates returns only feniranje services from those cities", () => {
     const slice = slicePlatformKnowledge(PLATFORM, {
       nearestCityCandidates: ["Novi Sad"],

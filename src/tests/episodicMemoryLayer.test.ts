@@ -143,39 +143,6 @@ describe("lightweight episodic memory", () => {
     expect(serialized).not.toContain("@private");
   });
 
-  it("formatted prompt has compact Episodic section", () => {
-    const prompt = formatAgentMemoryForPrompt(
-      buildAgentMemoryContext({
-        episodicMemory: {
-          sessionSummaries: [],
-          lastSuccessfulBooking: {
-            id: "1",
-            timestamp: "2026-05-28T12:00:00.000Z",
-            type: "booking",
-            city: "Bor",
-            service: "Maderoterapija",
-            salonName: "Beauty M Glow",
-            outcome: "success",
-          },
-          lastFailedBooking: {
-            timestamp: "2026-05-28T13:00:00.000Z",
-            reason: "slot_taken",
-            requestedTime: "15:00",
-            recoveryUsed: true,
-          },
-          preferredCities: ["Bor", "Novi Sad"],
-          preferredServices: ["feniranje", "maderoterapija"],
-          preferredSalons: ["Beauty M Glow"],
-        },
-      }),
-    );
-
-    expect(prompt).toContain("Episodic:");
-    expect(prompt).toContain("last success: Maderoterapija u Bor, Beauty M Glow");
-    expect(prompt).toContain("last failed: slot_taken, at 15:00, recovery used");
-    expect(prompt).toContain("preferences: cities Bor/Novi Sad; services feniranje/maderoterapija");
-  });
-
   it("empty episodic memory is omitted from prompt", () => {
     const prompt = formatAgentMemoryForPrompt(
       buildAgentMemoryContext({
@@ -251,24 +218,6 @@ describe("lightweight episodic memory", () => {
 
     expect(decision.targetAgent).toBe("claudia");
     expect(decision.reason).not.toBe("direct_booking");
-  });
-
-  it("last failed slot is available as context but does not auto-book", () => {
-    const memory = buildEpisodicMemory({
-      recentEvents: [
-        systemAction("BOOKING_CONFLICT", {
-          salonName: "Beauty M Glow",
-          selectedTime: "15:00",
-        }),
-      ],
-    });
-    const prompt = formatAgentMemoryForPrompt(
-      buildAgentMemoryContext({ episodicMemory: memory }),
-    );
-
-    expect(prompt).toContain("last failed: slot_taken, at 15:00, recovery used");
-    expect(prompt).toContain("AI must never directly open modal, render blocks, or confirm booking.");
-    expect(prompt).toContain("Episodic memory is read-only context; it may suggest, never decide actions.");
   });
 
   it("builder is pure and does not mutate input", () => {

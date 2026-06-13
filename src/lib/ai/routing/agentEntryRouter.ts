@@ -1,4 +1,5 @@
 import type { ClaudiaSubAgent } from "@/store/ai/agent-state";
+import { getClientCatalog } from "@/lib/ai/catalog/client-catalog";
 
 export type RoutingAgent = "maria" | "claudia";
 
@@ -52,6 +53,26 @@ function isBookingFollowUp(text: string): boolean {
   );
 }
 
+// Statični fallback regexi — koriste se SAMO dok se CatalogContext (živi
+// leksikon iz DB) ne hidrira na klijentu. Jedini izvor istine je katalog;
+// ove liste se ne proširuju ručno.
+const FALLBACK_SERVICE_RE =
+  /\b(maderoterap\w*|masaz\w*|masaž\w*|fenir\w*|sisanj\w*|šišanj\w*|nokti|nails|smink\w*|šmink\w*|makeup|trepav\w*|lashes|depil\w*|tretman\w*|limfna|drenaz\w*|drenaž\w*)\b/i;
+const FALLBACK_CITY_RE =
+  /\b(beograd|novi sad|bor|nis|niš|subotica|kragujevac|zrenjanin|pancevo|pančevo|cacak|čacak|kraljevo)\b/i;
+
+function hasKnownServiceMention(text: string): boolean {
+  const catalog = getClientCatalog();
+  if (catalog) return catalog.hasServiceMention(text) || has(FALLBACK_SERVICE_RE, text);
+  return has(FALLBACK_SERVICE_RE, text);
+}
+
+function hasKnownCityMention(text: string): boolean {
+  const catalog = getClientCatalog();
+  if (catalog) return catalog.hasCityMention(text) || has(FALLBACK_CITY_RE, text);
+  return has(FALLBACK_CITY_RE, text);
+}
+
 function isBookingIntent(text: string): boolean {
   const hasBookingVerb = has(
     /\b(zakazi|zakaži|zakazem|zakažem|rezervisi|rezerviši|rezervacija|termin|slobodni termini|slobodnih termina|ima li slobod|da li ima slobod|availability|appointment|book)\b/i,
@@ -61,14 +82,8 @@ function isBookingIntent(text: string): boolean {
     /\b(danas|sutra|prekosutra|posle|nakon|od \d{1,2}|u \d{1,2}(?::\d{2})?|ujutru|popodne|veceras|večeras|today|tomorrow|after|at \d{1,2})\b/i,
     text,
   );
-  const hasKnownService = has(
-    /\b(maderoterap\w*|masaz\w*|masaž\w*|fenir\w*|sisanj\w*|šišanj\w*|nokti|nails|smink\w*|šmink\w*|makeup|trepav\w*|lashes|depil\w*|tretman\w*|limfna|drenaz\w*|drenaž\w*)\b/i,
-    text,
-  );
-  const hasKnownCity = has(
-    /\b(beograd|novi sad|bor|nis|niš|subotica|kragujevac|zrenjanin|pancevo|pančevo|cacak|čacak|kraljevo)\b/i,
-    text,
-  );
+  const hasKnownService = hasKnownServiceMention(text);
+  const hasKnownCity = hasKnownCityMention(text);
 
   return (
     (hasBookingVerb && (hasTimeOrDate || hasKnownService)) ||
@@ -135,10 +150,7 @@ function isServiceAvailabilityInfoQuestion(text: string): boolean {
     /\b(interesuje me|ima li|da li ima|da li postoji|postoji|imate|radite|u kojim gradovima|koji gradovi|daj.*gradove|dajte.*gradove|gradove u kojima)\b/i,
     text,
   );
-  const mentionsService = has(
-    /\b(maderoterap\w*|masaz\w*|masaž\w*|tretman\w*|fenir\w*|sisanj\w*|šišanj\w*|nokti|nails|smink\w*|šmink\w*|makeup|trepav\w*|lashes|depil\w*)\b/i,
-    text,
-  );
+  const mentionsService = hasKnownServiceMention(text);
   const asksForBooking = has(/\b(termin|slobod|zakaz|rezervis|appointment|booking)\b/i, text);
 
   return asksForAvailability && mentionsService && !asksForBooking;

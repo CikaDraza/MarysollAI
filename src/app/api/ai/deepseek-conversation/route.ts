@@ -36,6 +36,7 @@ import type { SemanticMemory } from "@/lib/ai/memory/agent-memory-types";
 import { SERBIAN_CITIES } from "@/lib/cities";
 import { buildMariaPrompt } from "@/lib/ai/communication/buildMariaPrompt";
 import { formatCommunicationRulesForPrompt } from "@/lib/ai/communication/formatCommunicationRulesForPrompt";
+import { MARIA_KNOWN_FAQ_ANSWERS } from "@/lib/ai/communication/agent-communication-rules";
 
 export const maxDuration = 60;
 export const dynamic = "force-dynamic";
@@ -427,6 +428,32 @@ function detectClosure(
   });
 }
 
+// Pitanje o pravilima platforme ("da li moram da se registrujem?") je FAQ,
+// ne auth zahtev — i mora da dobije deterministički odgovor čak i kada je
+// LLM nedostupan (ranije je padalo u catch-all "Nešto je zapelo").
+const REGISTRATION_QUESTION_RE =
+  /\b(da li|dal|jel|je l|moram( li)?|treba( li)?|potrebn\w*|obavezn\w*|neophodn\w*|mogu li)\b/i;
+const REGISTRATION_TOPIC_RE = /\b(registr\w*|nalog\w*|kao gost)\b/i;
+
+function detectKnownFaq(text: string): MariaContract | null {
+  if (
+    REGISTRATION_QUESTION_RE.test(text) &&
+    REGISTRATION_TOPIC_RE.test(text)
+  ) {
+    return buildContract({
+      kind: "faq_answer",
+      message: MARIA_KNOWN_FAQ_ANSWERS.registration_required,
+      domain: "faq",
+      action: "answer_question",
+      confidence: 0.97,
+      shouldHandoff: false,
+      targetAgent: "none",
+      reason: "faq_known_answer",
+    });
+  }
+  return null;
+}
+
 const AUTH_RE =
   /\b(login|prijavi|prijavim|uloguj|registruj|registracija|nalog|zaboravio|lozink|lozinku)\b/i;
 
@@ -635,6 +662,21 @@ export async function POST(req: Request) {
     });
     if (closureContract)
       return quickResponse(closureContract, { aiBookingState: stateBefore });
+
+    // --- Fast path 1.5: poznata platformska FAQ pitanja. Pre auth putanje,
+    // da upitna forma "da li moram da se registrujem" ne otvori login.
+    const knownFaqContract = detectKnownFaq(latestUserText);
+    if (knownFaqContract) {
+      return quickResponse(knownFaqContract, {
+        selectedSlot,
+        aiBookingState: stateBefore,
+        pendingContact,
+        aiDebug: {
+          replyMode: "faq_known_answer",
+          mariaContract: knownFaqContract,
+        },
+      });
+    }
 
     // --- Fast path 2: auth
     const authContract = detectAuth(latestUserText, Boolean(selectedSlot));

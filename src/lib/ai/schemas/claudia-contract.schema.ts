@@ -4,7 +4,7 @@ import type { BaseBlock, BlockTypes } from "@/types/landing-block";
 import type { ClaudiaIntent } from "@/lib/ai/schemas/claudia.schema";
 
 const FALLBACK_MESSAGE =
-  "Izvini, dogodila se greška. Hajde da krenemo ponovo: napiši koju uslugu želiš, u kom gradu i u koje vreme.";
+  "Izvinite, dogodila se mala greška. Recite mi koju uslugu želite, u kom gradu i u koje vreme — odmah nastavljamo.";
 
 const OptionalHourSchema = z.preprocess(
   (value) => {

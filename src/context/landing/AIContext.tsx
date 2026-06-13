@@ -19,6 +19,7 @@ import {
   type ClaudiaSubAgent,
 } from "@/store/ai/agent-state";
 import { resetAgentState } from "@/lib/ai/orchestrator/ai-orchestrator";
+import { ensureClientCatalog } from "@/lib/ai/catalog/client-catalog";
 import {
   legacyActionTextToSystemAction,
 } from "@/lib/ai/events/systemActionDispatcher";
@@ -119,6 +120,12 @@ export function AIProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     cityNameRef.current = cityName;
   }, [cityName]);
+
+  // Hidriraj klijentski intent leksikon (CatalogContext) — AgentEntryRouter
+  // do tada koristi statične fallback regexe.
+  useEffect(() => {
+    void ensureClientCatalog();
+  }, []);
 
   // Read agent state from the Zustand store — single source of truth.
   // Owner of writes: lib/ai/orchestrator (via AgentBridge handoff path).

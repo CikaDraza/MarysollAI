@@ -107,7 +107,7 @@ describe("Claudia response boundary", () => {
     const data = JSON.parse(await readStream(stream));
 
     expect(data.messages[0]).toMatchObject({
-      content: "Prijavi se da vidiš svoje termine.",
+      content: "Prijavite se da vidite svoje termine.",
       attachToBlockType: "AuthBlock",
     });
     expect(data.layout[0]).toMatchObject({
@@ -730,9 +730,12 @@ describe("Claudia response boundary", () => {
 
     expect(data.layout.map((block: { type: string }) => block.type)).not.toContain("SalonListBlock");
     expect(console.debug).toHaveBeenCalledWith(
-      "[CLAUDIA_STALE_HANDOFF_IGNORED]",
+      "[CLAUDIA_STALE_HANDOFF_RECOVERED]",
       expect.objectContaining({ intent: "select_city" }),
     );
+    // Dead-end guard: a stale handoff must still answer the user with a
+    // context-preserving message instead of going silent.
+    expect(String(data.messages?.[0]?.content ?? "")).not.toBe("");
   });
 
   it("stale select_salon handoff after booking_time_alternatives renders no AppointmentCalendarBlock", async () => {
@@ -765,9 +768,12 @@ describe("Claudia response boundary", () => {
 
     expect(data.layout.map((block: { type: string }) => block.type)).not.toContain("AppointmentCalendarBlock");
     expect(console.debug).toHaveBeenCalledWith(
-      "[CLAUDIA_STALE_HANDOFF_IGNORED]",
+      "[CLAUDIA_STALE_HANDOFF_RECOVERED]",
       expect.objectContaining({ intent: "select_salon" }),
     );
+    // Dead-end guard: a stale handoff must still answer the user with a
+    // context-preserving message instead of going silent.
+    expect(String(data.messages?.[0]?.content ?? "")).not.toBe("");
   });
 
   it("SERVICE_SELECTED_FOR_SALON with old flowVersion is ignored", () => {
@@ -946,7 +952,7 @@ describe("Claudia response boundary", () => {
     const data = JSON.parse(await readStream(stream));
 
     expect(data.messages[0]).toMatchObject({
-      content: "Prijavi se da nastavimo sa zakazivanjem.",
+      content: "Prijavite se da nastavimo sa zakazivanjem.",
       attachToBlockType: "AuthBlock",
     });
     expect(data.layout[0]).toMatchObject({

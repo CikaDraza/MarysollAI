@@ -53,27 +53,11 @@ describe("N — QuickAccess ambient is trust-capped", () => {
     expect(policy.allowNearbyCities).toBe(false);
   });
 
-  it("L5 nearby-city real slot passes when availability is trustworthy", () => {
-    const policy = resolveFallbackPolicy("quickaccess", { kind: "implicit_geo" });
-    const l5Slot = { fallbackLevel: 5, isSynthetic: false, slotOrigins: ["nearby_city" as const] };
-    const result = applyFallbackPolicy([l5Slot], policy);
-    expect(result).toHaveLength(1);
-  });
-
   it("L6 synthetic is still rejected for implicit_geo (allowSynthetic=false)", () => {
     const policy = resolveFallbackPolicy("quickaccess", { kind: "implicit_geo" });
     expect(policy.allowSynthetic).toBe(false);
     const result = applyFallbackPolicy([slot(6, true)], policy);
     expect(result).toHaveLength(0);
-  });
-
-  it("L3 related_service trusted slot passes confidence policy", () => {
-    const policy = resolveFallbackPolicy("quickaccess", { kind: "implicit_geo" });
-    expect(policy.allowCategoryDrift).toBe(false);
-
-    const l3Slot = { fallbackLevel: 3, isSynthetic: false, slotOrigins: ["related_service" as const] };
-    const result = applyFallbackPolicy([l3Slot], policy);
-    expect(result).toHaveLength(1);
   });
 
   it("L4 slot without related_service origin passes when availability is trustworthy", () => {
@@ -252,12 +236,6 @@ describe("W — implicit_geo max level", () => {
     const policy = resolveFallbackPolicy("quickaccess", { kind: "implicit_geo" });
     const l4Slot = { fallbackLevel: 4, isSynthetic: false, slotOrigins: ["real" as const] };
     expect(applyFallbackPolicy([l4Slot], policy)).toHaveLength(1);
-  });
-
-  it("L5 nearby-city trusted slot passes", () => {
-    const policy = resolveFallbackPolicy("quickaccess", { kind: "implicit_geo" });
-    const l5Slot = { fallbackLevel: 5, isSynthetic: false, slotOrigins: ["nearby_city" as const] };
-    expect(applyFallbackPolicy([l5Slot], policy)).toHaveLength(1);
   });
 
   it("L6 synthetic is rejected even for ambient display", () => {

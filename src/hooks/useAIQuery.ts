@@ -14,6 +14,7 @@ import {
   parseClaudiaResponse,
   extractStreamingText,
   extractBookingMemory,
+  extractClearedFields,
 } from "@/lib/ai/parseClaudiaResponse";
 
 interface AIResponseData {
@@ -247,12 +248,26 @@ export function useAIQuery(user?: AuthUser | null) {
         // malformed JSON or empty stream. Caller doesn't need a try/catch.
         const finalData = parseClaudiaResponse(fullRaw);
 
+        // Faza 4 — correction flow: PRVO obriši povučena polja (revoke), pa
+        // tek onda upiši nove vrednosti — inače stara vrednost iz localStorage
+        // preživi merge i sledeća pretraga je ponovo koristi.
+        const clearedFields = extractClearedFields(fullRaw);
+        if (clearedFields.length > 0) {
+          bookingFlow.get().clearFields(clearedFields);
+        }
+
         // Phase A — unified memory: persist whatever Claudia resolved this turn
         // (city/service/time/salon) into the single source of truth so the next
         // message keeps `hasContext` and doesn't collapse into a reset fallback.
         const resolvedMemory = extractBookingMemory(fullRaw);
         if (Object.keys(resolvedMemory).length > 0) {
           bookingFlow.get().collect(resolvedMemory);
+        }
+
+        // Korekcija poništava i blokove iz pogrešnog pokušaja — bump čini
+        // njihove select_* handoff-ove zastarelim (isStaleSelectionHandoff).
+        if (clearedFields.length > 0) {
+          bookingFlow.get().bumpFlowVersion("correction_cleared");
         }
 
         setPendingResponse({

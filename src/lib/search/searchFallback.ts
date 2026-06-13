@@ -35,7 +35,7 @@ const FALLBACK_INFO: Record<FallbackLevel, Omit<FallbackInfo, "level">> = {
   0: {
     label: "no-salons",
     userMessage:
-      "Trenutno nema dostupnih termina. Pokušaj ponovo malo kasnije.",
+      "Trenutno nema dostupnih termina. Pokušajte ponovo malo kasnije.",
     isExpanded: false,
     isSynthetic: false,
     isEmpty: true,

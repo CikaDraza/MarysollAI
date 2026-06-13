@@ -54,7 +54,7 @@ describe("agent communication contract", () => {
   it("Maria examples include guest booking FAQ", () => {
     const examples = getCommunicationExamples("maria");
 
-    expect(examples.some((example) => example.assistant.includes("Možeš zakazati i kao gost"))).toBe(true);
+    expect(examples.some((example) => example.assistant.includes("Možete zakazati i kao gost"))).toBe(true);
   });
 
   it("Claudia examples include follow-up time correction", () => {

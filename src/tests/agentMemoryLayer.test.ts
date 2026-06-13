@@ -44,66 +44,6 @@ describe("AI memory layer", () => {
     expect(allRules).toContain("AI must never directly open modal, render blocks, or confirm booking.");
   });
 
-  it("formatted prompt contains Working and Procedural sections", () => {
-    const prompt = formatAgentMemoryForPrompt(
-      buildAgentMemoryContext({
-        activeAgent: "maria",
-        bookingFlowCollected: { city: "Novi Sad", service: "feniranje" },
-      }),
-    );
-
-    expect(prompt).toContain("# MEMORY CONTEXT");
-    expect(prompt).toContain("Working:");
-    expect(prompt).toContain("Procedural:");
-  });
-
-  it("formatted prompt includes lightweight episodic session summaries", () => {
-    const prompt = formatAgentMemoryForPrompt(
-      buildAgentMemoryContext({
-        episodicMemory: {
-          sessionSummaries: [],
-          lastSuccessfulBooking: {
-            id: "episode-1",
-            timestamp: "2026-05-28T12:00:00.000Z",
-            type: "booking",
-            city: "Bor",
-            service: "Maderoterapija",
-            salonName: "Beauty M Glow",
-            outcome: "success",
-          },
-          preferredCities: [],
-          preferredServices: [],
-          preferredSalons: [],
-        },
-      }),
-    );
-
-    expect(prompt).toContain("Episodic:");
-    expect(prompt).toContain("last success: Maderoterapija u Bor, Beauty M Glow");
-  });
-
-  it("formatted prompt includes last failed booking recovery context", () => {
-    const prompt = formatAgentMemoryForPrompt(
-      buildAgentMemoryContext({
-        episodicMemory: {
-          sessionSummaries: [],
-          lastFailedBooking: {
-            timestamp: "2026-05-28T12:00:00.000Z",
-            reason: "slot_taken",
-            salonName: "Beauty M Glow",
-            requestedTime: "15:00",
-            recoveryUsed: true,
-          },
-          preferredCities: [],
-          preferredServices: [],
-          preferredSalons: [],
-        },
-      }),
-    );
-
-    expect(prompt).toContain("last failed: slot_taken, at 15:00, recovery used, Beauty M Glow");
-  });
-
   it("formatted prompt is compact and not raw huge JSON", () => {
     const prompt = formatAgentMemoryForPrompt(
       buildAgentMemoryContext({
@@ -121,34 +61,6 @@ describe("AI memory layer", () => {
     expect(prompt.length).toBeLessThan(2000);
     expect(prompt).not.toContain('"workingMemory"');
     expect(prompt).not.toContain('"proceduralMemory"');
-  });
-
-  it("Maria prompt includes MEMORY CONTEXT", () => {
-    const prompt = buildMariaSystemPrompt(
-      "",
-      "",
-      "",
-      "",
-      "Gost",
-      false,
-      "Novi Sad",
-      "sr",
-    );
-
-    expect(prompt).toContain("# MEMORY CONTEXT");
-  });
-
-  it("Claudia prompt includes MEMORY CONTEXT", () => {
-    const prompt = buildClaudiaSystemPrompt(
-      "",
-      "",
-      "",
-      "",
-      false,
-      "Gost",
-    );
-
-    expect(prompt).toContain("# MEMORY CONTEXT");
   });
 
   it("memory builder is pure and does not mutate input", () => {

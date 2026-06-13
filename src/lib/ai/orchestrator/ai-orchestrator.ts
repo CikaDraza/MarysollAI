@@ -38,10 +38,13 @@ const transitionLog = aiLog("AGENT_TRANSITION");
 const CLAUDIA_HANDOFF_TIMEOUT_MS = 18_000;
 
 const CLAUDIA_TIMEOUT_FALLBACK_MESSAGE =
-  "Trenutno ne mogu da te povežem sa booking agentom. Pokušaj ponovo za nekoliko sekundi.";
+  "Molimo vas sačekajte, proveravamo — odgovor stiže za koji trenutak.";
+
+const CLAUDIA_BACKGROUND_FAILURE_MESSAGE =
+  "Nažalost, provera nije uspela. Pokušajte ponovo — vaši podaci su sačuvani.";
 
 const CLAUDIA_PARSE_FALLBACK_MESSAGE =
-  "Imamo grešku u komunikaciji sa agentom. Pokušaj ponovo.";
+  "Došlo je do kratkog zastoja u komunikaciji. Pokušajte ponovo, molim vas.";
 
 export interface OrchestratorContext {
   /** Original message the user typed before Maria saw it. */
@@ -254,15 +257,32 @@ export async function handleMariaResponse(
         },
         timestamp: Date.now(),
       });
-      // Keep the underlying Claudia call going (we can't cancel it without
-      // an AbortController contract on invokeClaudia) but mark it as a
-      // background fire-and-forget so unhandled rejections don't surface.
-      claudiaPromise.catch((err) => {
-        log("handoff.background_failure", {
-          targetAgent: safeResponse.targetAgent,
-          error: err instanceof Error ? err.message : String(err),
+      // The underlying Claudia call keeps running (no AbortController
+      // contract on invokeClaudia). The fallback above told the user to
+      // wait, so the outcome must be deterministic: on success the call
+      // renders its own response through askAI; on failure we say so
+      // instead of going silent after a "please wait".
+      claudiaPromise
+        .then(() => {
+          log("handoff.background_complete", {
+            targetAgent: safeResponse.targetAgent,
+          });
+        })
+        .catch((err) => {
+          log("handoff.background_failure", {
+            targetAgent: safeResponse.targetAgent,
+            error: err instanceof Error ? err.message : String(err),
+          });
+          chatEvents.emit({
+            type: "AGENT_RESPONSE",
+            payload: {
+              agentType: timeoutAgent,
+              content: CLAUDIA_BACKGROUND_FAILURE_MESSAGE,
+              completed: true,
+            },
+            timestamp: Date.now(),
+          });
         });
-      });
       return {
         outcome: "timeout",
         targetAgent: safeResponse.targetAgent,
@@ -283,8 +303,11 @@ export async function handleMariaResponse(
  */
 export function handleAgentTransition(toAgent: ActiveAgent): void {
   agentState.get().setActiveAgent(toAgent);
-  if (toAgent === "maria") {
-    // Booking is done — clear flow state so the next session starts fresh.
+  // Faza 4 — povratak Mariji NE briše prikupljeno usred bookinga: korisnik
+  // sme da pita nešto usput (ili da ispravi grešku) i nastavi gde je stao.
+  // Reset samo kada je booking stvarno završen (BOOKING_SUBMIT_SUCCESS
+  // postavlja state na "completed").
+  if (toAgent === "maria" && bookingFlow.get().state === "completed") {
     bookingFlow.get().reset();
   }
 }

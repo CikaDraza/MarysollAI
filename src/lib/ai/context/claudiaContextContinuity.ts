@@ -230,6 +230,22 @@ export function inferCityFromSalon(
   }
 
   if (salonName) {
+    // Generic salon-industry words must never count as a name match —
+    // otherwise "Nepoznat Salon" matches "Shi Sham Frizerski Salon" via the
+    // shared token "salon" and we invent a city for a salon we don't have.
+    const GENERIC_SALON_TOKENS = new Set([
+      "salon",
+      "saloni",
+      "studio",
+      "beauty",
+      "frizerski",
+      "frizerska",
+      "kozmeticki",
+      "kozmeticka",
+      "nails",
+      "hair",
+      "spa",
+    ]);
     const normalizedQuery = normalizeForMatch(salonName);
     const byName = salons.find((s) => {
       if (!s.name) return false;
@@ -237,9 +253,13 @@ export function inferCityFromSalon(
       return (
         n.includes(normalizedQuery) ||
         normalizedQuery.includes(n) ||
-        // Partial match — "Kiki Kiss" matches "Kiki Kiss Beauty"
+        // Partial match — "Kiki Kiss" matches "Kiki Kiss Beauty", but only
+        // on distinctive tokens, never on generic industry words.
         n.split(" ").some(
-          (part) => part.length >= 4 && normalizedQuery.includes(part),
+          (part) =>
+            part.length >= 4 &&
+            !GENERIC_SALON_TOKENS.has(part) &&
+            normalizedQuery.includes(part),
         )
       );
     });

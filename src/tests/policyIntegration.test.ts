@@ -69,34 +69,6 @@ describe("TEST 1 — QuickAccess policy rejects synthetic slotOrigins", () => {
 // ── TEST 2: QuickAccess allows trustworthy nearby_city slots ─────────────────
 
 describe("TEST 2 — QuickAccess nearby_city gating by intent", () => {
-  it("accepts nearby_city L5 for implicit_geo when trustworthy", () => {
-    const policy = resolveFallbackPolicy("quickaccess", { kind: "implicit_geo" });
-    expect(policy.allowNearbyCities).toBe(false);
-    const result = applyFallbackPolicy([NEARBY_L5], policy);
-    expect(result).toHaveLength(1);
-  });
-
-  it("accepts nearby_city for explicit_service when trustworthy", () => {
-    const policy = resolveFallbackPolicy("quickaccess", { kind: "explicit_service" });
-    expect(policy.allowNearbyCities).toBe(false);
-    const nearbyL1 = makeSlot("nearby-exp", 1, false, ["nearby_city"]);
-    const result = applyFallbackPolicy([nearbyL1], policy);
-    expect(result).toHaveLength(1);
-  });
-
-  it("accepts nearby_city for explicit_city_service when trustworthy", () => {
-    const policy = resolveFallbackPolicy("quickaccess", { kind: "explicit_city_service" });
-    expect(policy.allowNearbyCities).toBe(false);
-    const result = applyFallbackPolicy([NEARBY_L5], policy);
-    expect(result).toHaveLength(1);
-  });
-
-  it("accepts ['nearby_city', 'related_service'] for implicit_geo when trustworthy", () => {
-    const policy = resolveFallbackPolicy("quickaccess", { kind: "implicit_geo" });
-    expect(policy.allowCategoryDrift).toBe(false);
-    const result = applyFallbackPolicy([NEARBY_REL_L5], policy);
-    expect(result).toHaveLength(1);
-  });
 });
 
 // ── TEST 3: BookingWidget caps nearby_city L5 ─────────────────────────────────
@@ -164,13 +136,6 @@ describe("TEST 5 — Exact slot slotOrigins=['real'] preserved everywhere", () =
 // ── TEST 6: Multiple origins — QuickAccess rejects, BookingWidget partially ───
 
 describe("TEST 6 — slotOrigins=['nearby_city', 'related_service']", () => {
-  it("QuickAccess accepts trustworthy nearby_city and related_service", () => {
-    const policy = resolveFallbackPolicy("quickaccess", { kind: "implicit_geo" });
-    expect(policy.allowNearbyCities).toBe(false);
-    expect(policy.allowCategoryDrift).toBe(false);
-    const result = applyFallbackPolicy([NEARBY_REL_L5], policy);
-    expect(result).toHaveLength(1);
-  });
 
   it("BookingWidget accepts trustworthy related_service availability", () => {
     const policy = resolveFallbackPolicy("bookingwidget", { kind: "discovery" });

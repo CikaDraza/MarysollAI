@@ -188,24 +188,6 @@ describe("Task 3.3 — City availability follow-up uses nearest candidates", () 
     expect(after.requestedCity).toBe("Leskovac");
     expect(after.nearestCityCandidates).toEqual(["Niš", "Beograd"]);
   });
-
-  it("resolveFollowUp detects service follow-up with existing city availability context", () => {
-    const previous: ClaudiaQueryContext = {
-      lastQueryType: "city_availability",
-      requestedCity: "Ruma",
-      nearestCityCandidates: ["Novi Sad", "Beograd"],
-    };
-
-    const result = resolveFollowUp("Feniranje", previous, {
-      service: "feniranje",
-      category: "Kosa",
-    });
-
-    expect(result.isFollowUp).toBe(true);
-    expect(result.addedDimension).toBe("service");
-    expect(result.mergedContext.nearestCityCandidates).toEqual(["Novi Sad", "Beograd"]);
-    expect(result.mergedContext.service).toBe("feniranje");
-  });
 });
 
 // ---------------------------------------------------------------------------

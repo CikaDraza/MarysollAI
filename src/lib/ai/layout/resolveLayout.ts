@@ -121,7 +121,11 @@ export function resolveLayout(
 
     const block = toBlock(intent, index, surface);
     if (!blockHasRequiredMetadata(block)) {
-      skipped.push({ type: intent.type, reason: "invalid" });
+      skipped.push({
+        type: intent.type,
+        reason: "invalid",
+        metadata: (block.metadata ?? {}) as Record<string, unknown>,
+      });
       logResolve("[LAYOUT_SKIP]", {
         type: intent.type,
         reason: "invalid",

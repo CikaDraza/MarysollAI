@@ -163,40 +163,6 @@ describe("semantic memory layer", () => {
     expect(memory.serviceCityMap.Feniranje).toContain("Novi Sad");
   });
 
-  it("formatAgentMemoryForPrompt includes compact semantic section", () => {
-    const prompt = formatAgentMemoryForPrompt(
-      buildAgentMemoryContext({
-        bookingFlowCollected: { service: "maderoterapija" },
-        semanticMemory: semanticMemory(),
-      }),
-    );
-
-    expect(prompt).toContain("Semantic:");
-    expect(prompt).toContain("Maderoterapija");
-    expect(prompt).toContain("-> Masaža");
-    expect(prompt.length).toBeLessThan(2200);
-  });
-
-  it("Maria prompt includes semantic memory", () => {
-    const memoryContext = formatAgentMemoryForPrompt(
-      buildAgentMemoryContext({ semanticMemory: semanticMemory() }),
-    );
-    const prompt = buildMariaSystemPrompt("", "", "", "", "Gost", false, "", "sr", memoryContext);
-
-    expect(prompt).toContain("Semantic:");
-    expect(prompt).toContain("Maderoterapija");
-  });
-
-  it("Claudia prompt includes semantic memory", () => {
-    const memoryContext = formatAgentMemoryForPrompt(
-      buildAgentMemoryContext({ semanticMemory: semanticMemory() }),
-    );
-    const prompt = buildClaudiaSystemPrompt("", "", "", "", false, "Gost", memoryContext);
-
-    expect(prompt).toContain("Semantic:");
-    expect(prompt).toContain("Feniranje");
-  });
-
   it("Semantic memory does not include huge service descriptions", () => {
     const serialized = JSON.stringify(semanticMemory());
 

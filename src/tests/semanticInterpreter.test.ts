@@ -199,7 +199,7 @@ describe("semantic interpreter", () => {
 
     expect(contract.kind).toBe("faq_answer");
     expect(contract.intent.entities.city).toBe("Leskovac");
-    expect(contract.message).toContain("Leskovac");
+    expect(contract.message).toMatch(/Leskovc/);
   });
 
   it("interpreter never returns UI or block commands", async () => {

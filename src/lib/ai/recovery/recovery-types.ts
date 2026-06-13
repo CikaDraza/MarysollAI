@@ -24,6 +24,7 @@ export interface RecoveryEvent {
     | "Claudia"
     | "AuthBlock"
     | "CalendarBlock"
+    | "LayoutEngine"
     | "Unknown";
   payload?: Record<string, unknown>;
   notifyAgent?: boolean;

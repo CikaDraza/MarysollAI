@@ -1,3 +1,8 @@
+// NAPOMENA (Faza 2): ova statička mapa je jezički SEED za CatalogContext
+// (src/lib/ai/catalog/catalog-context.ts) — jedini intent leksikon. Živi
+// podaci (usluge/kategorije/sinonimi iz DB) se dodaju u katalog na runtime;
+// ovde stoje samo opšti srpski termini koje DB ne nosi. Search normalizacija
+// (normalizeSemanticTerm/findSemanticCategory) i katalog dele ovaj izvor.
 import { stripDiacritics } from "@/lib/intent/parseIntent";
 import type { CategorySlug } from "@/lib/intent/categoryMap";
 

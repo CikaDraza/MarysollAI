@@ -64,7 +64,22 @@ export async function POST(req: Request) {
   });
 
   if (!limit.allowed) {
-    return NextResponse.json({ messages: [] }, { status: 200 });
+    // An empty body renders as silence in the chat — a dead end. Return a
+    // normal assistant message in the legacy ClaudiaResponse shape instead.
+    return NextResponse.json(
+      {
+        messages: [
+          {
+            role: "assistant",
+            content:
+              "Primili smo više zahteva odjednom — sačekajte par sekundi pa pokušajte ponovo.",
+          },
+        ],
+        layout: [],
+        intent: {},
+      },
+      { status: 200 },
+    );
   }
 
   try {

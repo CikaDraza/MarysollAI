@@ -123,6 +123,7 @@ export const BLOCK_REGISTRY: Partial<Record<Exclude<BlockTypes, "none">, BlockEn
     label: "Izaberi grad",
     agentType: "booking",
     priority: 1,
+    requires: ["cities"],
   },
   SalonListBlock: {
     type: "SalonListBlock",
@@ -228,4 +229,25 @@ export function chooseBlockForMissingField(
   missing: IntentMissingField,
 ): BlockTypes | null {
   return INTENT_MISSING_FIELD_BLOCKS[intent]?.[missing] ?? null;
+}
+
+/** Maps a block that failed `blockHasRequiredMetadata` to the recovery reason
+ * whose handler renders the next useful step. Keeps "invalid block" from
+ * being a silent skip: the assistant message already announced the block, so
+ * the user must get a follow-up surface instead of an empty workspace. */
+export function recoveryReasonForInvalidBlock(
+  type: BlockTypes,
+  metadata?: Record<string, unknown>,
+): "missing_salon" | "missing_service" | "unknown" {
+  const hasText = (value: unknown): boolean =>
+    typeof value === "string" && value.trim() !== "";
+  if (type === "AppointmentCalendarBlock") {
+    const hasService =
+      hasText(metadata?.serviceId) ||
+      hasText(metadata?.serviceName) ||
+      hasText(metadata?.service);
+    return hasService ? "missing_salon" : "missing_service";
+  }
+  if (type === "SalonListBlock") return "missing_salon";
+  return "unknown";
 }

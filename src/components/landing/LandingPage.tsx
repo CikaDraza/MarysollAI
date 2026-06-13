@@ -372,7 +372,7 @@ function ConfirmedToast() {
         Zahtev za termin{time ? ` u ${time}` : ""} je poslat salonu i čeka
         potvrdu.{" "}
         {user
-          ? "Status možeš da pratiš u Moji termini, a potvrda stiže na email/kontakt sa naloga."
+          ? "Status možete da pratite u Moji termini, a potvrda stiže na email/kontakt sa naloga."
           : "Potvrdu ćeš dobiti preko kontakta koji si ostavio."}
       </span>
       <button

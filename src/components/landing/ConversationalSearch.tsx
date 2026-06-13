@@ -137,7 +137,7 @@ export default function ConversationalSearch({ onSearch, defaultCity = "Srbija" 
         timeWindowEnd,
       });
     } catch {
-      setError("Nešto nije u redu. Pokušaj ponovo.");
+      setError("Nešto nije u redu. Pokušajte ponovo.");
     } finally {
       setLoading(false);
     }

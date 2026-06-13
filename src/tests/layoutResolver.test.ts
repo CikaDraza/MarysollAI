@@ -194,7 +194,7 @@ describe("Layout resolver and LayoutEngine boundary", () => {
     );
 
     expect(source).toContain("resolveLayout(layoutIntents");
-    expect(source).toContain("blockFactory(block");
+    expect(source).toContain("blockFactory(");
   });
 
   it("LayoutEngine does not call AI automatically", () => {

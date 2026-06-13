@@ -197,55 +197,11 @@ describe("TEST 4 — Unrelated service rejected (Maderoterapija ≠ Feniranje)",
       stripDiacritics(serviceName.toLowerCase()).includes(searchTerm),
     ).toBe(false);
   });
-
-  it("related_service working_hours_only slot passes confidence policy", () => {
-    const driftSlot: PolicyFilterableSlot = {
-      fallbackLevel: 3,
-      isSynthetic: false,
-      availabilityConfidence: "working_hours_only",
-      slotOrigins: ["related_service"],
-    };
-
-    const policy = resolveFallbackPolicy("quickaccess", { kind: "explicit_city_service" });
-    expect(policy.allowCategoryDrift).toBe(false);
-
-    const filtered = applyFallbackPolicy([driftSlot], policy);
-    expect(filtered).toHaveLength(1);
-  });
 });
 
 // ── TEST 5: Nearby-city slot rejected by QuickAccess explicit_city_service ────
 
 describe("TEST 5 — Nearby city slot rejected by QuickAccess for explicit intent", () => {
-  it("working_hours_only nearby-city slot passes confidence policy", () => {
-    const beogradSlot: PolicyFilterableSlot = {
-      fallbackLevel: 5,
-      isSynthetic: false,
-      availabilityConfidence: "working_hours_only",
-      slotOrigins: ["nearby_city"],
-    };
-
-    const policy = resolveFallbackPolicy("quickaccess", { kind: "explicit_city_service" });
-    expect(policy.allowNearbyCities).toBe(false);
-
-    const filtered = applyFallbackPolicy([beogradSlot], policy);
-    expect(filtered).toHaveLength(1);
-  });
-
-  it("calendar_verified nearby-city slot also passes confidence policy", () => {
-    const beogradSlot: PolicyFilterableSlot = {
-      fallbackLevel: 5,
-      isSynthetic: false,
-      availabilityConfidence: "calendar_verified",
-      slotOrigins: ["nearby_city"],
-    };
-
-    const policy = resolveFallbackPolicy("quickaccess", { kind: "explicit_service" });
-    expect(policy.allowNearbyCities).toBe(false);
-
-    const filtered = applyFallbackPolicy([beogradSlot], policy);
-    expect(filtered).toHaveLength(1);
-  });
 
   it("same-city working_hours_only L2 slot is NOT rejected (sanity check)", () => {
     const noviSadSlot: PolicyFilterableSlot = {
