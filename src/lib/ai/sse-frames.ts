@@ -91,9 +91,18 @@ export function createClaudiaFrameReader() {
 }
 
 /** Status poruka zavisno od intenta — najava konkretne provere. */
+/**
+ * Perceptual-latency status shown before the answer streams in. It must match
+ * what's actually happening — claiming "proveravam slobodne termine" on a
+ * how-to/greeting/info question is unprofessional. So: explicit intents keep
+ * their precise wording; a concrete availability search says it's checking
+ * slots; everything else (greetings, "kako zakazati", general questions) gets a
+ * neutral, warm filler.
+ */
 export function statusMessageForIntent(
   handoffPayload: Record<string, unknown> | undefined,
   isBlockInteraction: boolean,
+  userMessage = "",
 ): string {
   const intent =
     typeof handoffPayload?.intent === "string" ? handoffPayload.intent : "";
@@ -121,5 +130,19 @@ export function statusMessageForIntent(
   if (intent === "create_booking") {
     return "Molimo vas sačekajte, završavam rezervaciju…";
   }
-  return "Molimo vas sačekajte, proveravam slobodne termine…";
+
+  // A concrete availability/slot search → say so. Otherwise a neutral filler;
+  // never falsely claim a slot check for greetings or how-to questions.
+  const text = userMessage.toLowerCase();
+  const isSlotSearch =
+    intent === "booking" ||
+    intent === "select_city" ||
+    intent === "select_salon" ||
+    /(slobod\w*|ima li[^?]*termin|najbliž\w* termin|termin\w* za|kada (mogu|mozete|možete|imate))/i.test(
+      text,
+    );
+  if (isSlotSearch) {
+    return "Molimo vas sačekajte, proveravam slobodne termine…";
+  }
+  return "Samo trenutak…";
 }

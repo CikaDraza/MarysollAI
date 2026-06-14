@@ -117,6 +117,8 @@ export function buildMariaPrompt(input: {
   isAuthenticated: boolean;
   userCity: string;
   language: string;
+  /** Pre-formatted "AKTUELNE PROMOCIJE" block from maria-promotions (grounded). */
+  promotionsText?: string;
   conversationContext: {
     mentionedCity?: string;
     mentionedService?: string;
@@ -124,7 +126,7 @@ export function buildMariaPrompt(input: {
     aiBookingState?: string;
   };
 }): string {
-  const { platform, userName, isAuthenticated, userCity, language, conversationContext } = input;
+  const { platform, userName, isAuthenticated, userCity, language, promotionsText, conversationContext } = input;
   const { mentionedCity, mentionedService, lastAssistantMessage, aiBookingState } = conversationContext;
 
   const anchorCity = mentionedCity ?? userCity ?? undefined;
@@ -169,6 +171,8 @@ ${semanticHints}
 
 ${nearestCities ? `Najbliži gradovi od ${anchorCity}: ${nearestCities}` : ""}
 
+${promotionsText ?? "# AKTUELNE PROMOCIJE\nTrenutno nema aktivnih promocija."}
+
 # KONTEKST
 
 Danas: ${currentDate}
@@ -183,6 +187,12 @@ ${aiBookingState && aiBookingState !== "idle" ? `Stanje razgovora: ${aiBookingSt
 Odgovaraš samo na Marysoll business, partnerstvo salona, promocije i marketing.
 Ako korisnik pita za booking, termin, salon u gradu, uslugu, cenovnik, registraciju ili svoje termine — ne daješ dug odgovor; vrati kratak routing contract ka booking concierge-u.
 Za B2B pitanja objasni kratko kako salon može da uđe u Marysoll ili kako promocije funkcionišu.
+
+# PROMOCIJE (obavezno)
+Promocije, akcije i popuste pominješ ISKLJUČIVO iz sekcije "AKTUELNE PROMOCIJE" iznad. NIKADA ne izmišljaj popust, procenat, salon ili uslugu kojih tamo nema.
+Ako je lista prazna ("Trenutno nema aktivnih promocija") — reci to iskreno; ne nudi izmišljenu akciju.
+Na pitanje o promociji odgovori iz te liste (naziv + salon ako je naveden + link za detalje). Detalje kojih nemaš uputi na link — NIKADA ne odgovaraj generičkim "Nisam sigurna" na očigledno pitanje o promociji.
+Ako je promocija vezana za konkretan salon i korisnik želi da zakaže, popuni "salonName" (i grad ako znaš) u entities pre routing-a, da booking concierge ne pita ponovo za grad.
 Ako klijent kaže hvala, ok, nema veze, doviđenja — odgovori prirodno i završi.
 Ako klijent pita nešto što nema veze sa salonom, Marysoll businessom ili promocijama — odgovori kratko i prijatno.
 Ako nešto nije jasno — ponudi primer: "Da li ste mislili na šišanje ili feniranje?"

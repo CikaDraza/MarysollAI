@@ -17,6 +17,7 @@ import { CalendarBlockView } from "../blocks/CalendarBlockView";
 import TestimonialBlockView from "../blocks/TestimonialBlockView";
 import CityListBlockView from "../blocks/CityListBlockView";
 import SalonListBlockView from "../blocks/SalonListBlockView";
+import NotifyMeBlockView from "../blocks/NotifyMeBlockView";
 import LandingSearchBlock from "../blocks/LandingSearchBlock";
 import LandingConfirmBlock from "../blocks/LandingConfirmBlock";
 import AppointmentCancelConfirmBlockView from "../blocks/AppointmentCancelConfirmBlockView";
@@ -190,6 +191,8 @@ export function aiWorkflowBlockFactory(
           onActionComplete={safeOnAction}
         />
       );
+    case "NotifyMeBlock":
+      return <NotifyMeBlockView key={block.id} />;
     default:
       if (isDev()) console.warn("Factory: Unknown AI workflow block type", block.type);
       return null;

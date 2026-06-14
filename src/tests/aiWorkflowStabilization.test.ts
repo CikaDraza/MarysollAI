@@ -214,7 +214,7 @@ describe("AI workflow stabilization", () => {
     const data = JSON.parse(await readStream(stream));
 
     expect(data.messages[0]).toMatchObject({
-      content: "Uspešno si prijavljena. Nastavljamo sa zakazivanjem.",
+      content: "Uspešno ste prijavljeni. Nastavljamo sa zakazivanjem.",
       attachToBlockType: "AppointmentCalendarBlock",
     });
     expect(data.layout[0]).toMatchObject({

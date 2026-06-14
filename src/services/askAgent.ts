@@ -51,7 +51,17 @@ import { MODEL_PRICE_USD_PER_MTOK } from "@/lib/ai/eval/llm-adapter";
 import type { AiBookingContact } from "@/types/aiBooking";
 import { runBookingSearch } from "@/lib/search/runBookingSearch";
 import { normalizeSemanticTerm } from "@/lib/search/serviceSemanticMap";
+import { cityProximityRank } from "@/lib/geo/cityProximityRank";
 import { resolveBookingDate } from "@/lib/date/bookingDateResolver";
+import { formatClaudiaOperatingModelForPrompt } from "@/lib/ai/claudia/claudia-operating-model";
+import {
+  buildClaudiaTaskSummary,
+  formatClaudiaTaskStateForPrompt,
+} from "@/lib/ai/claudia/buildClaudiaTaskSummary";
+import {
+  applyAntiDeadEndGuard,
+  type LegacyAgentResponse,
+} from "@/lib/ai/claudia/antiDeadEndGuard";
 import { buildConversationSummary } from "@/lib/ai/buildConversationSummary";
 import { repairClaudiaJson } from "@/lib/ai/anthropic-client";
 import type { StructuredBookingIntent } from "@/types/intent";
@@ -290,10 +300,11 @@ Blok sam učitava termine.
 --------------------------------------------------
 # PRETHODNE EPIZODE (Episodic memory)
 
-Ako u CONVERSATION STATE postoji "Episodic:" sekcija (npr. "last booking: Maderoterapija / Bor / Beauty M Glow"), a korisnik JOŠ uvek nije naveo uslugu i grad u ovom razgovoru:
+Ako u CONVERSATION STATE postoji "Episodic:" sekcija sa KONKRETNOM prošlom epizodom (mora sadržati i uslugu i salon, npr. "last booking: Maderoterapija / Bor / Beauty M Glow"), a korisnik JOŠ uvek nije naveo uslugu i grad u ovom razgovoru:
 - Na početku ponudi nastavak iz prošlog puta, kratko i toplo, npr.: "Prošli put ste tražili maderoterapiju u Boru. Želite li da proverim Beauty M Glow ponovo?"
-- Ako korisnik potvrdi, popuni uslugu/grad/salon iz te epizode i nastavi normalan booking tok.
+- Ako korisnik potvrdi ("da", "može"), popuni TAČNO uslugu/grad/salon iz te epizode i nastavi normalan booking tok.
 - Ako navede nešto novo, prati novo — nikada ne forsiraj staru epizodu.
+KRITIČNO: ako "Episodic:" sekcija NE postoji ili nema i uslugu i salon, NIKADA ne pominji "prošli put", "kao i ranije" ni prethodne termine — to bi bila izmišljotina. Umesto toga postavi normalno prvo pitanje (koju uslugu želite).
 NIKADA ne pominji telefon, email ni privatne podatke iz prošlosti — epizode su samo usluga/grad/salon/datum.
 
 --------------------------------------------------
@@ -679,6 +690,20 @@ function streamClaudiaContract(contract: ClaudiaContract): ReadableStream {
   const legacy = claudiaContractToLegacyResponse(contract);
   logClaudiaContract(contract);
   logClaudiaLegacyAdapter(contract, legacy);
+  // Anti-dead-end safety net for every deterministic path (ctx-free here —
+  // empty reply / announced-block-missing; the contextual checks run on the
+  // LLM path where the task summary is available).
+  const guarded = applyAntiDeadEndGuard(
+    legacy as unknown as LegacyAgentResponse,
+    {},
+  );
+  if (guarded.fixed) {
+    console.debug("[CLAUDIA_DEADEND_GUARD]", {
+      path: "deterministic",
+      reason: guarded.reason,
+    });
+    return streamJson(guarded.response as unknown as typeof legacy);
+  }
   return streamJson(legacy);
 }
 
@@ -1256,6 +1281,19 @@ function hasRefineSignal(normalizedText: string): boolean {
   );
 }
 
+/**
+ * Bare affirmative — the WHOLE message is a "yes" ("da", "naravno", "važi",
+ * "ok", "u redu", "svakako"). With existing booking context this means
+ * "proceed", so we route it to the follow-up path instead of letting it
+ * collapse to "unknown" + an LLM round-trip that re-asks. ("može/moze" is
+ * already covered by hasRefineSignal.)
+ */
+function isBareAffirmative(normalizedText: string): boolean {
+  return /^(da|da moze|naravno|vazi|ok|okej|u redu|uredu|hajde|svakako|moram|moze)\s*[.!]*$/.test(
+    normalizedText.trim(),
+  );
+}
+
 // ── Faza 4: correction flow ──────────────────────────────────────────────────
 // "Nisam to želeo" / "ne u Beogradu nego u Novom Sadu" / "promeni uslugu" mora
 // da ISPRAVI prikupljeno, nikad da blokira:
@@ -1625,7 +1663,8 @@ export function parseClaudiaDirectIntent(input: {
   }
   if (
     hasContext &&
-    (hasRefineSignal(text) ||
+    (isBareAffirmative(text) ||
+      hasRefineSignal(text) ||
       date.dateMode ||
       time.time ||
       time.timeWindowStart != null ||
@@ -2090,6 +2129,21 @@ export async function askAgent(
     }
   }
 
+  // P0 #1 — the date from the CURRENT message wins over memory/handoff
+  // (canonical resolver). Without this, "utorak"/"u nedelju" were parsed but
+  // dropped here, so the slot search fell back to nearest (= tomorrow).
+  const freshBookingDate = resolveBookingDate(userInput);
+  if (process.env.NODE_ENV !== "production" && freshBookingDate.date) {
+    console.debug("[CLAUDIA_DATE_RESOLVED]", {
+      input: userInput,
+      previousDate:
+        asString(handoffPayload?.date) ?? collectedBookingFields?.date,
+      resolvedDate: freshBookingDate.date,
+      dateMode: freshBookingDate.dateMode,
+      source: "merged_context",
+    });
+  }
+
   const mergedBookingContext: CollectedBookingFields = {
     ...collectedBookingFields,
     city: asString(handoffPayload?.city) ?? collectedBookingFields?.city,
@@ -2111,7 +2165,10 @@ export async function askAgent(
       asString(handoffPayload?.salonId) ?? collectedBookingFields?.salonId,
     salonName:
       asString(handoffPayload?.salonName) ?? collectedBookingFields?.salonName,
-    date: asString(handoffPayload?.date) ?? collectedBookingFields?.date,
+    date:
+      freshBookingDate.date ??
+      asString(handoffPayload?.date) ??
+      collectedBookingFields?.date,
     time: asString(handoffPayload?.time) ?? collectedBookingFields?.time,
     timeWindowStart:
       asNumberOrNull(handoffPayload?.timeWindowStart) !== undefined
@@ -2915,7 +2972,7 @@ export async function askAgent(
 
     return streamClaudiaContract(
       makeRecoveryContract({
-        message: "Izaberi salon za ovaj termin.",
+        message: "Izaberite salon za ovaj termin.",
         intentType: "recover_missing_salon",
         step: "recover_missing_salon",
         entities: { city, service },
@@ -3298,6 +3355,78 @@ export async function askAgent(
         }
       }
 
+      // Deterministic nearest-city action — when no salon offers the service in
+      // the requested city, find the nearest city that does and show its salons,
+      // instead of dead-ending on an offer the LLM later garbles.
+      if (resolved.salons.length === 0 && intent.service && intent.city) {
+        const allMatching = resolveSalonsForService({
+          serviceQuery: intent.service,
+          salons,
+          servicesBySalon,
+        });
+        const requestedNorm = normalizeSemanticTerm(intent.city);
+        const nearestCity = [
+          ...new Set(
+            allMatching.salons
+              .map((salon) => salon.city)
+              .filter((c): c is string => Boolean(c)),
+          ),
+        ]
+          .filter((c) => normalizeSemanticTerm(c) !== requestedNorm)
+          .sort(
+            (a, b) =>
+              cityProximityRank(a, intent.city) -
+              cityProximityRank(b, intent.city),
+          )[0];
+        if (nearestCity) {
+          const nearResolved = resolveSalonsForService({
+            serviceQuery: intent.service,
+            city: nearestCity,
+            salons,
+            servicesBySalon,
+          });
+          if (nearResolved.salons.length > 0) {
+            bookingFlow.get().collect({ city: nearestCity });
+            bookingFlow.get().startPendingSelectionFlow();
+            const km = cityProximityRank(nearestCity, intent.city);
+            const kmLabel = Number.isFinite(km)
+              ? ` (~${Math.round(km)} km)`
+              : "";
+            return streamClaudiaContract(
+              makeBookingResultContract({
+                message: `U ${inCity(intent.city)} trenutno nema ${intent.service}. Najbliži grad je ${nearestCity}${kmLabel}. Evo salona tamo:`,
+                intentType: "booking",
+                step: "booking_select_salon",
+                blocks: [
+                  buildSalonListBlockFromResolved({
+                    city: nearestCity,
+                    service: intent.service,
+                    category: serviceDescriptor.category,
+                    date: intent.date,
+                    time: intent.time,
+                    timeWindowStart: intent.timeWindowStart,
+                    timeWindowEnd: intent.timeWindowEnd,
+                    salons: nearResolved.salons,
+                  }),
+                ],
+                entities: {
+                  ...intent,
+                  // Override BOTH so the client adopts the new city — extractBookingMemory
+                  // prefers requestedCity; without this the next turn reverts to the
+                  // original city and re-runs the nearest-city message.
+                  city: nearestCity,
+                  requestedCity: nearestCity,
+                  category: serviceDescriptor.category,
+                  salons: nearResolved.salons,
+                },
+                nextAction: "SHOW_SALONS",
+                status: "waiting_for_user",
+              }),
+            );
+          }
+        }
+      }
+
       if (resolved.salons.length > 0)
         bookingFlow.get().startPendingSelectionFlow();
       return streamClaudiaContract(
@@ -3305,7 +3434,7 @@ export async function askAgent(
           message:
             resolved.salons.length > 0
               ? `Dostupni saloni u ${inCity(intent.city)} za ${intent.service}.`
-              : `Nema salona za ${intent.service} u ${inCity(intent.city)}. Mogu da proverim najbliži drugi grad ili da te obavestim kada se pojavi termin.`,
+              : `Nema salona za ${intent.service} u ${inCity(intent.city)} ni u blizini. Mogu da Vas obavestim kada se pojavi termin.`,
           intentType: "booking",
           step: "booking_select_salon",
           blocks: [
@@ -3414,7 +3543,7 @@ export async function askAgent(
     const noSlotsMessage =
       searchResult.results.length > 0 && intent.timeWindowStart != null
         ? `Nema slobodnih termina${noSlotsPlace}${noSlotsDate} posle ${intent.timeWindowStart}h. Mogu da proverim ranije taj dan ili drugi dan?`
-        : `Nema slobodnih termina za ${noSlotsService}${noSlotsPlace}${noSlotsDate}. Mogu da proverim drugi dan ili da te obavestim kada se pojavi slobodan termin?`;
+        : `Nema slobodnih termina za ${noSlotsService}${noSlotsPlace}${noSlotsDate}. Mogu da proverim drugi dan ili da Vas obavestim kada se pojavi slobodan termin?`;
 
     bookingFlow.get().collect({
       ...(intent.service ? { service: intent.service } : {}),
@@ -3480,7 +3609,7 @@ export async function askAgent(
       "";
     const statusText = isAuthenticated
       ? "Status možete da pratite u tabu Moji termini, a potvrda stiže na email/kontakt sa naloga."
-      : "Salon će potvrdu poslati preko kontakta koji si ostavila/o.";
+      : "Salon će potvrdu poslati preko kontakta koji ste ostavili.";
     bookingFlow.get().cancelPendingSelectionFlow();
     bookingFlow.get().setState("completed");
     const blocks = isAuthenticated
@@ -3566,7 +3695,7 @@ export async function askAgent(
           displayMessage ??
           (resolved.salons.length > 0
             ? `Odlično, proveravam dostupne termine u ${inCity(city)}.`
-            : `Nema salona za ${service} u ${inCity(city)}. Mogu da proverim najbliži drugi grad ili da te obavestim kada se pojavi termin.`),
+            : `Nema salona za ${service} u ${inCity(city)}. Mogu da proverim najbliži drugi grad ili da Vas obavestim kada se pojavi termin.`),
         intentType: "select_city",
         step: "select_city",
         blocks:
@@ -3758,8 +3887,8 @@ export async function askAgent(
     return streamClaudiaContract(
       makeBookingResultContract({
         message: selectedSlot
-          ? "Uspešno si prijavljena. Nastavljamo sa zakazivanjem."
-          : "Uspešno si prijavljena.",
+          ? "Uspešno ste prijavljeni. Nastavljamo sa zakazivanjem."
+          : "Uspešno ste prijavljeni.",
         intentType: "resume_booking_after_login",
         step: "resume_booking_after_login",
         blocks,
@@ -4013,6 +4142,44 @@ export async function askAgent(
     }),
   );
 
+  // Operating model + per-turn working state. Re-resolve the current message's
+  // intent here (the earlier `direct` is block-scoped to fast-paths that didn't
+  // fire) and merge with resolved context — current message wins — so the
+  // summary reflects what Claudia actually knows now.
+  const directForSummary = parseClaudiaDirectIntent({
+    text: userInput,
+    platformKnowledge: platform,
+    collectedBookingFields,
+  });
+  const previousAssistantMessage = [...history]
+    .filter((item) => item.type === "message")
+    .reverse()
+    .find((item) => item.data.role === "assistant")?.data.content;
+  const taskKnown = {
+    ...mergedBookingContext,
+    city: directForSummary.entities?.city ?? mergedBookingContext.city,
+    service:
+      directForSummary.entities?.service ??
+      mergedBookingContext.service ??
+      mergedBookingContext.serviceName,
+    category:
+      directForSummary.entities?.category ?? mergedBookingContext.category,
+    salonName:
+      directForSummary.entities?.salonName ?? mergedBookingContext.salonName,
+    date: directForSummary.entities?.date ?? mergedBookingContext.date,
+    time: directForSummary.entities?.time ?? mergedBookingContext.time,
+  };
+  const taskSummary = buildClaudiaTaskSummary({
+    known: taskKnown,
+    directType: directForSummary.type,
+    changed: (["city", "service", "date"] as const)
+      .filter((k) => {
+        const dv = directForSummary.entities?.[k];
+        return Boolean(dv) && dv !== mergedBookingContext?.[k];
+      })
+      .map(String),
+  });
+
   let systemPrompt = buildClaudiaSystemPrompt(
     salonsText,
     servicesText,
@@ -4038,6 +4205,11 @@ export async function askAgent(
   const RECENT_WINDOW = 20;
   const summary = buildConversationSummary(history, RECENT_WINDOW);
   if (summary) systemPrompt += summary;
+
+  // Operating model (static principles) + current task state (dynamic). Guidance
+  // only — Claudia still returns the ClaudiaContract JSON.
+  systemPrompt += formatClaudiaOperatingModelForPrompt();
+  systemPrompt += formatClaudiaTaskStateForPrompt(taskSummary);
 
   const deepseekHistory = history
     .filter((item) => item.type === "message")
@@ -4089,6 +4261,26 @@ export async function askAgent(
       platform,
       collected: mergedBookingContext,
     });
+
+    // Anti-dead-end self-check (deterministic, full context). Never ship an
+    // empty/looping/contradictory reply; recover with one context-preserving
+    // question and clear any block that the text can't back.
+    try {
+      const parsed = JSON.parse(raw) as LegacyAgentResponse;
+      const guarded = applyAntiDeadEndGuard(parsed, {
+        taskSummary,
+        previousAssistantMessage,
+      });
+      if (guarded.fixed) {
+        console.debug("[CLAUDIA_DEADEND_GUARD]", {
+          path: "llm",
+          reason: guarded.reason,
+        });
+        raw = JSON.stringify(guarded.response);
+      }
+    } catch {
+      /* raw not parseable as JSON — leave it for the existing recovery path */
+    }
 
     // Model Lab — usage telemetrija u __meta (ruta je podiže u SSE final okvir).
     raw = injectUsageMeta(raw, {

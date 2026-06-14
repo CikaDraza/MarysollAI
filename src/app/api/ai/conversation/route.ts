@@ -14,6 +14,7 @@ import {
   statusMessageForIntent,
   type ClaudiaStreamFrame,
 } from "@/lib/ai/sse-frames";
+import { spellingHint } from "@/lib/ai/claudia/spellingHint";
 
 function readBearerToken(req: Request): string | null {
   const authHeader = req.headers.get("authorization") ?? "";
@@ -169,6 +170,7 @@ export async function POST(req: Request) {
     const statusMessage = statusMessageForIntent(
       effectiveHandoffPayload,
       isBlockInteraction ?? false,
+      typeof message === "string" ? message : "",
     );
     const sseStream = new ReadableStream({
       async start(controller) {
@@ -220,6 +222,17 @@ export async function POST(req: Request) {
               layout: [],
               intent: {},
             };
+          }
+          // Spelling touch — brief single correction prefix, then continue.
+          const hint = spellingHint(typeof message === "string" ? message : "");
+          if (hint && response && typeof response === "object") {
+            const msgs = (
+              response as { messages?: Array<{ content?: unknown }> }
+            ).messages;
+            const first = Array.isArray(msgs) ? msgs[0] : undefined;
+            if (first && typeof first.content === "string") {
+              first.content = hint + first.content;
+            }
           }
           controller.enqueue(sseFrame({ type: "final", response, usage }));
         } catch (error) {

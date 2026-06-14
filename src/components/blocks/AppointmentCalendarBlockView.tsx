@@ -9,7 +9,7 @@ import { useAuthActions } from "@/hooks/useAuthActions";
 import { generateTimes } from "@/helpers/generateTimes";
 import { useAIAppointment } from "@/hooks/useAIAppointment";
 import { Toaster } from "react-hot-toast";
-import { useSalonProfile } from "@/hooks/useSalonProfile";
+import { useSalons } from "@/hooks/useSalons";
 import { getDay } from "date-fns";
 import LoaderButton from "../LoaderButton";
 import MiniLoader from "../MiniLoader";
@@ -48,8 +48,14 @@ export default function AppointmentCalendarBlockView({
     });
   }
   const { user } = useAuthActions();
-  const { data: services = [], isLoading } = useServices({ query: "" });
-  const { data: profile } = useSalonProfile();
+  // Multi-tenant: load the SELECTED salon's services + profile (working hours)
+  // by salonId. Previously this used a non-scoped profile and an empty-query
+  // service fetch (always []), so the calendar bailed to the dead-end summary.
+  const { data: services = [], isLoading } = useServices({
+    salonId: block.metadata.salonId,
+  });
+  const { data: salons = [] } = useSalons();
+  const profile = salons.find((s) => s.id === block.metadata.salonId);
   const timeOptions = useMemo(() => generateTimes(8, 20, 30), []);
 
   const { displayValues, setters, handleAIConfirm, isPending } =
@@ -130,14 +136,15 @@ export default function AppointmentCalendarBlockView({
       return { dayName, isWorking: false, start: null, end: null };
     }
 
-    if (timeRange.includes(" - ")) {
-      const [start, end] = timeRange.split(" - ");
+    // Accept both "08:00 - 20:00" and "08:00-20:00" formats.
+    const parts = timeRange.split(/\s*-\s*/);
+    if (parts.length === 2 && parts[0]?.trim() && parts[1]?.trim()) {
       return {
         dayName,
         timeRange,
         isWorking: true,
-        start: start.trim(),
-        end: end.trim(),
+        start: parts[0].trim(),
+        end: parts[1].trim(),
       };
     }
 
@@ -190,10 +197,10 @@ export default function AppointmentCalendarBlockView({
     );
   }
 
-  if (isLoading && !hasPlatformMetadata)
+  if (isLoading)
     return (
       <div className="py-20 text-center">
-        <MiniLoader text="Učitavanje cena" />
+        <MiniLoader text="Učitavanje termina" />
       </div>
     );
 

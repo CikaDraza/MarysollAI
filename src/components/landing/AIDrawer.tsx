@@ -10,7 +10,7 @@ import {
   SparklesIcon,
 } from "@heroicons/react/24/outline";
 import { ThreadItem } from "@/types/ai/chat-thread";
-import { ChatSession } from "@/types/ai/deepseek";
+import { ChatSession, Message as ChatMessage } from "@/types/ai/deepseek";
 import { BaseBlock } from "@/types/landing-block";
 import { HistoryDropdown } from "@/components/chat/HistoryDropdown";
 import { UsageStats } from "@/components/chat/UsageStats";
@@ -18,6 +18,7 @@ import { useLandingUI } from "@/context/landing/LandingUIContext";
 import { useAIContext } from "@/context/landing/AIContext";
 import { useAiRuntimeModel } from "@/hooks/useAiRuntimeModel";
 import { useLastAiUsage } from "@/lib/ai/usage-store";
+import { useConversationHistory } from "@/hooks/useConversationHistory";
 
 type Agent = "maria" | "claudia";
 
@@ -49,8 +50,22 @@ type Message = { from: "maria" | "me"; text: string; kind?: "suggest" };
 
 const INITIAL: Message[] = [];
 
+// Model Lab — neon ring around the active agent avatar confirms WHICH model
+// actually answered: DeepSeek purple (as now), Claude Sonnet orange, GPT green.
+function providerNeonRing(provider?: string): string {
+  switch (provider) {
+    case "anthropic":
+      return "0 0 0 2px #ff8a00, 0 0 12px 2px rgba(255,138,0,0.85)";
+    case "openai":
+      return "0 0 0 2px #39ff14, 0 0 12px 2px rgba(57,255,20,0.8)";
+    default: // deepseek
+      return "0 0 0 2px var(--secondary-color), 0 0 12px 2px rgba(186,52,183,0.75)";
+  }
+}
+
 const CHIPS = [
   { label: "Najbliži salon", value: "Koji je meni najbliži salon?" },
+  { label: "Promocije", value: "Da li trenutno ima promocija ili popusta?" },
   { label: "Moji termini", value: "Mogu li da vidim moje termine?" },
   { label: "Cenovnik", value: "Mogu li da vidim cenovnik?" },
   { label: "Otkaži termin", value: "Želim da otkažem postojeći termin." },
@@ -101,42 +116,28 @@ export default function AIDrawer() {
   const [showStats, setShowStats] = useState(false);
   const bodyRef = useRef<HTMLDivElement>(null);
 
-  const [syntheticSessions, setSyntheticSessions] = useState<ChatSession[]>([]);
+  const history = useConversationHistory();
+  // Saved conversations live in localStorage; a selected one is shown read-only
+  // as an "archived" view that overrides the live thread until the user sends.
+  const [archivedThread, setArchivedThread] = useState<ThreadItem[] | null>(null);
+  const [viewedId, setViewedId] = useState<string | null>(null);
   const [usage, setUsage] = useState({ messagesSent: 0, estimatedTokens: 0 });
   // Model Lab — izbor modela + prave usage metrike (globalni store).
   const runtimeModel = useAiRuntimeModel();
   const lastUsage = useLastAiUsage();
+  // Prefer the model that ACTUALLY answered (verification it really switched);
+  // before any reply, fall back to the selected preference.
+  const activeProvider =
+    lastUsage?.provider ?? runtimeModel.selectedModel?.provider ?? "deepseek";
+  const modelRing = providerNeonRing(activeProvider);
+  const modelTitle = `Model: ${
+    lastUsage?.model ?? runtimeModel.selectedModel?.label ?? "DeepSeek"
+  }`;
   useEffect(() => {
-    if (!aiThread || aiThread.length === 0) {
-      setSyntheticSessions([]);
-      return;
-    }
-    const msgItems = aiThread.filter(
+    const msgItems = (aiThread ?? []).filter(
       (i): i is Extract<ThreadItem, { type: "message" }> =>
         i.type === "message",
     );
-    if (msgItems.length === 0) {
-      setSyntheticSessions([]);
-      return;
-    }
-    const firstUser = msgItems.find((i) => i.data.role === "user");
-    setSyntheticSessions([
-      {
-        id: "landing-session",
-        title: firstUser
-          ? firstUser.data.content.slice(0, 50) +
-            (firstUser.data.content.length > 50 ? "..." : "")
-          : "Konverzacija",
-        messages: msgItems.map((i) => ({
-          id: i.data.id,
-          role: i.data.role as "user" | "assistant",
-          content: i.data.content,
-          createdAt: new Date(i.data.timestamp),
-        })),
-        createdAt: new Date(msgItems[0].data.timestamp),
-        updatedAt: new Date(msgItems[msgItems.length - 1].data.timestamp),
-      },
-    ]);
     const messagesSent = msgItems.filter((i) => i.data.role === "user").length;
     const estimatedTokens = msgItems.reduce(
       (acc, i) => acc + Math.ceil(i.data.content.length / 4),
@@ -144,6 +145,22 @@ export default function AIDrawer() {
     );
     setUsage({ messagesSent, estimatedTokens });
   }, [aiThread]);
+
+  // Real saved conversations for the history dropdown (read-only previews).
+  const historySessions: ChatSession[] = history.sessions.map((s) => ({
+    id: s.id,
+    title: s.title,
+    messages: s.thread
+      .filter((i): i is Extract<ThreadItem, { type: "message" }> => i.type === "message")
+      .map((i) => ({
+        id: i.id,
+        role: i.data.role,
+        content: i.data.content,
+        createdAt: new Date(s.createdAt),
+      })) as ChatMessage[],
+    createdAt: new Date(s.createdAt),
+    updatedAt: new Date(s.createdAt),
+  }));
 
   const [displayItems, setDisplayItems] = useState<DisplayItem[]>(() =>
     INITIAL.map((m, i) => ({
@@ -154,7 +171,9 @@ export default function AIDrawer() {
     })),
   );
   useEffect(() => {
-    if (!aiThread) {
+    // A selected past conversation (archivedThread) overrides the live thread.
+    const source = archivedThread ?? aiThread;
+    if (!source) {
       setDisplayItems(
         localThread.map((m, i) => ({
           kind: "msg" as const,
@@ -166,7 +185,7 @@ export default function AIDrawer() {
       );
       return;
     }
-    if (aiThread.length === 0) {
+    if (source.length === 0) {
       setDisplayItems(
         INITIAL.map((m, i) => ({
           kind: "msg" as const,
@@ -180,7 +199,7 @@ export default function AIDrawer() {
     const out: DisplayItem[] = [];
     let prevAgent: Agent | null = null;
     let lastAgentForLabel: Agent | null = null;
-    for (const item of aiThread) {
+    for (const item of source) {
       if (item.type === "message") {
         if (item.data.role === "user") {
           if (item.data.content) {
@@ -219,7 +238,7 @@ export default function AIDrawer() {
       }
     }
     setDisplayItems(out);
-  }, [aiThread, localThread]);
+  }, [aiThread, localThread, archivedThread]);
 
   useEffect(() => {
     if (bodyRef.current) {
@@ -231,6 +250,9 @@ export default function AIDrawer() {
     const msg = input.trim();
     if (!msg || isStreaming) return;
     setInput("");
+    // Sending continues the LIVE conversation — leave any archived (read-only) view.
+    setArchivedThread(null);
+    setViewedId(null);
 
     if (onAsk) {
       onAsk(msg);
@@ -312,7 +334,11 @@ export default function AIDrawer() {
             </div>
           ) : (
             <div className="flex items-center gap-2.5 flex-1">
-              <div className="w-9 h-9 rounded-full overflow-hidden flex-shrink-0">
+              <div
+                className="w-9 h-9 rounded-full overflow-hidden flex-shrink-0"
+                style={{ boxShadow: modelRing, transition: "box-shadow 200ms" }}
+                title={modelTitle}
+              >
                 <Image
                   src={activeInfo.avatar}
                   alt={activeInfo.name}
@@ -345,13 +371,30 @@ export default function AIDrawer() {
 
           <div className="flex items-center gap-1">
             <HistoryDropdown
-              sessions={syntheticSessions}
-              currentSessionId={
-                syntheticSessions.length > 0 ? "landing-session" : null
-              }
-              onSelectSession={() => {}}
-              onDeleteSession={() => onClearChat?.()}
-              onNewChat={() => onClearChat?.()}
+              sessions={historySessions}
+              currentSessionId={viewedId}
+              onSelectSession={(id) => {
+                const t = history.getThread(id);
+                if (t) {
+                  setArchivedThread(t);
+                  setViewedId(id);
+                }
+              }}
+              onDeleteSession={(id) => {
+                history.remove(id);
+                if (id === viewedId) {
+                  setArchivedThread(null);
+                  setViewedId(null);
+                }
+              }}
+              onNewChat={() => {
+                // Save the CURRENT live conversation before starting fresh —
+                // never wipe it. (Skip when only viewing an archived one.)
+                if (!archivedThread) history.save(aiThread);
+                onClearChat?.();
+                setArchivedThread(null);
+                setViewedId(null);
+              }}
             />
             <button
               onClick={onClose}

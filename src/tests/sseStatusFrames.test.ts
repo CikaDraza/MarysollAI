@@ -92,19 +92,42 @@ describe("statusMessageForIntent", () => {
     expect(statusMessageForIntent({ intent: "prices" }, false)).toContain("cenovnik");
     expect(statusMessageForIntent({ intent: "create_booking" }, false)).toContain("rezervaciju");
     expect(statusMessageForIntent(undefined, true)).toContain("izbor");
-    expect(statusMessageForIntent(undefined, false)).toContain("slobodne termine");
   });
 
-  it("svaka poruka počinje sa 'Molimo vas sačekajte'", () => {
-    const cases: Array<[Record<string, unknown> | undefined, boolean]> = [
-      [{ intent: "appointments" }, false],
-      [{ intent: "prices" }, false],
-      [{ intent: "create_booking" }, false],
-      [undefined, true],
-      [undefined, false],
+  it("konkretna pretraga termina → 'slobodne termine'", () => {
+    expect(
+      statusMessageForIntent(undefined, false, "Ima li slobodnih termina sutra?"),
+    ).toContain("slobodne termine");
+    expect(statusMessageForIntent({ intent: "booking" }, false)).toContain(
+      "slobodne termine",
+    );
+  });
+
+  it("pozdrav / how-to → neutralan filler, NE 'slobodne termine'", () => {
+    expect(statusMessageForIntent(undefined, false, "Pozdrav")).not.toContain(
+      "slobodne termine",
+    );
+    const howto = statusMessageForIntent(
+      undefined,
+      false,
+      "Kako mogu da zakažem termin?",
+    );
+    expect(howto).not.toContain("slobodne termine");
+    expect(howto).toBe("Samo trenutak…");
+  });
+
+  it("eksplicitni intenti i konkretna pretraga počinju sa 'Molimo vas sačekajte'", () => {
+    const cases: Array<[Record<string, unknown> | undefined, boolean, string]> = [
+      [{ intent: "appointments" }, false, ""],
+      [{ intent: "prices" }, false, ""],
+      [{ intent: "create_booking" }, false, ""],
+      [undefined, true, ""],
+      [undefined, false, "Ima li slobodnih termina?"],
     ];
-    for (const [payload, block] of cases) {
-      expect(statusMessageForIntent(payload, block)).toMatch(/^Molimo vas sačekajte/);
+    for (const [payload, block, msg] of cases) {
+      expect(statusMessageForIntent(payload, block, msg)).toMatch(
+        /^Molimo vas sačekajte/,
+      );
     }
   });
 });

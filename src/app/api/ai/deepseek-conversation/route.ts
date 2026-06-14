@@ -35,6 +35,10 @@ import type { SearchRecoveryState } from "@/types/searchRecovery";
 import type { SemanticMemory } from "@/lib/ai/memory/agent-memory-types";
 import { SERBIAN_CITIES } from "@/lib/cities";
 import { buildMariaPrompt } from "@/lib/ai/communication/buildMariaPrompt";
+import {
+  getActivePromotions,
+  formatPromotionsForPrompt,
+} from "@/lib/ai/communication/maria-promotions";
 import { formatCommunicationRulesForPrompt } from "@/lib/ai/communication/formatCommunicationRulesForPrompt";
 import { MARIA_KNOWN_FAQ_ANSWERS } from "@/lib/ai/communication/agent-communication-rules";
 import {
@@ -850,6 +854,10 @@ export async function POST(req: Request) {
     });
     const memorySection = formatAgentMemoryForPrompt(memoryCtx);
 
+    // Ground Maria in REAL promotions (editorial campaigns) so she never
+    // fabricates a salon discount — and can answer follow-ups without looping.
+    const promotionsText = formatPromotionsForPrompt(await getActivePromotions());
+
     const systemPrompt =
       buildMariaPrompt({
         platform,
@@ -857,6 +865,7 @@ export async function POST(req: Request) {
         isAuthenticated,
         userCity,
         language,
+        promotionsText,
         conversationContext: {
           mentionedCity: ctx.mentionedCity,
           mentionedService: ctx.mentionedService,

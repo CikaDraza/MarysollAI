@@ -127,7 +127,7 @@ export const BLOCK_REGISTRY: Partial<Record<Exclude<BlockTypes, "none">, BlockEn
   },
   SalonListBlock: {
     type: "SalonListBlock",
-    label: "Izaberi salon",
+    label: "Izaberite salon",
     agentType: "booking",
     priority: 1,
     requires: ["city"],
