@@ -5,6 +5,10 @@ import {
   canClientUpdateAppointment,
   getClientActionWindowState,
 } from "@/lib/appointments/clientAppointmentWindow";
+import {
+  getBlockRegistryEntry,
+  canRenderBlockOnSurface,
+} from "@/lib/ai/layout/block-registry";
 import type { IAppointment } from "@/types/appointments-type";
 
 // ---------------------------------------------------------------------------
@@ -213,6 +217,15 @@ describe("AppointmentUpdateConfirmBlock is registered in block types", () => {
       "utf8",
     );
     expect(factory).toContain('case "AppointmentUpdateConfirmBlock"');
+  });
+
+  // Regression: without a layout-registry entry, resolveLayout drops the block
+  // as "unsupported" so the reschedule confirm step never renders.
+  it("AppointmentUpdateConfirmBlock has a layout-registry entry renderable in workspace", () => {
+    expect(getBlockRegistryEntry("AppointmentUpdateConfirmBlock")).toBeDefined();
+    expect(
+      canRenderBlockOnSurface("AppointmentUpdateConfirmBlock", "workspace"),
+    ).toBe(true);
   });
 });
 

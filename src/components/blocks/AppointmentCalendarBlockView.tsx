@@ -4,6 +4,7 @@
 import { useEffect, useMemo, useRef } from "react";
 import { AppointmentCalendarBlockType } from "@/types/landing-block";
 import { useServices } from "@/hooks/useServices";
+import { useSlots } from "@/hooks/useSlots";
 import { formatPriceToString } from "@/helpers/formatPrice";
 import { useAuthActions } from "@/hooks/useAuthActions";
 import { generateTimes } from "@/helpers/generateTimes";
@@ -80,12 +81,33 @@ export default function AppointmentCalendarBlockView({
   const currentAppointment = block.metadata.currentAppointment;
   const currentAppointmentId = block.metadata.currentAppointmentId;
 
+  // Reschedule shows REAL availability for the chosen day. salonId is left
+  // empty outside reschedule so the slots query stays disabled (no extra fetch
+  // on the normal booking layout). selectedDate defaults to today (useAIAppointment).
+  const { data: slots = [], isLoading: slotsLoading } = useSlots({
+    salonId: isRescheduleMode ? (block.metadata.salonId ?? "") : "",
+    serviceId: block.metadata.serviceId,
+    date: selectedDate,
+  });
+
   function handleRescheduleConfirm() {
-    if (!selectedTime || !selectedDate || !currentAppointmentId || !currentAppointment) return;
-    const dateStr = typeof selectedDate === "string"
-      ? selectedDate
-      : (selectedDate as Date).toISOString().slice(0, 10);
-    markBlockConsumed(block.id, "reschedule_slot_selected", undefined, block.type);
+    if (
+      !selectedTime ||
+      !selectedDate ||
+      !currentAppointmentId ||
+      !currentAppointment
+    )
+      return;
+    const dateStr =
+      typeof selectedDate === "string"
+        ? selectedDate
+        : (selectedDate as Date).toISOString().slice(0, 10);
+    markBlockConsumed(
+      block.id,
+      "reschedule_slot_selected",
+      undefined,
+      block.type,
+    );
     sendSystemAction({
       action: "APPOINTMENT_UPDATE_SLOT_SELECTED",
       source: "CalendarBlock",
@@ -185,7 +207,9 @@ export default function AppointmentCalendarBlockView({
     )
       ? "service"
       : "",
-    !block.metadata.city ? "city" : "",
+    // City is only needed for the normal booking layout; reschedule resolves
+    // slots from salonId + serviceId + date alone.
+    !isRescheduleMode && !block.metadata.city ? "city" : "",
   ].filter(Boolean);
 
   if (missingFields.length > 0) {
@@ -197,18 +221,21 @@ export default function AppointmentCalendarBlockView({
     );
   }
 
-  if (isLoading)
+  // In reschedule mode the service is already known from metadata and the
+  // calendar renders the real-availability slot grid — it must NOT depend on
+  // the services list, otherwise an empty services fetch dead-ends the flow.
+  if (isLoading && !isRescheduleMode)
     return (
       <div className="py-20 text-center">
         <MiniLoader text="Učitavanje termina" />
       </div>
     );
 
-  if (services?.length === 0 && hasPlatformMetadata) {
+  if (!isRescheduleMode && services?.length === 0 && hasPlatformMetadata) {
     return <PlatformAppointmentSummary block={block} />;
   }
 
-  if (services?.length === 0) {
+  if (!isRescheduleMode && services?.length === 0) {
     return (
       <AppointmentMetadataFallback block={block} missingFields={["services"]} />
     );
@@ -218,8 +245,35 @@ export default function AppointmentCalendarBlockView({
     .filter(Boolean)
     .join(" · ");
 
-  // Confirm mode: AI has all data (service + date + time) — show summary + single button
-  if (displayValues.selectedTime && displayValues.selectedService) {
+  // Reschedule slot times: prefer the platform's REAL availability for the day;
+  // fall back to working-hours-generated times when the platform hasn't
+  // pre-generated slots (same pattern as CalendarBlockPreview). Past times on
+  // the current day are filtered out.
+  const rescheduleDayPlatformTimes = isRescheduleMode
+    ? slots
+        .filter((s) => s.startTime.slice(0, 10) === selectedDate)
+        .map((s) => s.startTime.slice(11, 16))
+    : [];
+  const rescheduleWorkingTimes =
+    isRescheduleMode && workingHoursForDay?.isWorking
+      ? timeOptions.filter((t) =>
+          isTimeBetween(t, workingHoursForDay.start!, workingHoursForDay.end!),
+        )
+      : [];
+  const rescheduleNow = new Date();
+  const rescheduleTimes = (
+    rescheduleDayPlatformTimes.length > 0
+      ? rescheduleDayPlatformTimes
+      : rescheduleWorkingTimes
+  ).filter((t) => new Date(`${selectedDate}T${t}`) > rescheduleNow);
+
+  // Confirm mode: AI has all data (service + date + time) — show summary + single button.
+  // Reschedule always stays on the slot grid below (footer "Izaberi novi termin").
+  if (
+    !isRescheduleMode &&
+    displayValues.selectedTime &&
+    displayValues.selectedService
+  ) {
     return (
       <Reveal>
         <div
@@ -289,7 +343,13 @@ export default function AppointmentCalendarBlockView({
           )}
           <button
             onClick={() => {
-              if (!isRescheduleMode) markBlockConsumed(block.id, "booking_confirm", undefined, block.type);
+              if (!isRescheduleMode)
+                markBlockConsumed(
+                  block.id,
+                  "booking_confirm",
+                  undefined,
+                  block.type,
+                );
               handleConfirm();
             }}
             disabled={isPending || consumed}
@@ -315,7 +375,9 @@ export default function AppointmentCalendarBlockView({
               ? "Izabrano"
               : isPending
                 ? "Proveravam…"
-                : isRescheduleMode ? "Izaberi termin" : "Potvrdi termin"}
+                : isRescheduleMode
+                  ? "Izaberi termin"
+                  : "Potvrdi termin"}
           </button>
           {consumed && <p style={consumedNoteStyle}>Izabrano</p>}
         </div>
@@ -326,14 +388,16 @@ export default function AppointmentCalendarBlockView({
   return (
     <div ref={containerRef} className="scroll-mt-20">
       <Reveal>
-        <div className="bg-white rounded-3xl p-6 shadow-xl max-w-md mx-auto my-6">
+        <div className="bg-(--surface-elev) text-(--fg-1) rounded-3xl p-6 shadow-xl max-w-xl mx-auto my-6 border border-(--border-1)">
           <Toaster position="top-center" />
 
           {/* Reschedule mode banner */}
           {isRescheduleMode && currentAppointment && (
-            <div className="mb-4 rounded-xl bg-blue-50 border border-blue-100 px-4 py-3">
-              <p className="text-xs font-semibold text-blue-800 mb-0.5">Izmena termina</p>
-              <p className="text-xs text-blue-700">
+            <div className="mb-4 rounded-xl bg-(--surface-2) border border-(--border-1) px-4 py-3">
+              <p className="text-xs font-semibold text-(--secondary-color) mb-0.5">
+                Izmena termina
+              </p>
+              <p className="text-xs text-(--fg-2)">
                 Trenutno: {currentAppointment.serviceName}
                 {currentAppointment.date && currentAppointment.time
                   ? ` · ${currentAppointment.date} u ${currentAppointment.time}`
@@ -369,21 +433,27 @@ export default function AppointmentCalendarBlockView({
             )}
           </div>
 
-          {/* AI Suggestion Alert */}
-          {isAiSuggested && (
-            <div className="bg-blue-50 p-4 rounded-xl mb-4 border border-blue-100 flex justify-between items-center">
-              <p className="text-xs text-(--primary-color)">
+          {/* AI Suggestion Alert — booking flow only, not reschedule */}
+          {!isRescheduleMode && isAiSuggested && (
+            <div className="bg-(--surface-2) p-4 rounded-xl mb-4 border border-(--border-1) flex justify-between items-center">
+              <p className="text-xs text-(--secondary-color)">
                 Maria: Unela sam podatke{" "}
                 <strong>{selectedService?.name}</strong> u{" "}
                 <strong>{selectedTime}</strong>
               </p>
               <button
                 onClick={() => {
-                  if (!isRescheduleMode) markBlockConsumed(block.id, "booking_confirm", undefined, block.type);
+                  if (!isRescheduleMode)
+                    markBlockConsumed(
+                      block.id,
+                      "booking_confirm",
+                      undefined,
+                      block.type,
+                    );
                   handleConfirm();
                 }}
                 disabled={consumed}
-                className="cursor-pointer bg-(--secondary-color)/80 hover:bg-(--secondary-color) text-white px-3 py-1 rounded-lg text-xs font-bold"
+                className="cursor-pointer bg-(--secondary-color)/80 hover:bg-(--secondary-color) text-(--fg-on-brand) px-3 py-1 rounded-lg text-xs font-bold"
               >
                 {consumed ? (
                   "Izabrano"
@@ -407,44 +477,54 @@ export default function AppointmentCalendarBlockView({
                   placeholder="Ime i prezime"
                   value={clientName}
                   onChange={(e) => setters.setClientName(e.target.value)}
-                  className="w-full p-3 bg-gray-50 hover:bg-gray-100 rounded-xl border-none text-sm outline-none"
+                  className="w-full p-3 bg-(--surface-2) hover:bg-(--surface-3) rounded-xl border-none text-sm text-(--fg-1) placeholder:text-(--fg-3) outline-none"
                 />
                 <input
                   type="tel"
                   placeholder="Telefon"
                   value={clientPhone}
                   onChange={(e) => setters.setClientPhone(e.target.value)}
-                  className="w-full p-3 bg-gray-50 hover:bg-gray-100 rounded-xl border-none text-sm outline-none"
+                  className="w-full p-3 bg-(--surface-2) hover:bg-(--surface-3) rounded-xl border-none text-sm text-(--fg-1) placeholder:text-(--fg-3) outline-none"
                 />
               </div>
             )}
 
             {/* Row 2 — Usluga + Datum (2 cols desktop, 1 mobile) */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <select
-                value={displayValues.serviceId}
-                onChange={(e) => setters.setServiceId(e.target.value)}
-                className="cursor-pointer w-full p-3 bg-gray-50 hover:bg-gray-100 rounded-xl border-none text-sm"
-              >
-                <option value="">Izaberite uslugu</option>
-                {services.map((s) => (
-                  <option key={s._id} value={s._id}>
-                    {s.name}
-                  </option>
-                ))}
-              </select>
+              {isRescheduleMode ? (
+                // Reschedule keeps the same service — show it read-only from
+                // metadata so we don't depend on the services list loading.
+                <div className="flex items-center w-full p-3 bg-(--surface-2) rounded-xl text-sm text-(--fg-2)">
+                  {block.metadata.serviceName ||
+                    block.metadata.service ||
+                    "Usluga"}
+                </div>
+              ) : (
+                <select
+                  value={displayValues.serviceId}
+                  onChange={(e) => setters.setServiceId(e.target.value)}
+                  className="cursor-pointer w-full p-3 bg-(--surface-2) hover:bg-(--surface-3) rounded-xl border-none text-sm"
+                >
+                  <option value="">Izaberite uslugu</option>
+                  {services.map((s) => (
+                    <option key={s._id} value={s._id}>
+                      {s.name}
+                    </option>
+                  ))}
+                </select>
+              )}
 
               <input
                 type="date"
                 value={selectedDate}
                 min={new Date().toISOString().split("T")[0]}
                 onChange={(e) => setters.setDate(e.target.value)}
-                className="w-full p-3 bg-gray-50 hover:bg-gray-100 rounded-xl border-none text-sm"
+                className="w-full p-3 bg-(--surface-2) hover:bg-(--surface-3) rounded-xl border-none text-sm"
               />
             </div>
 
             {/* Variants */}
-            {selectedService?.type === "variant" && (
+            {!isRescheduleMode && selectedService?.type === "variant" && (
               <div className="flex flex-wrap gap-2">
                 {selectedService.variants?.map((v) => (
                   <button
@@ -453,8 +533,8 @@ export default function AppointmentCalendarBlockView({
                     disabled={consumed}
                     className={`cursor-pointer px-4 py-2 rounded-xl text-sm transition ${
                       activeVariant?.name === v.name
-                        ? "bg-gray-800 text-white"
-                        : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                        ? "bg-(--secondary-color) text-(--fg-on-brand)"
+                        : "bg-(--surface-2) text-(--fg-2) hover:bg-(--surface-3)"
                     }`}
                   >
                     {v.name}
@@ -464,44 +544,85 @@ export default function AppointmentCalendarBlockView({
             )}
 
             {/* Time grid */}
-            <div className="grid grid-cols-4 gap-2">
-              {timeOptions.map((t) => {
-                const isOutside = workingHoursForDay?.isWorking
-                  ? !isTimeBetween(
-                      t,
-                      workingHoursForDay.start!,
-                      workingHoursForDay.end!,
-                    )
-                  : true;
-                if (isOutside) return null;
-                return (
-                  <button
-                    key={t}
-                    onClick={() => setters.setTime(t)}
-                    disabled={consumed}
-                    className={`cursor-pointer p-2 rounded-lg text-xs ${selectedTime === t ? "bg-pink-500 text-white" : "bg-gray-50 hover:bg-gray-100"}`}
-                  >
-                    {t}
-                  </button>
-                );
-              })}
-            </div>
+            {isRescheduleMode ? (
+              // Real availability when the platform has it, else working hours.
+              slotsLoading ? (
+                <div className="py-6 text-center">
+                  <MiniLoader text="Učitavanje termina" />
+                </div>
+              ) : !workingHoursForDay?.isWorking &&
+                rescheduleDayPlatformTimes.length === 0 ? (
+                <p className="py-4 text-center text-xs text-(--fg-3)">
+                  Salon ne radi tog dana — izaberi drugi datum.
+                </p>
+              ) : rescheduleTimes.length === 0 ? (
+                <p className="py-4 text-center text-xs text-(--fg-3)">
+                  Nema slobodnih termina za ovaj datum — izaberi drugi.
+                </p>
+              ) : (
+                <div className="grid grid-cols-4 gap-2">
+                  {rescheduleTimes.map((t) => (
+                    <button
+                      key={t}
+                      onClick={() => setters.setTime(t)}
+                      disabled={consumed}
+                      className={`cursor-pointer p-2 rounded-lg text-xs ${selectedTime === t ? "bg-(--secondary-color) text-(--fg-on-brand)" : "bg-(--surface-2) text-(--fg-1) hover:bg-(--surface-3)"}`}
+                    >
+                      {t}
+                    </button>
+                  ))}
+                </div>
+              )
+            ) : (
+              <div className="grid grid-cols-4 gap-2">
+                {timeOptions.map((t) => {
+                  const isOutside = workingHoursForDay?.isWorking
+                    ? !isTimeBetween(
+                        t,
+                        workingHoursForDay.start!,
+                        workingHoursForDay.end!,
+                      )
+                    : true;
+                  if (isOutside) return null;
+                  return (
+                    <button
+                      key={t}
+                      onClick={() => setters.setTime(t)}
+                      disabled={consumed}
+                      className={`cursor-pointer p-2 rounded-lg text-xs ${selectedTime === t ? "bg-(--secondary-color) text-(--fg-on-brand)" : "bg-(--surface-2) text-(--fg-1) hover:bg-(--surface-3)"}`}
+                    >
+                      {t}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
 
             {/* Footer */}
-            <div className="pt-4 border-t border-gray-200 flex justify-between items-center">
-              <div className="text-xl font-black">
-                {formatPriceToString(
-                  activeVariant?.price || selectedService?.basePrice || 0,
-                )}{" "}
-                RSD
-              </div>
+            <div className="pt-4 border-t border-(--border-1) flex justify-between items-center">
+              {isRescheduleMode ? (
+                <div />
+              ) : (
+                <div className="text-xl font-black text-(--fg-1)">
+                  {formatPriceToString(
+                    activeVariant?.price || selectedService?.basePrice || 0,
+                  )}{" "}
+                  RSD
+                </div>
+              )}
               <button
                 onClick={() => {
-                  if (!isRescheduleMode) markBlockConsumed(block.id, "booking_confirm", undefined, block.type);
+                  if (!isRescheduleMode)
+                    markBlockConsumed(
+                      block.id,
+                      "booking_confirm",
+                      undefined,
+                      block.type,
+                    );
                   handleConfirm();
                 }}
                 disabled={isPending || !selectedTime || consumed}
-                className="cursor-pointer px-6 py-3 bg-gray-900 hover:bg-gray-800 text-white rounded-2xl font-bold disabled:opacity-30"
+                className="cursor-pointer px-6 py-3 bg-(--secondary-color) hover:opacity-90 text-(--fg-on-brand) rounded-2xl font-bold disabled:opacity-30"
               >
                 {consumed ? (
                   "Izabrano"

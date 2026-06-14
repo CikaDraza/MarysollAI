@@ -2,6 +2,8 @@
 // blocks/ClientBlockAppointments.tsx
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import toast, { Toaster } from "react-hot-toast";
+import { useQueryClient } from "@tanstack/react-query";
 import { IAppointment } from "@/types/appointments-type";
 import { PaginationInfo } from "@/types";
 import { useAppointmentsWithToken } from "@/hooks/useAppointmentsWithToken";
@@ -15,7 +17,10 @@ import {
   AppointmentListMode,
   filterAppointmentsByMode,
 } from "@/lib/appointments/appointmentFilters";
-import { getClientActionWindowState } from "@/lib/appointments/clientAppointmentWindow";
+import {
+  getClientActionWindowState,
+  isClientActionWindowExpiredNow,
+} from "@/lib/appointments/clientAppointmentWindow";
 import { sendSystemAction } from "@/lib/ai/events/systemActionDispatcher";
 import { createGoogleMapsLink, createGoogleMapsLinkFromAddress } from "@/lib/geo/maps";
 import { hasGeoCoordinates } from "@/lib/geo/distance";
@@ -27,6 +32,9 @@ interface ClientAppointmentListItemProps {
   onCancel: (appointment: IAppointment) => void;
   onChange: (appointment: IAppointment) => void;
   isCancelling?: boolean;
+  // Set once a click revealed the action window had actually expired — hides
+  // the (stale) edit/cancel buttons and shows the expired note immediately.
+  forceExpired?: boolean;
   salonDirectory?: SalonDirectory;
 }
 
@@ -293,11 +301,13 @@ function ClientAppointmentListItem({
   onCancel,
   onChange,
   isCancelling,
+  forceExpired,
   salonDirectory,
 }: ClientAppointmentListItemProps) {
   const currentAppointment = appointment;
   const actionWindow = getClientActionWindowState(currentAppointment);
-  const { canCancel, canUpdate } = actionWindow;
+  const canCancel = actionWindow.canCancel && !forceExpired;
+  const canUpdate = actionWindow.canUpdate && !forceExpired;
   const salonName = appointmentSalonName(currentAppointment, salonDirectory);
   const salonSlug = appointmentSalonSlug(currentAppointment, salonDirectory);
   const salonAddress = appointmentSalonAddress(currentAppointment, salonDirectory);
@@ -307,7 +317,7 @@ function ClientAppointmentListItem({
   const travelLabel = currentAppointment.travelMinutesEstimate
     ? `oko ${currentAppointment.travelMinutesEstimate} min`
     : "";
-  const windowExpired = actionWindow.reason === "expired";
+  const windowExpired = actionWindow.reason === "expired" || Boolean(forceExpired);
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -488,7 +498,24 @@ export default function ClientBlockAppointments({
   const [cancelTarget, setCancelTarget] = useState<IAppointment | null>(null);
   const [selectedSalonId, setSelectedSalonId] = useState("all");
   const [showSalonPicker, setShowSalonPicker] = useState(false);
+  // Appointment ids whose action window was found expired on click — hides the
+  // stale edit/cancel buttons immediately without waiting for a refetch.
+  const [expiredIds, setExpiredIds] = useState<Set<string>>(new Set());
   const listTopRef = useRef<HTMLDivElement>(null);
+  const queryClient = useQueryClient();
+
+  // Live deadline re-check on click. Marks the appointment expired (hides
+  // buttons), refreshes the list, and tells the user the period passed —
+  // matching the platform, which 400s once the window closes.
+  const guardActionWindow = (appointment: IAppointment, kind: "izmenu" | "otkazivanje"): boolean => {
+    if (!isClientActionWindowExpiredNow(appointment)) return false;
+    if (appointment._id) {
+      setExpiredIds((prev) => new Set(prev).add(appointment._id as string));
+    }
+    toast.error(`Vreme za ${kind} termina je isteklo.`);
+    void queryClient.invalidateQueries({ queryKey: ["appointments-client"] });
+    return true;
+  };
   const {
     token,
     user,
@@ -607,20 +634,34 @@ export default function ClientBlockAppointments({
 
   const confirmCancel = () => {
     if (!cancelTarget?._id) return;
+    const targetId = cancelTarget._id;
     // Batch 6 — pass aiAssisted: true so useCancelAppointment.onSuccess
     // emits the AGENT_RESPONSE chat event. Without this the cancel
     // succeeds but the chat goes silent — user has no in-thread
     // confirmation that the action happened.
-    cancelAppointment.mutate({
-      id: cancelTarget._id,
-      appointment: cancelTarget,
-      aiAssisted: true,
-    });
+    cancelAppointment.mutate(
+      { id: targetId, appointment: cancelTarget, aiAssisted: true },
+      {
+        // Catch-all when the server rejects because the window closed after the
+        // button was rendered: hide the stale buttons. The hook already toasts.
+        onError: (error) => {
+          if (/isteklo|expired/i.test(String((error as Error)?.message ?? ""))) {
+            setExpiredIds((prev) => new Set(prev).add(targetId));
+          }
+        },
+      },
+    );
     setCancelTarget(null);
+  };
+
+  const handleCancelClick = (appointment: IAppointment) => {
+    if (guardActionWindow(appointment, "otkazivanje")) return;
+    setCancelTarget(appointment);
   };
 
   const handleChangeAppointment = (appointment: IAppointment) => {
     if (!appointment._id) return;
+    if (guardActionWindow(appointment, "izmenu")) return;
     // appendAssistantMessage is intentionally NOT called here — it modifies
     // claudia.thread synchronously which causes unifiedThread to rebuild,
     // potentially clearing commandBlock before it renders (race condition).
@@ -631,9 +672,13 @@ export default function ClientBlockAppointments({
     // ugnježdeni objekti. Bez ovoga reschedule kalendar padne na missingFields
     // → recovery "Nedostaje salon" → Claudia "Izaberi salon".
     const directorySalon = directorySalonForAppointment(appointment, salonDirectory);
+    // Prefer the directory-resolved id: it's the exact id /api/salons used to
+    // successfully fetch services + working hours, and that
+    // /marketplace/services?salonId= recognizes. The raw appointment id is
+    // often a tenantId / nested object, so it must be a fallback — not first.
     const salonId =
-      appointmentSalonId(appointment) ||
       directorySalon?.id ||
+      appointmentSalonId(appointment) ||
       directorySalon?.tenantId ||
       "";
     sendSystemAction({
@@ -668,6 +713,7 @@ export default function ClientBlockAppointments({
 
   return (
     <div ref={listTopRef} className="scroll-mt-4 space-y-6">
+      <Toaster position="top-center" />
       {salonOptions.length > 1 && (
         <div className="flex flex-col gap-3 rounded-xl bg-(--surface-2) p-3">
           <div className="flex items-center justify-between gap-3">
@@ -750,9 +796,12 @@ export default function ClientBlockAppointments({
               <ClientAppointmentListItem
                 key={appointment._id}
                 appointment={appointment}
-                onCancel={setCancelTarget}
+                onCancel={handleCancelClick}
                 onChange={handleChangeAppointment}
                 isCancelling={cancelAppointment.isPending}
+                forceExpired={
+                  appointment._id ? expiredIds.has(appointment._id) : false
+                }
                 salonDirectory={salonDirectory}
               />
             ))}

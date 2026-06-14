@@ -311,12 +311,48 @@ function applyLocalWorkflowEffects(event: SystemActionEvent): void {
     return;
   }
 
-  if (
-    event.action === "APPOINTMENT_UPDATE_SUCCESS" ||
-    event.action === "APPOINTMENT_UPDATE_FAILED"
-  ) {
+  if (event.action === "APPOINTMENT_UPDATE_SUCCESS") {
     rescheduleFlow.clear();
+    // Replace the lingering confirm block with the refreshed appointments list
+    // so the user lands back on "Moji termini" and sees the updated slot.
+    renderAppointmentsList("appointment_update_success");
+    return;
   }
+
+  if (event.action === "APPOINTMENT_UPDATE_FAILED") {
+    rescheduleFlow.clear();
+    // Explicit cancel (Odustani) returns to the list; a real error leaves the
+    // confirm block mounted so the user can retry.
+    if (event.payload?.cancelled) {
+      renderAppointmentsList("appointment_update_cancelled");
+    }
+    return;
+  }
+}
+
+/** Render the "Moji termini" list as the workspace command block. Used after a
+ * reschedule completes so the confirm block is replaced by the refreshed list. */
+function renderAppointmentsList(reason: string): void {
+  executeUICommand({
+    type: "RENDER_BLOCK",
+    block: {
+      id: `appointments-list-${Date.now()}`,
+      type: "CalendarBlock",
+      priority: 1,
+      metadata: {
+        serviceId: "",
+        serviceName: "",
+        variantName: "",
+        // Open directly on the "Moji Termini" tab (the list), not the default
+        // "Kalendar"/salon-picker view — otherwise the post-reschedule landing
+        // is confusing.
+        mode: "list",
+        appointmentListMode: "all",
+      },
+    } as unknown as BaseBlock,
+    surface: "workspace",
+    reason,
+  });
 }
 
 function handleAppointmentUpdateRequested(event: SystemActionEvent): void {

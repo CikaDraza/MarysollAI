@@ -81,6 +81,14 @@ export const AI_WORKFLOW_BLOCK_REGISTRY = {
     emitsSystemActions: false,
     allowedSurfaces: workspaceAndDrawer,
   },
+  AppointmentUpdateConfirmBlock: {
+    type: "AppointmentUpdateConfirmBlock",
+    kind: "ai_workflow",
+    requiresAuth: true,
+    interactive: true,
+    emitsSystemActions: true,
+    allowedSurfaces: workspaceAndDrawer,
+  },
   ServicePriceBlock: {
     type: "ServicePriceBlock",
     kind: "ai_workflow",

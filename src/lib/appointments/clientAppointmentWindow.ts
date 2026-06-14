@@ -31,6 +31,25 @@ export function canClientUpdateAppointment(
   return appointment.cancellationStatus === "can_cancel";
 }
 
+/**
+ * Live re-check of the edit/cancel deadline. `getClientActionWindowState`
+ * relies on `cancellationStatus` / `appointmentReliability.cancellationAllowed`,
+ * which are snapshots from fetch time — by the time the user clicks, the
+ * deadline may have passed even though the button is still shown. This compares
+ * the actual deadline against the current time so the client can fail fast and
+ * match the server (which 400s with "Vreme za izmenu termina je isteklo.").
+ * Returns false when no deadline is known (let the server be the authority).
+ */
+export function isClientActionWindowExpiredNow(
+  appointment: AppointmentWindowInput,
+): boolean {
+  const deadline = appointment.appointmentReliability?.cancellationDeadline;
+  if (!deadline) return false;
+  const ts = new Date(deadline).getTime();
+  if (Number.isNaN(ts)) return false;
+  return Date.now() > ts;
+}
+
 export function getClientActionWindowState(
   appointment: AppointmentWindowInput,
 ): ClientActionWindowState {
